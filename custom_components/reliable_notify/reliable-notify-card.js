@@ -36,11 +36,38 @@ class ReliableNotifyCard extends HTMLElement {
       await this.refresh();
     } catch (error) { alert('Reliable Notify: ' + error.message); }
   }
+  async showArchiveMessage(id) {
+    try {
+      const entry = await this._hass.callWS({type:'reliable_notify/archive_detail', message_id:Number(id)});
+      const root = this.shadowRoot;
+      root.querySelector('.rn-message-overlay')?.remove();
+      const panel=document.createElement('section');panel.className='rn-message-overlay';
+      const close=document.createElement('button');close.textContent='Close';close.addEventListener('click',()=>panel.remove());
+      const heading=document.createElement('h3');heading.textContent=(entry.title||'Notification')+' #'+entry.id;
+      const meta=document.createElement('div');meta.className='muted';
+      meta.textContent=[entry.status,entry.priority,entry.target,new Date(entry.created_at*1000).toLocaleString()].join(' • ');
+      const body=document.createElement('pre');body.style.whiteSpace='pre-wrap';body.style.overflowWrap='anywhere';body.textContent=entry.message;
+      panel.append(close,heading,meta,body);root.querySelector('ha-card')?.prepend(panel);
+    } catch(e) {alert('Archive: '+e.message);}
+  }
+  async loadArchive(box, search='') {
+    try {
+      const result=await this._hass.callWS({type:'reliable_notify/archive',limit:75,search});
+      box.replaceChildren();
+      for(const entry of result.items||[]) {
+        const button=document.createElement('button');button.style.margin='4px';
+        button.textContent='#'+entry.id+' '+(entry.title||entry.action)+' — '+entry.status;
+        button.addEventListener('click',()=>this.showArchiveMessage(entry.id));box.append(button);
+      }
+      if(!(result.items||[]).length) box.textContent='No archived notifications';
+    } catch(e) { box.textContent='Archive error: '+e.message; }
+  }
   render(data) {
     const root = this.shadowRoot;
     root.replaceChildren();
     const style = document.createElement('style');
     style.textContent = `:host{display:block;color:var(--primary-text-color)}ha-card{padding:18px}h2{margin:0 0 12px} .stats{display:flex;gap:18px;flex-wrap:wrap} .tabs{margin:12px 0}button{border:1px solid var(--divider-color);border-radius:8px;padding:5px 10px;background:var(--card-background-color);color:inherit;cursor:pointer}button:hover{background:var(--secondary-background-color)}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;text-align:left;border-bottom:1px solid var(--divider-color)} .scroll{overflow-x:auto} .muted{color:var(--secondary-text-color)} .actions{white-space:nowrap}`;
+    style.textContent += '.rn-message-overlay{border:1px solid var(--divider-color);border-radius:10px;background:var(--card-background-color);padding:14px;margin-bottom:16px}.rn-message-overlay pre{max-height:55vh;overflow:auto}';
     root.append(style);
     const card = document.createElement('ha-card');
     const heading = document.createElement('h2'); heading.textContent = this.config.title || 'Reliable Notify'; card.append(heading);
@@ -118,7 +145,22 @@ class ReliableNotifyCard extends HTMLElement {
     });
     details.append(save);
     const recent=document.createElement('div');recent.textContent=(data.history||[]).slice(0,15).map(r=>`#${r.id} ${r.status} ${r.action} (${r.attempts})`).join('\n');recent.style.whiteSpace='pre-line';details.append(recent);card.append(details);
+    const archive=document.createElement('details');
+    const archiveHeading=document.createElement('summary');archiveHeading.textContent='Notification archive (30 days / 2000 entries)';archive.append(archiveHeading);
+    const search=document.createElement('input');search.type='search';search.placeholder='Search full notification text';search.style.margin='10px 8px 10px 0';
+    search.setAttribute('aria-label','Search notification archive');
+    const find=document.createElement('button');find.textContent='Search';
+    const results=document.createElement('div');
+    find.addEventListener('click',()=>this.loadArchive(results,search.value));
+    search.addEventListener('keydown',e=>{if(e.key==='Enter')this.loadArchive(results,search.value);});
+    archive.addEventListener('toggle',()=>{if(archive.open)this.loadArchive(results,search.value);});
+    archive.append(search,find,results);card.append(archive);
     root.append(card);
+    const linked = new URLSearchParams(window.location.search).get('rn_message');
+    if(linked && /^\\d+$/.test(linked) && this._lastDeepLink !== linked) {
+      this._lastDeepLink=linked;
+      queueMicrotask(()=>this.showArchiveMessage(Number(linked)));
+    }
   }
 }
 customElements.define('reliable-notify-card', ReliableNotifyCard);
