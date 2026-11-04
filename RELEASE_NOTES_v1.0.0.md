@@ -56,3 +56,5 @@ Later:
 The platform ultimately controls clearing already delivered notifications. On iOS, a recently active Companion App may be necessary. A `clear_notification` command is not a guaranteed read confirmation.
 
 **Warning:** Test on actual Home Assistant OS and Companion App platforms before production dependence. Core restart required after upgrade.
+
+Release publication is gated on current commit tests, HACS and hassfest checks.
