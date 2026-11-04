@@ -285,9 +285,9 @@ class QueueStore:
     async def retry_dead(self):
         def op(con):
             count = con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0]
-            con.execute("""INSERT INTO messages (message,title,target,priority,dedup_key,expires_at,
+            con.execute("""INSERT INTO messages (id,message,title,target,priority,dedup_key,expires_at,
                 attempts,next_attempt,created_at,last_error,action,payload_json,lease_until,media_path,media_paths_json)
-                SELECT message,title,target,priority,dedup_key,expires_at,0,?,created_at,NULL,
+                SELECT id,message,title,target,priority,dedup_key,expires_at,0,?,created_at,NULL,
                 action,payload_json,NULL,media_path,media_paths_json FROM dead_letters WHERE expires_at IS NULL OR expires_at>?""", (time.time(),time.time()))
             con.execute("DELETE FROM dead_letters")
             con.execute("UPDATE message_archive SET status='queued',updated_at=? WHERE id IN (SELECT id FROM messages) AND status='dead'",(time.time(),))
@@ -337,10 +337,10 @@ class QueueStore:
                 return 0
             con.row_factory = sqlite3.Row
             record = con.execute("SELECT * FROM dead_letters WHERE id=?",(identifier,)).fetchone()
-            columns = ['message','title','target','priority','dedup_key','expires_at','attempts',
+            columns = ['id','message','title','target','priority','dedup_key','expires_at','attempts',
                        'next_attempt','created_at','last_error','action','payload_json','lease_until','media_path','media_paths_json']
             values = [record[col] for col in columns]
-            values[6],values[7],values[9],values[12] = 0,now,None,None
+            values[7],values[8],values[10],values[13] = 0,now,None,None
             con.execute(f"INSERT INTO messages ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",values)
             con.execute("DELETE FROM dead_letters WHERE id=?",(identifier,))
             con.execute("UPDATE message_archive SET status='queued',updated_at=?,attempts=0 WHERE id=?",(now,identifier))
