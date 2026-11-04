@@ -1,4 +1,6 @@
-"""Queue status entities."""
+"""Queue, transport and database diagnostic entities."""
+import asyncio
+from pathlib import Path
 from datetime import timedelta
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.entity import EntityCategory
@@ -13,6 +15,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
         CounterSensor(manager, "failures", "Failures", "mdi:alert-circle-outline"),
         DeadLetterSensor(manager), HistorySensor(manager), StorageFreeSensor(manager),
         DatabaseSizeSensor(manager), MaintenanceHealthSensor(manager),
+        HealthSensor(manager), QueueAgeSensor(manager), MediaSizeSensor(manager),
+        TransportStatusSensor(manager),
     ])
 
 
@@ -121,4 +125,80 @@ class MaintenanceHealthSensor(BaseSensor):
         self._attr_extra_state_attributes = {
             "checkpoint_busy": info.get("checkpoint_busy"),
             "removed_dead_letters": info.get("removed_dead_letters"),
+        }
+
+
+class HealthSensor(BaseSensor):
+    """Overall status never assumes a successful service call means phone delivery."""
+
+    def __init__(self, manager):
+        super().__init__(manager, "health", "Health", "mdi:heart-pulse")
+
+    async def async_update(self):
+        status = await self.manager.storage_status()
+        info = self.manager.maintenance_info
+        old = await self.manager.store.statistics(days=7)
+        dead = await self.manager.store.dead_count()
+        if not status["healthy"] or (info and info.get("integrity") != "ok"):
+            health = "critical"
+        elif info and ((old.get("oldest_queued_seconds") or 0) > 3600 or dead > 0):
+            health = "degraded"
+        elif not info:
+            health = "unknown"
+        else:
+            health = "healthy"
+        self._attr_native_value = health
+        self._attr_extra_state_attributes = {
+            "free_storage_healthy":status["healthy"],
+            "maintenance_integrity":info.get("integrity"),
+            "pending":old.get("queued",0),
+            "dead_letters":dead,
+            "oldest_queued_seconds":old.get("oldest_queued_seconds"),
+        }
+
+
+class QueueAgeSensor(BaseSensor):
+    def __init__(self, manager):
+        super().__init__(manager, "oldest_queued", "Oldest Queued", "mdi:timer-sand")
+        self._attr_native_unit_of_measurement = "s"
+
+    async def async_update(self):
+        info=await self.manager.store.statistics(days=1)
+        age=info.get("oldest_queued_seconds")
+        self._attr_native_value = round(age) if age is not None else 0
+
+
+class MediaSizeSensor(BaseSensor):
+    def __init__(self,manager):
+        super().__init__(manager,"media_size","Media Size","mdi:file-document-multiple")
+        self._attr_native_unit_of_measurement="MiB"
+
+    async def async_update(self):
+        def measure():
+            folder=Path("/media/reliable_notify")
+            if not folder.exists():
+                return 0
+            return sum(p.stat().st_size for p in folder.iterdir() if p.is_file())
+        used=await asyncio.to_thread(measure)
+        self._attr_native_value=round(used/1048576,2)
+
+
+class TransportStatusSensor(BaseSensor):
+    def __init__(self,manager):
+        super().__init__(manager,"transport_health","Transport Health","mdi:network-check")
+
+    async def async_update(self):
+        report=await self.manager.store.statistics(days=7)
+        transports=report["transports"]
+        if not transports:
+            self._attr_native_value="unknown"
+        elif any(x["failed"] and not x["sent"] for x in transports):
+            self._attr_native_value="degraded"
+        else:
+            self._attr_native_value="healthy"
+        self._attr_extra_state_attributes={
+            "transports":{x["action"]:{
+                "events":x["events"],"sent":x["sent"],"failed":x["failed"],
+                "avg_delivery_seconds":x["avg_delivery_seconds"]
+            } for x in transports[:20]}
         }
