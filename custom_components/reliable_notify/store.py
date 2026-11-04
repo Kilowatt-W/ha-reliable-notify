@@ -315,6 +315,14 @@ class QueueStore:
                 con.execute("DELETE FROM dead_letters WHERE id=?",(ident,))
                 con.execute("UPDATE message_archive SET status='dead_expired',updated_at=? WHERE id=?",
                             (now,ident))
+            con.execute("""DELETE FROM acknowledgements
+                WHERE acknowledged_at IS NOT NULL AND acknowledged_at<?""",
+                (now-30*86400,))
+            # Unacknowledged critical incidents are retained; stale noncritical
+            # records are not allowed to accumulate indefinitely.
+            con.execute("""DELETE FROM acknowledgements
+                WHERE acknowledged_at IS NULL AND priority!='critical'
+                AND created_at<?""",(now-90*86400,))
             return len(candidates)
         removed=await self._run(prune)
         async with self._lock:
