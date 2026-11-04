@@ -80,6 +80,21 @@ class EscalationTransactionTest(unittest.IsolatedAsyncioTestCase):
                 "critical_alarm",0,[("fallback",{"action":"notify.mobile_app_phone"})]),[])
             self.assertEqual(await store.active_acknowledgements(),[])
 
+    async def test_ack_cancels_only_unleased_escalation_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"queue.db"
+            q=QueueStore(path)
+            await q.enqueue_many([incident()],100)
+            with __import__("sqlite3").connect(path) as db:
+                db.execute("UPDATE acknowledgements SET created_at=created_at-60")
+            [escalation_id]=await q.enqueue_escalation_atomic(
+                "critical_alarm",0,[("fallback",{"action":"notify.mobile_app_phone","data":{}})])
+            self.assertEqual(await q.count(),2)
+            self.assertTrue(await q.acknowledgement("critical_alarm","admin"))
+            self.assertEqual(await q.count(),1)
+            self.assertEqual((await q.archive_detail(escalation_id))["status"],"cancelled")
+            self.assertEqual(await q.active_acknowledgements(),[])
+
     async def test_unknown_token_identity_does_not_ack(self):
         with tempfile.TemporaryDirectory() as tmp:
             store=QueueStore(Path(tmp)/"queue.db")
