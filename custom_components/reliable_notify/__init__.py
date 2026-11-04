@@ -303,7 +303,7 @@ class ReliableNotifyManager:
                     raise ValueError("Telegram photo requires data.file or data.url")
                 days = retention_for_message(data, self.archive_retention)
                 jobs.append(dict(message=data["message"], title=data.get("title"),
-                    target=target, action=action, payload=payload,
+                    target=target, route_name=name, action=action, payload=payload,
                     priority=data.get("priority", "info"), ttl=data.get("ttl", 0),
                     dedup_key=data.get("dedup_key"), strategy=data.get("strategy", "always"),
                     archive_url=self.settings.get('archive_url') or None,
@@ -314,7 +314,8 @@ class ReliableNotifyManager:
             test_targets = set(self.settings.get("test_recipients",[]))
             for job in jobs:
                 if stage_all or (configured_test and (
-                    not test_targets or job["target"] in test_targets)):
+                    not test_targets or job["target"] in test_targets
+                    or job.get("route_name") in test_targets)):
                     job["action"]="reliable_notify.staged"
                     job["target"]="(test-mode)"
                     job["payload"]={}
