@@ -79,6 +79,8 @@ class QueueStore:
     async def enqueue_many(self, items, limit):
         now = time.time()
         def op(con):
+            con.execute("""UPDATE message_archive SET status='expired',updated_at=?
+                WHERE id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)""",(now,now))
             con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
             current = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
             replacements = set()
@@ -98,9 +100,12 @@ class QueueStore:
             ids = []
             for item in items:
                 if item.get("strategy") == "replace" and item.get("dedup_key"):
+                    key=(item["dedup_key"],item["target"],item["action"],now)
+                    con.execute("""UPDATE message_archive SET status='replaced',updated_at=?
+                        WHERE id IN (SELECT id FROM messages WHERE dedup_key=? AND target=? AND action=?
+                        AND (lease_until IS NULL OR lease_until<=?))""",(now,*key))
                     con.execute("""DELETE FROM messages WHERE dedup_key=? AND target=? AND action=?
-                        AND (lease_until IS NULL OR lease_until<=?)""",
-                        (item["dedup_key"], item["target"], item["action"], now))
+                        AND (lease_until IS NULL OR lease_until<=?)""",key)
                 payload = json.dumps(item.get("payload") or {}, ensure_ascii=False, allow_nan=False)
                 cur = con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
                     expires_at,next_attempt,created_at,action,payload_json,media_path,media_paths_json)
@@ -144,6 +149,8 @@ class QueueStore:
     async def claim_due(self, lease_seconds=90, lane=None):
         now = time.time()
         def op(con):
+            con.execute("""UPDATE message_archive SET status='expired',updated_at=?
+                WHERE id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)""",(now,now))
             con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
             con.row_factory = sqlite3.Row
             lane_clause = ("AND action LIKE 'telegram_bot.%'" if lane == "telegram" else
