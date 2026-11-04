@@ -20,6 +20,7 @@ from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
 from .routing import resolve, validate_config, valid_action
+from .notify_compat import async_register_compat, async_unregister_compat
 from .store import QueueStore
 from .transport import create_payload
 from .media import snapshot_file, cleanup_media, snapshot_attachments, free_disk_bytes
@@ -625,7 +626,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     async def reload_routes(call: ServiceCall):
         try:
-            await manager.reload_routes()
+            # Reload all platforms; ensure entities and service aliases track routes.
+            await hass.config_entries.async_reload(entry.entry_id)
         except Exception as err:
             raise HomeAssistantError(f"Invalid routing configuration: {err}") from err
 
@@ -645,16 +647,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async_register_admin_service(
         hass,DOMAIN,"backup",create_backup,schema=vol.Schema({}),
         supports_response=SupportsResponse.ONLY)
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button"])
+    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button", "notify"])
+    manager.compat_notify_services = await async_register_compat(hass, manager)
     entry.async_on_unload(entry.add_update_listener(_reload_entry))
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    if not await hass.config_entries.async_unload_platforms(entry, ['sensor', 'button']):
+    if not await hass.config_entries.async_unload_platforms(entry, ['sensor', 'button', 'notify']):
         return False
     manager = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if manager is not None:
+        async_unregister_compat(hass, getattr(manager, 'compat_notify_services', []))
         await manager.stop()
     # WebSocket endpoints are HA-lifetime registrations; panel can be re-added on reload.
     if not hass.data.get(DOMAIN):
