@@ -199,6 +199,28 @@ class ReliableNotifyPanel extends HTMLElement {
           escalation:[{after:Number(delay.value),recipients:[delayed.value]}]}});
     }));
     wizard.append(plan,send,response);box.append(wizard);
+
+    const telegram=this.element('div',null,'panel');
+    telegram.append(this.element('h2','Telegram: gesendete Nachricht bearbeiten / entfernen'));
+    telegram.append(this.element('p','Erfordert bekannte telegram_sent-Nachrichtenkennung und passenden konfigurierten Chat. Direktaufruf ohne Queue-Retry.','muted'));
+    const route=this.element('input');route.placeholder='z.B. telegram_wolfgang';
+    const keyInput=this.element('input');keyInput.placeholder='Dedup-Schlüssel der versendeten Meldung';
+    const edit=this.element('select');for(const action of ['edit','delete']){
+      const opt=this.element('option',action);opt.value=action;edit.append(opt);}
+    const msg=this.element('textarea');msg.placeholder='Neuer Nachrichtentext (nur bei edit)';
+    telegram.append(this.element('label','Reliable-Notify-Telegram-Empfänger'),route,
+      this.element('label','Dedup-Schlüssel'),keyInput,
+      this.element('label','Aktion'),edit,this.element('label','Neue Nachricht'),msg);
+    const telegramStatus=this.element('p');const sendTelegram=this.element('button','Telegram-Aktion ausführen');
+    sendTelegram.addEventListener('click',()=>this.run(telegramStatus,async()=>{
+      if(!route.value||!keyInput.value)throw Error('Empfänger und Dedup-Schlüssel erforderlich');
+      if(edit.value==='edit'&&!msg.value)throw Error('Neuer Text fehlt');
+      if(!confirm('Diese Aktion verändert eine bereits zugestellte Telegram-Nachricht. Fortfahren?'))return;
+      const data={recipient:route.value,dedup_key:keyInput.value,operation:edit.value};
+      if(edit.value==='edit')data.message=msg.value;
+      await this._hass.callService('reliable_notify','telegram_lifecycle',data);
+    }));
+    telegram.append(sendTelegram,telegramStatus);box.append(telegram);
   }
   async simulation(box){
     const wrapper=this.element('div',null,'panel');wrapper.append(this.element('h2','Simulation ohne Versand'));
