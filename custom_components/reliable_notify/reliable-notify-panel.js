@@ -217,7 +217,7 @@ class ReliableNotifyPanel extends HTMLElement {
       if(day===7)option.selected=true;days.append(option);
     }
     const refresh=this.element('button','Aktualisieren');
-    const exportButton=this.element('button','Anonymisierte Diagnose exportieren');
+    const exportButton=this.element('button','Diagnose (ohne Nachrichtentexte) exportieren');
     const report=this.element('pre','Lade ...');
     const load=async()=>{const data=await this.call('statistics',{days:Number(days.value)});
       this._lastStats=data;report.textContent=JSON.stringify(data,null,2);};
