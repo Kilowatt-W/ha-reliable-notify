@@ -5,10 +5,18 @@ import json
 import sqlite3
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
-from .lifecycle import ensure_tag
+import hashlib
 from pathlib import Path
 
 MAX_COMPLETED_ARCHIVE_BYTES = 32 * 1024 * 1024
+
+def _ensure_companion_tag(payload, key):
+    updated=dict(payload)
+    nested=dict(updated.get("data") or {})
+    nested.setdefault("tag","rn_"+hashlib.sha256(key.encode("utf-8")).hexdigest()[:24])
+    updated["data"]=nested
+    return updated
+
 
 PRIORITY_ORDER = "CASE priority WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END"
 
@@ -136,7 +144,7 @@ class QueueStore:
                         AND (lease_until IS NULL OR lease_until<=?)""",key)
                 transport_payload=item.get("payload") or {}
                 if item.get("dedup_key") and item["action"].startswith("notify.mobile_app_"):
-                    transport_payload=ensure_tag(transport_payload,item["dedup_key"])
+                    transport_payload=_ensure_companion_tag(transport_payload,item["dedup_key"])
                 payload = json.dumps(transport_payload, ensure_ascii=False, allow_nan=False)
                 cur = con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
                     expires_at,next_attempt,created_at,action,payload_json,media_path,media_paths_json)
