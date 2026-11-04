@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: python -m pip install "cairosvg==2.8.2"
+      - run: python -m pip install "cairosvg==2.8.2" "pillow>=10,<13"
       - run: python tools/generate_brand.py
       - name: Validate icon sizes, alpha and transparency
         run: |
