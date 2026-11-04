@@ -395,7 +395,7 @@ class QueueStore:
         if shutil.disk_usage(directory).free < max(source_size*2,10*1024*1024)+min_free_bytes:
             raise OSError("not enough space for online SQLite snapshot")
         stamp=time.strftime("%Y%m%d-%H%M%S",time.localtime())
-        destination=directory/f"reliable_notify-{stamp}-{os.getpid()}.sqlite3"
+        destination=directory/f"reliable_notify-{stamp}-{time.time_ns()}.sqlite3"
         fd,temp=tempfile.mkstemp(prefix=".rn-backup-",suffix=".sqlite3",dir=directory)
         os.close(fd)
         try:
