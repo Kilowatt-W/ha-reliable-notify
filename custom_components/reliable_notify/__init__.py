@@ -185,6 +185,11 @@ class ReliableNotifyManager:
                     archive_url=self.settings.get('archive_url') or None,
                     archive_days=days,
                     message_type=data.get('message_type') or data.get('priority', 'info')))
+            if data.get("strategy")=="digest" and (
+                data.get("media","text")!="text" or "file" in extra or
+                "attachments" in extra or "media_source" in extra
+            ):
+                raise ValueError("digest is only supported for text notifications without file attachments")
             if ack_plan and data.get("strategy")=="digest":
                 raise ValueError("digest is incompatible with acknowledgements")
             for job in jobs:

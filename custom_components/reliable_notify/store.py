@@ -165,8 +165,10 @@ class QueueStore:
                     if existing:
                         count=existing[1]+1
                         summary=f"{count} events (latest): {item['message']}"
-                        con.execute("""UPDATE messages SET message=?,occurrences=?,payload_json=?
-                            WHERE id=?""",(summary,count,payload,existing[0]))
+                        # Preserve the first queued transport payload (including
+                        # Companion deep links and tags) for the entire digest.
+                        con.execute("""UPDATE messages SET message=?,occurrences=?
+                            WHERE id=?""",(summary,count,existing[0]))
                         con.execute("UPDATE message_archive SET message=?,updated_at=? WHERE id=?",
                                     (summary,now,existing[0]))
                         ids.append(existing[0])
