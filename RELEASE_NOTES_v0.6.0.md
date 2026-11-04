@@ -16,3 +16,5 @@ Back up `/config/.storage/reliable_notify.db` and the YAML routes before updatin
 - 32 local unit tests passed. Runtime tests with real HA and SMTP/Telegram providers still pending.
 - New diagnostic Storage Free sensor polls available media filesystem space every 15 seconds and exposes low-space health.
 Publication safeguard: the automated release job validates its target commit and skips publishing from an outdated queued run.
+
+Release readiness: includes HACS-compatible brand icon, MIT license, and sorted Home Assistant manifest keys. The release is published automatically only after HACS, hassfest, and Python checks succeed.
