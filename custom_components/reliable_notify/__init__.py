@@ -23,6 +23,7 @@ from .retry import classify_error, validate_policies, DEFAULT_POLICIES
 from .retention import validate_retention, retention_for_message, DEFAULT_RETENTION
 from .dashboard import register_dashboard
 from .acknowledgement import validate_acknowledgement
+from .lifecycle import notification_tag
 
 LANES = ("telegram", "smtp", "notify", "notify")
 
@@ -50,6 +51,11 @@ JOB_SCHEMA = vol.Schema({vol.Required("id"): vol.All(vol.Coerce(int),vol.Range(m
 ACK_SCHEMA = vol.Schema({
     vol.Required("dedup_key"): cv.string,
     vol.Optional("by", default="manual"): cv.string,
+})
+UPDATE_SCHEMA = ENQUEUE_SCHEMA.extend({vol.Required("dedup_key"): cv.string})
+DISMISS_SCHEMA = vol.Schema({
+    vol.Required("dedup_key"): cv.string,
+    vol.Required("recipients"): vol.Any(cv.string,[cv.string]),
 })
 CANCEL_SCHEMA = vol.Schema({vol.Required("dedup_key"): cv.string, vol.Optional("target_entity"): cv.string})
 
@@ -345,6 +351,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if not await manager.store.delete_one(call.data["id"],call.data.get("dead",False)):
             raise HomeAssistantError("Message missing or currently leased")
 
+    async def update_message(call: ServiceCall):
+        await manager.enqueue({**call.data,"strategy":"replace"})
+
+    async def dismiss(call: ServiceCall):
+        key=call.data["dedup_key"]
+        await manager.store.cancel(key)
+        names=call.data["recipients"]
+        destinations=resolve(manager.routes,[names] if isinstance(names,str) else names,priority="info")
+        mobile=[entry for _,entry in destinations if entry.get("action","").startswith("notify.mobile_app_")]
+        if not mobile:
+            raise HomeAssistantError("dismiss requires at least one Companion App recipient")
+        for destination in mobile:
+            await manager.enqueue({
+                "message":"clear_notification",
+                "action":destination["action"],
+                "priority":"info",
+                "archive":"delete_after_send",
+                "data":{"data":{"tag":notification_tag(key)}},
+            })
+
     async def acknowledge(call: ServiceCall):
         changed = await manager.store.acknowledgement(call.data["dedup_key"],call.data.get("by","manual"))
         if not changed:
@@ -363,6 +389,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         ("enqueue", enqueue, ENQUEUE_SCHEMA), ("retry_all", retry, None),
         ("retry_dead", retry_dead, None), ("clear_queue", clear, None),
         ("cancel", cancel, CANCEL_SCHEMA), ("acknowledge", acknowledge, ACK_SCHEMA),
+        ("update", update_message, UPDATE_SCHEMA), ("dismiss", dismiss, DISMISS_SCHEMA),
         ("reload_routes", reload_routes, None),
         ("retry_one", retry_one, JOB_SCHEMA), ("delete_one", delete_one, JOB_SCHEMA),
     ):
@@ -381,7 +408,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Handlers and static assets are registered once per HA lifetime.
     if not hass.data.get(DOMAIN):
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss'):
             hass.services.async_remove(DOMAIN, service)
     return True
 

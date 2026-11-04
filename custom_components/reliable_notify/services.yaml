@@ -139,3 +139,34 @@ acknowledge:
       description: Human or automation identifier.
       selector:
         text:
+
+update:
+  name: Replace waiting notification
+  description: Replace queued notifications sharing dedup_key, with a new message and explicit recipients.
+  fields:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    recipients:
+      required: true
+      selector:
+        object:
+    message:
+      required: true
+      selector:
+        text:
+          multiline: true
+
+dismiss:
+  name: Dismiss Companion App notification
+  description: Cancel pending notifications and enqueue clear_notification commands by deterministic tag.
+  fields:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    recipients:
+      required: true
+      selector:
+        object:

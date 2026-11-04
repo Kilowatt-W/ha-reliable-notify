@@ -5,6 +5,7 @@ import json
 import sqlite3
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from .lifecycle import ensure_tag
 from pathlib import Path
 
 MAX_COMPLETED_ARCHIVE_BYTES = 32 * 1024 * 1024
@@ -133,7 +134,10 @@ class QueueStore:
                         AND (lease_until IS NULL OR lease_until<=?))""",(now,*key))
                     con.execute("""DELETE FROM messages WHERE dedup_key=? AND target=? AND action=?
                         AND (lease_until IS NULL OR lease_until<=?)""",key)
-                payload = json.dumps(item.get("payload") or {}, ensure_ascii=False, allow_nan=False)
+                transport_payload=item.get("payload") or {}
+                if item.get("dedup_key") and item["action"].startswith("notify.mobile_app_"):
+                    transport_payload=ensure_tag(transport_payload,item["dedup_key"])
+                payload = json.dumps(transport_payload, ensure_ascii=False, allow_nan=False)
                 cur = con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
                     expires_at,next_attempt,created_at,action,payload_json,media_path,media_paths_json)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -154,7 +158,7 @@ class QueueStore:
                      item.get('archive_days',30)))
                 archive_url = item.get('archive_url')
                 if archive_url and item.get('archive_days',30) > 0 and item['action'].startswith('notify.mobile_app_'):
-                    notification = dict(item.get('payload') or {})
+                    notification = dict(transport_payload)
                     phone_data = dict(notification.get('data') or {})
                     if not phone_data.get('url') and not phone_data.get('clickAction'):
                         parts = urlsplit(archive_url)

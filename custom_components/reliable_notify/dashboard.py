@@ -34,6 +34,7 @@ def register_dashboard(hass):
             'queue': recent, 'dead_letters': dead_recent, 'history': history,
             'staged': staged, 'staged_count': len(staged),
             'recipient_names': sorted(manager.routes['recipients']),
+            'persons': sorted(manager.routes.get('persons', {})),
             'policies': manager.policies, 'retention': manager.archive_retention, 'storage': await manager.storage_status(),
             'acknowledgements': await manager.store.active_acknowledgements(), 'maintenance': manager.maintenance_info,
         })
