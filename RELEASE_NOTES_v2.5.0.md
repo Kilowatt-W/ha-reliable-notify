@@ -86,3 +86,7 @@ No migration is silently applied. HA's UI-managed `automations.yaml` must not be
 - On first upgrade, restart Home Assistant Core. Confirm entity IDs and perform a test message before making migration changes.
 - Existing queue/archive data is migrated automatically. Take a full HA backup first.
 - Official publication requires unit tests, JS syntax validation, HACS, hassfest and real HA Core import smoke to succeed. Live provider tests on the user's HA OS remain a separate acceptance step.
+
+## Release verification
+
+The publication pipeline validates Python tests, JavaScript syntax, Home Assistant hassfest, HACS and native notify integration imports against Home Assistant Core before creating the v2.5.0 tag. Live handset and provider tests remain a separate acceptance step.
