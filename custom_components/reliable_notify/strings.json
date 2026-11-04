@@ -27,7 +27,8 @@
           "target_entity": "Optional default notify entity",
           "retry_interval": "Base retry interval (seconds)",
           "archive_url": "Notification archive view URL",
-          "dead_letter_days": "Noncritical dead-letter retention (days)"
+          "dead_letter_days": "Noncritical dead-letter retention (days)",
+          "legacy_notify_services": "Register legacy notify.reliable_* services"
         }
       },
       "recipient": {

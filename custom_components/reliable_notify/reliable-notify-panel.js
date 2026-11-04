@@ -43,7 +43,7 @@ class ReliableNotifyPanel extends HTMLElement {
     container.replaceChildren();
     ({messages:()=>this.messages(container),routes:()=>this.routes(container),
       incidents:()=>this.incidents(container),simulation:()=>this.simulation(container),
-      analytics:()=>this.analytics(container),settings:()=>this.settings(container)
+      analytics:()=>this.analytics(container),templates:()=>this.templates(container),migration:()=>this.migration(container),settings:()=>this.settings(container)
     }[this._section]||(()=>{}))();
   }
   render(){
@@ -80,7 +80,7 @@ class ReliableNotifyPanel extends HTMLElement {
     shell.append(this.element('p','Benachrichtigungen • Zustellung • Eskalation • Diagnose','muted'));
     const tabs=this.element('nav',null,'tabs');
     for(const [id,name] of [['messages','Nachrichten'],['routes','Empfänger & Personen'],
-       ['incidents','Eskalationen'],['simulation','Simulation'],['analytics','Statistik'],['settings','Einstellungen']]){
+       ['incidents','Eskalationen'],['simulation','Simulation'],['analytics','Statistik'],['templates','Vorlagen'],['migration','Automation-Migration'],['settings','Einstellungen']]){
       const button=this.element('button',name);
       button.addEventListener('click',()=>{this._section=id;
         for(const sibling of tabs.children)sibling.classList.remove('active');
@@ -235,6 +235,61 @@ class ReliableNotifyPanel extends HTMLElement {
     });
     wrapper.append(days,refresh,exportButton,report);box.append(wrapper);
     await this.run(report,load);
+  }
+  async templates(box){
+    const section=this.element('div',null,'panel');
+    section.append(this.element('h2','Wiederverwendbare Vorlagen'));
+    section.append(this.element('p','Vorlagen können mit reliable_notify.send_template verwendet werden. Jinja-Variablen werden beim Versand ausgewertet.','muted'));
+    const json=this.element('textarea');json.rows=14;
+    const status=this.element('pre');
+    const save=this.element('button','Vorlagen speichern');
+    save.addEventListener('click',()=>this.run(status,async()=>{
+      await this.call('set_templates',{templates:JSON.parse(json.value)});
+    }));
+    section.append(json,save,status);box.append(section);
+    try{
+      const result=await this.call('templates');
+      json.value=JSON.stringify(result.templates||{},null,2);
+    }catch(e){this.status(status,e.message,true);}
+  }
+  async migration(box){
+    const wrapper=this.element('div',null,'panel');
+    wrapper.append(this.element('h2','Bestehende Automationen prüfen'));
+    wrapper.append(this.element('p','Liest automations.yaml und scripts.yaml ausschließlich lesend. Es werden keine Dateien, Automationen oder Skripte verändert. Vorschläge bei Mehrdeutigkeiten sind ausdrücklich zu prüfen.','muted'));
+    const button=this.element('button','Benachrichtigungen analysieren');
+    const result=this.element('div');
+    const download=this.element('button','Vorschläge als JSON herunterladen');
+    download.disabled=true;
+    let last=null;
+    button.addEventListener('click',()=>this.run(result,async()=>{
+      const report=await this.call('migration_scan');
+      last=report;download.disabled=false;
+      result.replaceChildren();
+      result.append(this.element('p',report.proposed+' direkte Vorschläge • '+report.manual+' manuell zu prüfen'));
+      for(const file of report.files||[]){
+        const section=this.element('div',null,'panel');
+        section.append(this.element('h3',file.file+' — '+(file.error||((file.proposals||[]).length+' Treffer'))));
+        for(const item of file.proposals||[]){
+          const details=this.element('details');
+          const name=this.element('summary',(item.automation||item.path)+' • '+item.source+
+            ' → '+(item.route||item.suggested_route||'manuelle Prüfung'));
+          details.append(name,this.element('p',item.reason));
+          if(item.replacement){
+            details.append(this.element('pre',JSON.stringify(item.replacement,null,2)));
+          }
+          section.append(details);
+        }
+        result.append(section);
+      }
+    }));
+    download.addEventListener('click',()=>{
+      if(!last)return;
+      const blob=new Blob([JSON.stringify(last,null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob);const link=this.element('a');
+      link.href=url;link.download='reliable-notify-migration-proposals.json';link.click();
+      setTimeout(()=>URL.revokeObjectURL(url),300);
+    });
+    wrapper.append(button,download,result);box.append(wrapper);
   }
   async settings(box){
     const wrapper=this.element('div',null,'panel');wrapper.append(this.element('h2','Testmodus & Debug'));

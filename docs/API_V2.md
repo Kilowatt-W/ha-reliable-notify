@@ -59,3 +59,12 @@ A successful transport service call means **transport acceptance only**, not tha
 Scheduled incident escalations are enqueued and their next stage advanced inside the same SQLite transaction; this closes the common crash-after-enqueue/before-advance duplicate window. Provider-side acknowledgements can still be ambiguous after a network failure.
 
 The v2 API is additive relative to the 1.1 service names. Config options and SQLite schema are upgraded automatically.
+
+## v2.5 additions
+
+- `notify.send_message` with `target.entity_id: notify.reliable_<route>`: native modern notify entity, supports `message` and `title`, returns after durable SQLite enqueue.
+- `notify.reliable_<route>`: optional classic compatibility service; `message` and `title` at top level and Reliable Notify priority/archive controls inside nested `data`.
+- `reliable_notify.send_template`: render an administrator-configured template with `template`, `variables` and optional routing overrides.
+- `reliable_notify/migration_scan`: admin WebSocket read-only scan of `automations.yaml` and `scripts.yaml`; returns proposals, ambiguity notices and **no writes**.
+- `reliable_notify/templates` / `reliable_notify/set_templates`: admin WebSocket listing/editing of approved templates.
+- `reliable_notify/statistics` includes `daily_trends` (rolling 365-day daily aggregates).

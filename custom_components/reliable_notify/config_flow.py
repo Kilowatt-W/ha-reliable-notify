@@ -95,6 +95,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                 CONF_INTERVAL: user_input[CONF_INTERVAL],
                 'archive_url': user_input.get('archive_url', '').strip(),
                 'dead_letter_days': user_input.get('dead_letter_days',30),
+                'legacy_notify_services': user_input.get('legacy_notify_services', True),
             })
         current = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(step_id='settings', data_schema=vol.Schema({
@@ -107,6 +108,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             }): str,
             vol.Optional('dead_letter_days',default=current.get('dead_letter_days',30)):
                 vol.All(vol.Coerce(int), vol.Range(min=1,max=365)),
+            vol.Required('legacy_notify_services',
+                         default=current.get('legacy_notify_services',True)):bool,
         }))
 
     async def async_step_recipient(self, user_input=None):

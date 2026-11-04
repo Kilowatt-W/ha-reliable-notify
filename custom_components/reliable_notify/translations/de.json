@@ -27,7 +27,8 @@
           "target_entity": "Optionaler Standardempfänger",
           "retry_interval": "Basis-Wiederholungsintervall",
           "archive_url": "URL der Archivansicht",
-          "dead_letter_days": "Aufbewahrung nichtkritischer Fehler (Tage)"
+          "dead_letter_days": "Aufbewahrung nichtkritischer Fehler (Tage)",
+          "legacy_notify_services": "Klassische notify.reliable_* Dienste bereitstellen"
         }
       },
       "recipient": {
