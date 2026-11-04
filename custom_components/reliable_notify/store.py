@@ -483,11 +483,8 @@ class QueueStore:
             con.close()
 
     async def acknowledgement(self, key, by="manual"):
-        now=time.time()
-        def op(con):
-            return con.execute("""UPDATE acknowledgements SET acknowledged_at=?,acknowledged_by=?
-                WHERE ack_key=? AND acknowledged_at IS NULL""",(now,by[:100],key)).rowcount
-        return await self._run(op)
+        """Public legacy ACK method delegates to atomic incident state update."""
+        return int(await self.act_on_incident(key,"ack",by))
 
     async def active_acknowledgements(self, limit=50):
         def op(con):
