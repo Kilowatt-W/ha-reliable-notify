@@ -369,7 +369,22 @@ def register_dashboard(hass):
             "version":"2.0.0-dev",
         })
 
+    @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/migration_scan"})
+    @websocket_api.async_response
+    async def migration_scan_command(hass, connection, msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"], "unauthorized", "Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
+            return
+        from .migration_scan import scan_automation_files
+        report=await scan_automation_files(hass.config.config_dir,manager.routes)
+        connection.send_result(msg["id"],report)
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, migration_scan_command)
     websocket_api.async_register_command(hass, dry_run)
     websocket_api.async_register_command(hass, admin_inventory)
     websocket_api.async_register_command(hass, set_route)
