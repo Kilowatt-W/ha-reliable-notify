@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.0 — 2026-11-04
+- New locally shipped and versioned shield-bell-check brand icons/logos, SVG sources and PNG generation workflow.
+- Optional Home Assistant authenticated external API for applications, with administrator-only token access, rate limits and recipient allowlist.
+- Named notification profiles and administrative editor; defaults can be explicitly overridden.
+- Extended migration scanner to packages and known YAML folders, individual diff preview and opt-in single-package-action changes with preimage SHA-256, backup and atomic replacement; HA UI files never automatically rewritten.
+- Telegram sent-message IDs tracked via telegram_sent; explicit edit/delete by configured chat and dedup key.
+- 30-day delivery chart, regression tests, enhanced security/operational documentation.
+
+
 ## 2.5.0 — 2026-11-04
 - Native notify entities per configured recipient/group/person and optional classic notify.reliable_* services.
 - Read-only migration advisor with safe suggestions for automation/script notifications.

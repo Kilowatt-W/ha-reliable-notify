@@ -2,7 +2,7 @@
 
 **Reliable notifications for Home Assistant.** A local SQLite-backed queue with retries, sender adapters, recipient and person routing, escalation, searchable archive, and a full admin panel.
 
-![Version](https://img.shields.io/badge/version-2.5.0-blue)
+![Version](https://img.shields.io/badge/version-3.0.0-blue)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5)
 
 > **Important:** GitHub CI does not prove that a phone displayed or received a push. Reliable Notify uses *at-least-once* delivery to the transport, so providers can receive duplicates after ambiguous timeouts. Test your actual installation and devices before using critical alarm chains.
@@ -13,7 +13,7 @@ Install from the public repository **Kilowatt-W/ha-reliable-notify** as a custom
 
 The optional default notify entity can remain empty; unaddressed messages are stored in the **Staging** inbox instead of being delivered.
 
-## What's included in v2.5
+## What's included in v3.0
 
 | Area | Capabilities |
 |---|---|
@@ -119,3 +119,15 @@ All configured, validly named recipients, people and groups are now also availab
 Open the admin panel **Automation-Migration** tab for a safe, read-only audit of `automations.yaml` and `scripts.yaml`. Static, unambiguous actions receive conversion proposals; complex/templated actions are explicitly marked manual. No automation files are modified.
 
 Version 2.5 also adds reusable notification templates via `reliable_notify.send_template`, up to one year of daily transport aggregates, and database indexes. See [Notify migration](docs/NOTIFY_MIGRATION.md) and [v2.5 release notes](RELEASE_NOTES_v2.5.0.md).
+
+## v3.0 – Brand icon, external API, profiles and safe migration
+
+The integration now includes a colorful **shield-bell-check** logo and all HA 2026.3+ local brand assets in `custom_components/reliable_notify/brand/` (256/512-pixel light/dark icons and logos). The Home Assistant 2026.11 Marketplace uses local branding; older standalone HACS may still show its legacy icon placeholder. See [Branding and HACS](docs/BRANDING.md).
+
+Use the **Profile & API** tab in the admin sidebar to define reusable recipient/priority/retention profiles and optionally enable an authenticated API for your own applications. The external API is **disabled by default**, uses HA administrator Bearer tokens, allows only explicitly approved recipients, and rate-limits submissions. See [External API](docs/EXTERNAL_API.md) and [Profiles](docs/PROFILES.md).
+
+**Automation Migration** now scans recognized package directories and includes a per-action YAML diff. Carefully selected **package** conversions can be individually approved, with checksum validation, backups and atomic replacement. The UI-managed `automations.yaml`/`scripts.yaml` remain suggestion-only. See [Migration v3](docs/MIGRATION_V3.md).
+
+The dashboard includes a 30-day transport chart. Telegram's `telegram_sent` event is used to store sent-message references for optional edit/delete via `reliable_notify.telegram_lifecycle`. Such provider operations are synchronous and not retried by Reliable Notify.
+
+**[v3.0 Release Notes](RELEASE_NOTES_v3.0.0.md)** | [Operational acceptance checklist](docs/TEST_PLAN.md)

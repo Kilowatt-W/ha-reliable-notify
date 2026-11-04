@@ -39,6 +39,9 @@ jobs:
               "custom_components.reliable_notify.dashboard",
               "custom_components.reliable_notify.native_transport",
               "custom_components.reliable_notify.simulation",
+              "custom_components.reliable_notify.api",
+              "custom_components.reliable_notify.profiles",
+              "custom_components.reliable_notify.migration_apply",
           )
           for module in files:
               imported = importlib.import_module(module)

@@ -256,3 +256,28 @@ send_template:
         number:
           min: 0
           max: 365
+
+telegram_lifecycle:
+  name: Edit or delete an already sent Telegram notification
+  description: Edit/delete the most recent known Telegram message matching a deduplication key and explicitly configured chat. This calls Telegram directly and does not use retry queue.
+  fields:
+    recipient:
+      required: true
+      selector:
+        text:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    operation:
+      required: true
+      selector:
+        select:
+          options:
+            - edit
+            - delete
+    message:
+      description: New body required for edit operation.
+      selector:
+        text:
+          multiline: true

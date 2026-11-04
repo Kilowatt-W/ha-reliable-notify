@@ -423,7 +423,108 @@ def register_dashboard(hass):
             **manager.entry.options,"notification_templates":validated})
         connection.send_result(msg["id"],{"saved":True})
 
+    @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/profiles"})
+    @websocket_api.async_response
+    async def list_profiles(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        from .profiles import validate_profiles, DEFAULT
+        connection.send_result(msg["id"],{
+            "profiles":validate_profiles(manager.settings.get("notification_profiles",DEFAULT)),
+            "external_api_enabled":manager.settings.get("external_api_enabled",False),
+            "external_api_recipients":manager.settings.get("external_api_recipients",[]),
+            "external_api_rate":manager.settings.get("external_api_rate",30),
+        })
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/set_profiles",
+        vol.Required("profiles"): dict,
+    })
+    @websocket_api.async_response
+    async def set_profiles(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        from .profiles import validate_profiles
+        try:
+            validated=validate_profiles(msg["profiles"])
+        except ValueError as err:
+            connection.send_error(msg["id"],"invalid_profiles",str(err))
+            return
+        hass.config_entries.async_update_entry(manager.entry,options={
+            **manager.entry.options,"notification_profiles":validated,
+        })
+        connection.send_result(msg["id"],{"saved":True})
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/set_external_api",
+        vol.Required("enabled"): bool,
+        vol.Required("recipients"): [str],
+        vol.Required("rate"): vol.All(vol.Coerce(int),vol.Range(min=1,max=60)),
+    })
+    @websocket_api.async_response
+    async def set_external_api(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        allowed=(set(manager.routes.get("recipients",{})) |
+                 set(manager.routes.get("groups",{})) |
+                 set(manager.routes.get("persons",{})))
+        if len(msg["recipients"])>50 or any(n not in allowed for n in msg["recipients"]):
+            connection.send_error(msg["id"],"invalid_recipients","Invalid route allowlist")
+            return
+        hass.config_entries.async_update_entry(manager.entry,options={
+            **manager.entry.options,
+            "external_api_enabled":msg["enabled"],
+            "external_api_recipients":msg["recipients"],
+            "external_api_rate":msg["rate"],
+        })
+        connection.send_result(msg["id"],{"saved":True})
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/migration_apply",
+        vol.Required("file"): str,
+        vol.Required("sha256"): vol.Match(r"^[a-f0-9]{64}$"),
+        vol.Required("path"): str,
+        vol.Required("confirmation"): vol.In(("APPLY_SINGLE_CHANGE",)),
+    })
+    @websocket_api.async_response
+    async def apply_migration(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        from .migration_apply import apply_single_package_change
+        try:
+            result=await apply_single_package_change(
+                hass.config.config_dir,msg["file"],msg["sha256"],
+                msg["path"],manager.routes,msg["confirmation"])
+        except (ValueError,TypeError,KeyError,OSError) as err:
+            connection.send_error(msg["id"],"migration_failed",type(err).__name__+": "+str(err))
+            return
+        connection.send_result(msg["id"],result)
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, apply_migration)
+    websocket_api.async_register_command(hass, list_profiles)
+    websocket_api.async_register_command(hass, set_profiles)
+    websocket_api.async_register_command(hass, set_external_api)
     websocket_api.async_register_command(hass, list_templates)
     websocket_api.async_register_command(hass, save_templates)
     websocket_api.async_register_command(hass, migration_scan_command)
