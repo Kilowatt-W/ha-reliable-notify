@@ -214,3 +214,45 @@ simulate:
 backup:
   name: Create consistent SQLite backup
   description: Admin-only online SQLite snapshot with integrity check. Requires response_variable. Retains configured number of prior snapshots.
+
+
+send_template:
+  name: Send a stored Reliable Notify template
+  description: Render an admin-configured message template and enqueue it through Reliable Notify. The template name must exist in the admin panel.
+  fields:
+    template:
+      required: true
+      selector:
+        text:
+    variables:
+      description: Simple key-value template variables.
+      selector:
+        object:
+    recipients:
+      description: Named recipients, people or groups; overrides template defaults.
+      selector:
+        object:
+    priority:
+      selector:
+        select:
+          options:
+            - info
+            - warning
+            - critical
+    dedup_key:
+      selector:
+        text:
+    message_type:
+      selector:
+        text:
+    archive:
+      selector:
+        select:
+          options:
+            - keep
+            - delete_after_send
+    archive_days:
+      selector:
+        number:
+          min: 0
+          max: 365
