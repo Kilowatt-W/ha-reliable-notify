@@ -45,3 +45,5 @@ A tap on the mobile notification opens the configured dashboard view, where the 
 - Local unit tests and CI do not replace live validation on HA OS + Android/iOS.
 - Home Assistant Core restart required after updating custom integration code.
 
+
+Release workflow: publication is gated on Python tests, HACS checks and hassfest. Test under Home Assistant before relying on this for alarms.
