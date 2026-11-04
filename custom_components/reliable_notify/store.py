@@ -227,22 +227,41 @@ class QueueStore:
             action=action, payload=payload)], limit)
         return result[0]
 
-    async def claim_due(self, lease_seconds=90, lane=None):
+    async def claim_due(self, lease_seconds=90, lane=None, rate_limit_per_minute=10):
+        """Claim one due job, atomically reserving noncritical send-rate budget."""
+        if type(rate_limit_per_minute) is not int or not 1<=rate_limit_per_minute<=1000:
+            raise ValueError("rate_limit_per_minute must be 1..1000")
         now = time.time()
         def op(con):
             con.execute("""UPDATE message_archive SET status='expired',updated_at=?
                 WHERE id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)""",(now,now))
             con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
-            con.row_factory = sqlite3.Row
+            con.row_factory=sqlite3.Row
             lane_clause = ("AND action LIKE 'telegram_bot.%'" if lane == "telegram" else
                            "AND action NOT LIKE 'telegram_bot.%' AND action != 'smtp.send_message' AND action != 'reliable_notify.staged'" if lane == "notify" else
                            "AND action = 'smtp.send_message'" if lane == "smtp" else "AND action != 'reliable_notify.staged'")
-            item = con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
-                AND (lease_until IS NULL OR lease_until<=?) {lane_clause}
-                ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 1""", (now, now)).fetchone()
-            if item:
-                con.execute("UPDATE messages SET lease_until=? WHERE id=?", (now+lease_seconds,item["id"]))
-            return dict(item) if item else None
+            candidates=con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
+                AND (lease_until IS NULL OR lease_until<=?)
+                AND (expires_at IS NULL OR expires_at>?) {lane_clause}
+                ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 500""",(now,now,now)).fetchall()
+            for item in candidates:
+                if item["priority"]!="critical":
+                    bucket=item["action"]+":"+item["target"]
+                    row=con.execute("SELECT window_start,attempts FROM send_rate_windows WHERE bucket=?",
+                                    (bucket,)).fetchone()
+                    if row and now-row["window_start"]<60 and row["attempts"]>=rate_limit_per_minute:
+                        until=max(now+1,row["window_start"]+60)
+                        con.execute("UPDATE messages SET next_attempt=? WHERE id=?",(until,item["id"]))
+                        continue
+                    if row and now-row["window_start"]<60:
+                        con.execute("UPDATE send_rate_windows SET attempts=attempts+1 WHERE bucket=?",(bucket,))
+                    else:
+                        con.execute("""INSERT INTO send_rate_windows(bucket,window_start,attempts)
+                            VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE
+                            SET window_start=excluded.window_start,attempts=1""",(bucket,now))
+                con.execute("UPDATE messages SET lease_until=? WHERE id=?",(now+lease_seconds,item["id"]))
+                return dict(item)
+            return None
         return await self._run(op)
 
     async def next_due(self):
