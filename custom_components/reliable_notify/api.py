@@ -100,7 +100,8 @@ class ReliableNotifyAPIView(HomeAssistantView):
             if message.get("profile"):
                 from .profiles import resolve_profile, DEFAULT
                 expanded=resolve_profile(message,options.get("notification_profiles",DEFAULT))
-                message["recipients"]=expanded["recipients"]
+                if expanded.get("priority")=="critical":
+                    raise ValueError("critical API profile not allowed")
                 if any(n not in permitted for n in expanded["recipients"]):
                     raise ValueError("profile selected forbidden recipient")
             await manager.enqueue(message)

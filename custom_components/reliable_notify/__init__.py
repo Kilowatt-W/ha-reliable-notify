@@ -22,6 +22,8 @@ from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUE
 from .routing import resolve, validate_config, valid_action
 from .notify_compat import async_register_compat, async_unregister_compat
 from .templates import validate_templates, validate_parameters
+from .profiles import DEFAULT as DEFAULT_PROFILES, validate_profiles, resolve_profile
+from .api import ReliableNotifyAPIView
 from .store import QueueStore
 from .transport import create_payload
 from .media import snapshot_file, cleanup_media, snapshot_attachments, free_disk_bytes
@@ -50,6 +52,7 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("data", default={}): dict,
     vol.Optional("priority", default="info"): vol.In(("info", "warning", "critical")),
     vol.Optional("message_type"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$"),
+    vol.Optional("profile"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$"),
     vol.Optional("archive", default="keep"): vol.In(("keep", "delete_after_send")),
     vol.Optional("archive_days"): vol.All(vol.Coerce(int), vol.Range(min=0, max=365)),
     vol.Optional("ttl", default=0): vol.All(vol.Coerce(int), vol.Range(min=0)),
@@ -242,6 +245,7 @@ class ReliableNotifyManager:
         return prepared
 
     def preview(self,data):
+        data=resolve_profile(data,self.settings.get("notification_profiles",DEFAULT_PROFILES))
         return simulate({
             "quiet_hours":self.quiet_hours,
             "archive_retention":self.archive_retention,
@@ -249,6 +253,7 @@ class ReliableNotifyManager:
         },self.routes,data,now=time.time(),timezone=self.hass.config.time_zone)
 
     async def enqueue(self, data):
+        data=resolve_profile(data,self.settings.get("notification_profiles",DEFAULT_PROFILES))
         try:
             extra = data.get("data") or {}
             if not isinstance(extra, dict) or any(k in extra for k in ("message", "title", "entity_id")):
@@ -557,6 +562,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 str(Path(__file__).parent / 'reliable-notify-panel.js'), False),
         ])
         hass.data['reliable_notify_dashboard_registered'] = True
+    if not hass.data.get("reliable_notify_external_api_registered"):
+        hass.http.register_view(ReliableNotifyAPIView(hass))
+        hass.data["reliable_notify_external_api_registered"]=True
     if not hass.data.get("reliable_notify_panel_registered"):
         await panel_custom.async_register_panel(
             hass, webcomponent_name="reliable-notify-panel",
@@ -587,7 +595,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         payload={**definition,"message":message,"title":title}
         payload.update({key:call.data[key] for key in (
             "recipients","priority","dedup_key","archive","archive_days",
-            "message_type","test_mode") if key in call.data})
+            "message_type","test_mode","profile") if key in call.data})
         await manager.enqueue(payload)
 
     async def simulate_action(call: ServiceCall):
@@ -658,6 +666,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         vol.Optional("recipients"): vol.Any(cv.string,[cv.string]),
         vol.Optional("priority"): vol.In(("info","warning","critical")),
         vol.Optional("dedup_key"): cv.string,
+        vol.Optional("profile"): cv.string,
         vol.Optional("message_type"): cv.string,
         vol.Optional("archive"): vol.In(("keep","delete_after_send")),
         vol.Optional("archive_days"): vol.All(vol.Coerce(int),vol.Range(min=0,max=365)),
