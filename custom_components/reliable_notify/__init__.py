@@ -21,6 +21,7 @@ from homeassistant.components import panel_custom, frontend
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
 from .routing import resolve, validate_config, valid_action
 from .notify_compat import async_register_compat, async_unregister_compat
+from .templates import validate_templates, validate_parameters
 from .store import QueueStore
 from .transport import create_payload
 from .media import snapshot_file, cleanup_media, snapshot_attachments, free_disk_bytes
@@ -569,6 +570,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async def enqueue(call: ServiceCall):
         await manager.enqueue(call.data)
 
+    async def send_template(call: ServiceCall):
+        from homeassistant.helpers.template import Template
+        templates=validate_templates(manager.settings.get("notification_templates",{}))
+        name=call.data["template"]
+        definition=templates.get(name)
+        if definition is None:
+            raise HomeAssistantError("Unknown Reliable Notify template")
+        variables=validate_parameters(call.data.get("variables",{}))
+        message=Template(definition["message"],hass).async_render(
+            variables,parse_result=False)
+        title=Template(definition.get("title",""),hass).async_render(
+            variables,parse_result=False)
+        if not isinstance(message,str) or len(message)>16384:
+            raise HomeAssistantError("Rendered notification exceeds 16384 characters")
+        payload={**definition,"message":message,"title":title}
+        payload.update({key:call.data[key] for key in (
+            "recipients","priority","dedup_key","archive","archive_days",
+            "message_type","test_mode") if key in call.data})
+        await manager.enqueue(payload)
+
     async def simulate_action(call: ServiceCall):
         """Read-only preview for HA automations; never persist or send."""
         return manager.preview(call.data)
@@ -631,8 +652,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         except Exception as err:
             raise HomeAssistantError(f"Invalid routing configuration: {err}") from err
 
+    TEMPLATE_SEND_SCHEMA = vol.Schema({
+        vol.Required("template"): cv.string,
+        vol.Optional("variables",default={}): dict,
+        vol.Optional("recipients"): vol.Any(cv.string,[cv.string]),
+        vol.Optional("priority"): vol.In(("info","warning","critical")),
+        vol.Optional("dedup_key"): cv.string,
+        vol.Optional("message_type"): cv.string,
+        vol.Optional("archive"): vol.In(("keep","delete_after_send")),
+        vol.Optional("archive_days"): vol.All(vol.Coerce(int),vol.Range(min=0,max=365)),
+        vol.Optional("test_mode"): vol.In(("off","stage")),
+    })
     for name, fn, schema in (
-        ("enqueue", enqueue, ENQUEUE_SCHEMA), ("retry_all", retry, None),
+        ("enqueue", enqueue, ENQUEUE_SCHEMA),
+        ("send_template", send_template, TEMPLATE_SEND_SCHEMA), ("retry_all", retry, None),
         ("retry_dead", retry_dead, None), ("clear_queue", clear, None),
         ("cancel", cancel, CANCEL_SCHEMA), ("acknowledge", acknowledge, ACK_SCHEMA),
         ("update", update_message, UPDATE_SCHEMA), ("dismiss", dismiss, DISMISS_SCHEMA),
@@ -665,7 +698,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
         hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup', 'send_template'):
             hass.services.async_remove(DOMAIN, service)
     return True
 
