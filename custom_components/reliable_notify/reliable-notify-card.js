@@ -145,8 +145,27 @@ class ReliableNotifyCard extends HTMLElement {
     });
     details.append(save);
     const recent=document.createElement('div');recent.textContent=(data.history||[]).slice(0,15).map(r=>`#${r.id} ${r.status} ${r.action} (${r.attempts})`).join('\n');recent.style.whiteSpace='pre-line';details.append(recent);card.append(details);
+    const retentionBox=document.createElement('details');
+    const retentionHeading=document.createElement('summary');
+    retentionHeading.textContent='Archive retention by type (days; 0 = purge on send)';
+    retentionBox.append(retentionHeading);
+    const retentionEditor=document.createElement('textarea');
+    retentionEditor.value=JSON.stringify(data.retention||{},null,2);
+    retentionEditor.rows=7;retentionEditor.style.width='100%';
+    retentionEditor.setAttribute('aria-label','Archive retention rules JSON');
+    const retentionSave=document.createElement('button');
+    retentionSave.textContent='Save archive retention';
+    retentionSave.addEventListener('click',async()=>{
+      try {
+        const retention=JSON.parse(retentionEditor.value);
+        await this._hass.callWS({type:'reliable_notify/set_archive_retention',retention});
+        await this.refresh();
+      } catch(e) { alert('Archive retention: '+e.message); }
+    });
+    retentionBox.append(retentionEditor,retentionSave);
+    card.append(retentionBox);
     const archive=document.createElement('details');
-    const archiveHeading=document.createElement('summary');archiveHeading.textContent='Notification archive (30 days / 2000 entries)';archive.append(archiveHeading);
+    const archiveHeading=document.createElement('summary');archiveHeading.textContent='Notification archive (per-type retention, max 2000 completed)';archive.append(archiveHeading);
     const search=document.createElement('input');search.type='search';search.placeholder='Search full notification text';search.style.margin='10px 8px 10px 0';
     search.setAttribute('aria-label','Search notification archive');
     const find=document.createElement('button');find.textContent='Search';
