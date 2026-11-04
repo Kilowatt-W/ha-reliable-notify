@@ -20,6 +20,7 @@ from .store import QueueStore
 from .transport import create_payload
 from .media import snapshot_file, cleanup_media, snapshot_attachments, free_disk_bytes
 from .retry import classify_error, validate_policies, DEFAULT_POLICIES
+from .retention import validate_retention, retention_for_message, DEFAULT_RETENTION
 from .dashboard import register_dashboard
 
 LANES = ("telegram", "smtp", "notify", "notify")
@@ -35,6 +36,9 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("action"): cv.string,
     vol.Optional("data", default={}): dict,
     vol.Optional("priority", default="info"): vol.In(("info", "warning", "critical")),
+    vol.Optional("message_type"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$"),
+    vol.Optional("archive", default="keep"): vol.In(("keep", "delete_after_send")),
+    vol.Optional("archive_days"): vol.All(vol.Coerce(int), vol.Range(min=0, max=365)),
     vol.Optional("ttl", default=0): vol.All(vol.Coerce(int), vol.Range(min=0)),
     vol.Optional("dedup_key"): cv.string,
     vol.Optional("strategy", default="always"): vol.In(("always", "replace")),
@@ -69,6 +73,10 @@ class ReliableNotifyManager:
     @property
     def settings(self):
         return {**self.entry.data, **self.entry.options}
+
+    @property
+    def archive_retention(self):
+        return validate_retention(self.settings.get('archive_retention', DEFAULT_RETENTION))
 
     @property
     def policies(self):
@@ -143,11 +151,14 @@ class ReliableNotifyManager:
                     raise ValueError("Telegram bot requires data.chat_id, data.entity_id or data.config_entry_id")
                 if action == "telegram_bot.send_photo" and not any(k in payload for k in ("file", "url")):
                     raise ValueError("Telegram photo requires data.file or data.url")
+                days = retention_for_message(data, self.archive_retention)
                 jobs.append(dict(message=data["message"], title=data.get("title"),
                     target=target, action=action, payload=payload,
                     priority=data.get("priority", "info"), ttl=data.get("ttl", 0),
                     dedup_key=data.get("dedup_key"), strategy=data.get("strategy", "always"),
-                    archive_url=self.settings.get("archive_url") or None))
+                    archive_url=self.settings.get('archive_url') or None,
+                    archive_days=days,
+                    message_type=data.get('message_type') or data.get('priority', 'info')))
             snapshots = []
             try:
                 # A queued photo must not depend on a rotating camera snapshot file.
