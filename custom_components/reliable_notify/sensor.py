@@ -12,6 +12,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
         QueueSizeSensor(manager), CounterSensor(manager, "sent", "Sent", "mdi:send-check"),
         CounterSensor(manager, "failures", "Failures", "mdi:alert-circle-outline"),
         DeadLetterSensor(manager), HistorySensor(manager), StorageFreeSensor(manager),
+        DatabaseSizeSensor(manager), MaintenanceHealthSensor(manager),
     ])
 
 
@@ -93,4 +94,31 @@ class StorageFreeSensor(BaseSensor):
             'healthy': result['healthy'],
             'minimum_free_mib': round(result['minimum_free_bytes'] / (1024 * 1024)),
             'storage_path': '/media/reliable_notify',
+        }
+
+class DatabaseSizeSensor(BaseSensor):
+    def __init__(self, manager):
+        super().__init__(manager, "database_size", "Database Size", "mdi:database")
+        self._attr_native_unit_of_measurement = "MiB"
+
+    async def async_update(self):
+        info = self.manager.maintenance_info
+        self._attr_native_value = round(info["database_bytes"] / 1048576, 2) if "database_bytes" in info else None
+        self._attr_extra_state_attributes = {
+            "last_integrity_check": info.get("integrity"),
+            "critical_dead_letters": info.get("critical_dead_letters"),
+            "dead_letters": info.get("dead_letters"),
+        }
+
+
+class MaintenanceHealthSensor(BaseSensor):
+    def __init__(self, manager):
+        super().__init__(manager, "maintenance_health", "Maintenance Health", "mdi:database-check")
+
+    async def async_update(self):
+        info = self.manager.maintenance_info
+        self._attr_native_value = "ok" if info.get("integrity") == "ok" else ("pending" if not info else "error")
+        self._attr_extra_state_attributes = {
+            "checkpoint_busy": info.get("checkpoint_busy"),
+            "removed_dead_letters": info.get("removed_dead_letters"),
         }
