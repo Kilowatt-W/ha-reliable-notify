@@ -383,7 +383,48 @@ def register_dashboard(hass):
         report=await scan_automation_files(hass.config.config_dir,manager.routes)
         connection.send_result(msg["id"],report)
 
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/templates",
+    })
+    @websocket_api.async_response
+    async def list_templates(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        from .templates import validate_templates
+        connection.send_result(msg["id"],
+            {"templates":validate_templates(manager.settings.get("notification_templates",{}))})
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/set_templates",
+        vol.Required("templates"): dict,
+    })
+    @websocket_api.async_response
+    async def save_templates(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        from .templates import validate_templates
+        try:
+            validated=validate_templates(msg["templates"])
+        except ValueError as err:
+            connection.send_error(msg["id"],"invalid_templates",str(err))
+            return
+        hass.config_entries.async_update_entry(manager.entry,options={
+            **manager.entry.options,"notification_templates":validated})
+        connection.send_result(msg["id"],{"saved":True})
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, list_templates)
+    websocket_api.async_register_command(hass, save_templates)
     websocket_api.async_register_command(hass, migration_scan_command)
     websocket_api.async_register_command(hass, dry_run)
     websocket_api.async_register_command(hass, admin_inventory)
