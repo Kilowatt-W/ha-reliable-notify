@@ -68,6 +68,7 @@ class ReliableNotifyManager:
         self.stopping = False
         self._enqueue_lock = asyncio.Lock()
         self.last_error = None
+        self.maintenance_info = {}
         self.min_free_bytes = 100 * 1024 * 1024
 
     @property
@@ -107,6 +108,7 @@ class ReliableNotifyManager:
         for index, lane in enumerate(LANES):
             self.tasks.append(self.hass.async_create_task(self.worker(index, lane), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.media_cleanup_loop(), eager_start=False))
+        self.tasks.append(self.hass.async_create_task(self.maintenance_loop(), eager_start=False))
 
     async def stop(self):
         self.stopping = True
@@ -216,6 +218,20 @@ class ReliableNotifyManager:
                 raise
             except Exception:
                 _LOGGER.exception("Reliable Notify media cleanup error")
+
+    async def maintenance_loop(self):
+        # Keep database maintenance independent from notification workers.
+        while not self.stopping:
+            try:
+                await asyncio.sleep(60 if not self.maintenance_info else 86400)
+                days=int(self.settings.get("dead_letter_days",30))
+                self.maintenance_info=await self.store.maintenance(days)
+                if self.maintenance_info["integrity"]!="ok":
+                    _LOGGER.error("Reliable Notify database integrity check failed")
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("Reliable Notify maintenance failed")
 
     async def worker(self, index, lane):
         while not self.stopping:
