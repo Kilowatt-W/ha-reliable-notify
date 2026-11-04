@@ -191,11 +191,11 @@ https://github.com/Kilowatt-W/ha-reliable-notify/issues
 
 ## Reliable Notify v0.6.0 — dashboard and delivery controls
 
-**Development status:** v0.6.0 includes 31 passing local unit tests, but has **not** been end-to-end tested with Home Assistant OS, Telegram or SMTP. Do not treat this version as a verified alarm delivery system.
+**Development status:** v0.6.0 includes 32 passing local unit tests, but has **not** been end-to-end tested with Home Assistant OS, Telegram or SMTP. Do not treat this version as a verified alarm delivery system.
 
 ### Interactive Lovelace dashboard
 
-Version 0.6 includes an interactive card with **Queue**, **Dead letters**, **Retry** and **Delete** actions, delivery history, retry policies and remaining disk space. The dashboard uses an **admin-only** Home Assistant WebSocket API and does not expose message bodies or transport credentials.
+Version 0.6 includes an interactive card with **Queue**, **Dead letters**, **Retry** and **Delete** actions, delivery history, retry policies and remaining disk space. The dashboard can also edit retry policies and trigger bulk retries; it uses an **admin-only** Home Assistant WebSocket API and does not expose message bodies or transport credentials.
 
 Add a JavaScript module resource in the Home Assistant dashboard resources settings:
 
