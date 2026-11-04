@@ -21,7 +21,7 @@ class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
             return self.async_create_entry(title='Reliable Notify', data=user_input)
         return self.async_show_form(step_id='user', data_schema=vol.Schema({
-            vol.Required(CONF_TARGET): selector.EntitySelector(
+            vol.Optional(CONF_TARGET): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain='notify', multiple=False)),
             vol.Optional(CONF_INTERVAL, default=DEFAULT_INTERVAL):
                 vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
@@ -75,12 +75,12 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title='', data={
                 **self.config_entry.options,
-                CONF_TARGET: user_input[CONF_TARGET],
+                CONF_TARGET: user_input.get(CONF_TARGET, ''),
                 CONF_INTERVAL: user_input[CONF_INTERVAL],
             })
         current = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(step_id='settings', data_schema=vol.Schema({
-            vol.Required(CONF_TARGET, default=current[CONF_TARGET]):
+            vol.Optional(CONF_TARGET, description={"suggested_value": current.get(CONF_TARGET, "")}):
                 selector.EntitySelector(selector.EntitySelectorConfig(domain='notify')),
             vol.Required(CONF_INTERVAL, default=current.get(CONF_INTERVAL, DEFAULT_INTERVAL)):
                 vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),

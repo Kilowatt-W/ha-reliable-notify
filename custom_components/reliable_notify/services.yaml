@@ -1,6 +1,6 @@
 enqueue:
   name: Queue notification
-  description: Persist a notification, fan out to named people/groups or one destination, then retry asynchronously.
+  description: Persist a notification for explicit recipients or transport; without recipients/default it stays staged for manual review (no push is sent).
   fields:
     message:
       required: true

@@ -23,14 +23,16 @@ def register_dashboard(hass):
             connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
             return
         manager = next(iter(managers.values()))
-        count, dead, metrics, recent, dead_recent, history = await __import__('asyncio').gather(
+        count, dead, metrics, recent, dead_recent, history, staged = await __import__('asyncio').gather(
             manager.store.count(), manager.store.dead_count(), manager.store.metrics(),
             manager.store.recent(msg['limit']), manager.store.recent(msg['limit'], dead=True),
-            manager.store.history(msg['limit']),
+            manager.store.history(msg['limit']), manager.store.staged(msg['limit']),
         )
         connection.send_result(msg['id'], {
             'count': count, 'dead': dead, 'metrics': metrics,
             'queue': recent, 'dead_letters': dead_recent, 'history': history,
+            'staged': staged, 'staged_count': len(staged),
+            'recipient_names': sorted(manager.routes['recipients']),
             'policies': manager.policies, 'storage': await manager.storage_status(),
         })
 
@@ -57,5 +59,35 @@ def register_dashboard(hass):
         })
         connection.send_result(msg['id'], {'saved': True})
 
+    @websocket_api.websocket_command({vol.Required('type'): 'reliable_notify/send_staged',
+                                       vol.Required('id'): vol.All(vol.Coerce(int), vol.Range(min=1)),
+                                       vol.Required('recipient'): str})
+    @websocket_api.async_response
+    async def send_staged(hass, connection, msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'], 'unauthorized', 'Administrator required')
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
+            return
+        recipient = manager.routes['recipients'].get(msg['recipient'])
+        if not recipient:
+            connection.send_error(msg['id'], 'invalid_recipient', 'Select a configured individual recipient')
+            return
+        from .routing import valid_action
+        action = recipient.get('action', 'notify.send_message')
+        if not valid_action(action):
+            connection.send_error(msg['id'], 'invalid_action', 'Invalid recipient action')
+            return
+        target = recipient.get('target_entity', '') if action in ('notify.send_message','smtp.send_message') else msg['recipient']
+        updated = await manager.store.assign_staged(msg['id'], action, target, recipient.get('data', {}))
+        if not updated:
+            connection.send_error(msg['id'], 'not_found', 'Staged message no longer available')
+            return
+        manager.wakeup.set()
+        connection.send_result(msg['id'], {'assigned': True})
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, send_staged)
     websocket_api.async_register_command(hass, set_policies)

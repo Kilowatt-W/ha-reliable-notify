@@ -113,8 +113,8 @@ class QueueStore:
             con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
             con.row_factory = sqlite3.Row
             lane_clause = ("AND action LIKE 'telegram_bot.%'" if lane == "telegram" else
-                           "AND action NOT LIKE 'telegram_bot.%' AND action != 'smtp.send_message'" if lane == "notify" else
-                           "AND action = 'smtp.send_message'" if lane == "smtp" else "")
+                           "AND action NOT LIKE 'telegram_bot.%' AND action != 'smtp.send_message' AND action != 'reliable_notify.staged'" if lane == "notify" else
+                           "AND action = 'smtp.send_message'" if lane == "smtp" else "AND action != 'reliable_notify.staged'")
             item = con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
                 AND (lease_until IS NULL OR lease_until<=?) {lane_clause}
                 ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 1""", (now, now)).fetchone()
@@ -129,7 +129,7 @@ class QueueStore:
             con.row_factory = sqlite3.Row
             row = con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
                 AND (lease_until IS NULL OR lease_until<=?)
-                AND (expires_at IS NULL OR expires_at>?)
+                AND (expires_at IS NULL OR expires_at>?) AND action != 'reliable_notify.staged'
                 ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 1""", (now,now,now)).fetchone()
             return dict(row) if row else None
         return await self._run(op)
@@ -182,6 +182,27 @@ class QueueStore:
                     WHERE id=?""", (attempts,f"[{category}] {error}"[:1000],time.time()+delay,identifier))
         await self._run(op)
 
+    async def staged_count(self):
+        return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM messages WHERE action='reliable_notify.staged' AND (expires_at IS NULL OR expires_at>?)", (time.time(),)).fetchone()[0])
+
+    async def staged(self, limit=100):
+        """Admin-only preview of intentionally undelivered messages."""
+        def op(con):
+            con.row_factory = sqlite3.Row
+            return [dict(row) for row in con.execute("""SELECT id,title,message,priority,created_at,expires_at,dedup_key FROM messages
+                WHERE action='reliable_notify.staged' AND (expires_at IS NULL OR expires_at>?)
+                ORDER BY id DESC LIMIT ?""", (time.time(), min(200,max(1,int(limit)))))]
+        return await self._run(op)
+
+    async def assign_staged(self, identifier, action, target, payload):
+        """Assign a staged message to a specific previously validated recipient."""
+        now=time.time()
+        def op(con):
+            return con.execute("""UPDATE messages SET action=?,target=?,payload_json=?,next_attempt=?,lease_until=NULL
+                WHERE id=? AND action='reliable_notify.staged' AND (expires_at IS NULL OR expires_at>?)""",
+                (action,target,json.dumps(payload,ensure_ascii=False),now,identifier,now)).rowcount
+        return await self._run(op)
+
     async def count(self):
         return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM messages WHERE expires_at IS NULL OR expires_at>?", (time.time(),)).fetchone()[0])
 
@@ -222,7 +243,7 @@ class QueueStore:
         def op(con):
             if not dead:
                 return con.execute("""UPDATE messages SET next_attempt=?,lease_until=NULL
-                    WHERE id=? AND (lease_until IS NULL OR lease_until<=?)""",
+                    WHERE id=? AND action!='reliable_notify.staged' AND (lease_until IS NULL OR lease_until<=?)""",
                     (now,identifier,now)).rowcount
             row = con.execute("SELECT * FROM dead_letters WHERE id=? AND (expires_at IS NULL OR expires_at>?)",(identifier,now)).fetchone()
             if not row:

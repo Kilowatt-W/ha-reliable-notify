@@ -120,18 +120,20 @@ class ReliableNotifyManager:
                 names = [recipients] if isinstance(recipients, str) else recipients
                 targets = resolve(self.routes, names)
             else:
-                action = data.get("action", "notify.send_message")
+                # No default and no explicitly addressed recipient: persist for review,
+                # never guess a mobile/Telegram destination.
+                target_entity = data.get("target_entity") or self.settings.get(CONF_TARGET)
+                action = data.get("action") or ("notify.send_message" if target_entity else "reliable_notify.staged")
                 targets = [("", {"action": action,
-                    "target_entity": data.get("target_entity", self.settings.get(CONF_TARGET, "")),
-                    "data": {}})]
+                    "target_entity": target_entity or "", "data": {}})]
             jobs = []
             for name, rec in targets:
                 action = rec.get("action", "notify.send_message")
                 if data.get("media") == "photo" and action == "telegram_bot.send_message":
                     action = "telegram_bot.send_photo"
-                if not valid_action(action):
+                if action != "reliable_notify.staged" and not valid_action(action):
                     raise ValueError(f"unsupported action: {action}")
-                target = rec.get("target_entity", "") if action in ("notify.send_message", "smtp.send_message") else name or action
+                target = rec.get("target_entity", "") if action in ("notify.send_message", "smtp.send_message") else ("(staged)" if action == "reliable_notify.staged" else name or action)
                 if action in ("notify.send_message", "smtp.send_message") and not str(target).startswith("notify."):
                     raise ValueError("notify.send_message requires a notify entity")
                 payload = {**rec.get("data", {}), **extra}

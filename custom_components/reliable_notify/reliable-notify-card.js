@@ -57,6 +57,20 @@ class ReliableNotifyCard extends HTMLElement {
     const bulk=document.createElement('button');bulk.textContent=this.showDead?'Retry all dead':'Retry all pending';
     bulk.addEventListener('click',async()=>{try {await this._hass.callService('reliable_notify',this.showDead?'retry_dead':'retry_all',{});await this.refresh();}catch(e){alert(e.message);}});
     tabs.append(bulk);card.append(tabs);
+    const stagedBox=document.createElement('details');
+    const stagedSummary=document.createElement('summary');stagedSummary.textContent='Staged (no recipient): '+(data.staged_count||0);stagedBox.append(stagedSummary);
+    for(const item of data.staged||[]){
+      const row=document.createElement('div');row.style.margin='12px 0';
+      const preview=document.createElement('div');preview.style.whiteSpace='pre-wrap';
+      preview.textContent='#'+item.id+' '+(item.title||'')+' — '+item.message;row.append(preview);
+      const select=document.createElement('select');
+      for(const name of data.recipient_names||[]){const opt=document.createElement('option');opt.value=name;opt.textContent=name;select.append(opt);}row.append(select);
+      const send=document.createElement('button');send.textContent='Assign and send';send.disabled=!select.options.length;
+      send.addEventListener('click',async()=>{try{await this._hass.callWS({type:'reliable_notify/send_staged',id:item.id,recipient:select.value});await this.refresh();}catch(e){alert(e.message);}});row.append(send);
+      const del=document.createElement('button');del.textContent='Delete';del.addEventListener('click',()=>{if(confirm('Delete staged #'+item.id+'?'))this.command('delete_one',item.id,false);});row.append(del);
+      stagedBox.append(row);
+    }
+    card.append(stagedBox);
     const wrap=document.createElement('div');wrap.className='scroll';
     const table=document.createElement('table');
     const head=document.createElement('tr');
