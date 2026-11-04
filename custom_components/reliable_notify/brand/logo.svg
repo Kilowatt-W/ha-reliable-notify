@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 320"><svg x="4" y="4" width="304" height="304" viewBox="0 0 512 512"><defs>
+<linearGradient id="base" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#132B57"/><stop offset="1" stop-color="#10152E"/></linearGradient>
+<linearGradient id="neon" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#39E2F3"/><stop offset=".48" stop-color="#4AB2FF"/><stop offset="1" stop-color="#9272FF"/></linearGradient>
+<linearGradient id="tick" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#D7FF96"/><stop offset="1" stop-color="#6CEC9A"/></linearGradient></defs>
+<path d="M256 22C144 22 68 62 68 62v158c0 145 71 218 188 270 117-52 188-125 188-270V62S368 22 256 22Z" fill="url(#base)" stroke="url(#neon)" stroke-width="15" stroke-linejoin="round"/>
+<path d="M256 57C173 57 103 82 103 82v137c0 118 53 181 153 227 100-46 153-109 153-227V82S339 57 256 57Z" fill="none" stroke="#518BD7" opacity=".23" stroke-width="4"/>
+<path d="M168 155a114 114 0 0 1 176 0" fill="none" stroke="#72D6FF" stroke-linecap="round" stroke-width="16" opacity=".75"/>
+<path d="M196 180a79 79 0 0 1 120 0" fill="none" stroke="#8BE8FF" stroke-linecap="round" stroke-width="13" opacity=".9"/>
+<path d="M240 207c-31 8-52 32-52 67v46c0 12-8 26-18 36h172c-10-10-18-24-18-36v-46c0-35-21-59-52-67" fill="#EBF7FF"/>
+<path d="M240 208a16 16 0 0 1 32 0" fill="#EBF7FF"/>
+<path d="M228 372c4 18 14 27 28 27s24-9 28-27" fill="#E5F8FF"/>
+<path d="M184 343l43 42 97-104" fill="none" stroke="#0D213D" stroke-width="33" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M184 343l43 42 97-104" fill="none" stroke="url(#tick)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/></svg><text x="332" y="151" font-size="79" font-weight="800" font-family="DejaVu Sans,Arial,sans-serif" fill="#315FA3" letter-spacing="-2">RELIABLE</text><text x="332" y="246" font-size="85" font-weight="800" font-family="DejaVu Sans,Arial,sans-serif" fill="#4A9DF6" letter-spacing="-2">NOTIFY</text></svg>
