@@ -39,3 +39,4 @@ Confirm manually (including from a separate Telegram/Companion callback automati
 The integration **does not automatically equate a push delivery with user acknowledgement**; callback automations are required for phone/Telegram buttons. No dedicated browser panel yet; the bundled Lovelace card includes acknowledgements. Messages may still be delivered multiple times after an upstream timeout.
 
 **Safety:** test against actual providers before depending on escalations. Backup the SQLite database only while HA is stopped; schema migration is automatic.
+The v0.9.0 release is protected by unit tests, Python and JavaScript syntax checks, hassfest and HACS validation.
