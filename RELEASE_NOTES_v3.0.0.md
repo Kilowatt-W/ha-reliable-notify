@@ -59,3 +59,5 @@ Automated CI cannot run real Android/iOS, Telegram or SMTP tests against your in
 ## Validation and publication
 
 The v3.0.0 GitHub release is published only after successful Python and JavaScript checks, HACS repository validation, hassfest, Home Assistant Core integration import checks, and local brand PNG format/dimension verification. Live device and HA OS seven-day acceptance remain tracked separately in GitHub issue #3.
+
+Final release gate: PNG signature uses a byte-for-byte hexadecimal check, alongside dimensions and full test suite.
