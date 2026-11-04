@@ -187,6 +187,8 @@ class ReliableNotifyManager:
 
     async def _telegram_feedback(self,event,raw,actor):
         try:
+            if read_token(self.callback_secret,raw) is None:
+                return  # Never intercept other Telegram bot callbacks.
             applied=await self._process_action(raw,actor)
             query_id=event.data.get("id")
             if not query_id or not self.hass.services.has_service("telegram_bot","answer_callback_query"):
@@ -481,6 +483,13 @@ class ReliableNotifyManager:
                                                 category=classification.kind)
                     else:
                         await self.store.succeeded(item["id"])
+                        channel=transport_for(item["action"])
+                        level=validate_transport_logging(
+                            self.settings.get("transport_logging",{}))[channel]
+                        if level in ("debug","info"):
+                            _LOGGER.log(logging.DEBUG if level=="debug" else logging.INFO,
+                                        "Reliable Notify #%s accepted by transport=%s",
+                                        item["id"],channel)
                     self.hass.bus.async_fire("reliable_notify_updated", {"kind":"delivery"})
                     await asyncio.sleep(0)
                     continue
