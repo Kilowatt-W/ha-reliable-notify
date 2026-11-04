@@ -78,6 +78,8 @@ def classify_error(err: Exception) -> Failure:
     if code in (400,404,413,415,422) or any(x in detail for x in (
         "bad request","invalid chat id","unsupported file")):
         return Failure("invalid_payload",False)
+    if code is not None and 300<=code<=399:
+        return Failure("unexpected_redirect",False)
     if code in (408,425) or (code is not None and 500<=code<=599):
         return Failure("provider_unavailable",True,retry_after)
     if isinstance(err, (TimeoutError, ConnectionError, OSError)):
