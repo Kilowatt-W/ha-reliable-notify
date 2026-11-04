@@ -5,15 +5,18 @@ import asyncio
 import logging
 import json
 import time
+import os
+import secrets
 from pathlib import Path
 
 import voluptuous as vol
-import yaml
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.util.yaml import load_yaml
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
 from .routing import resolve, validate_config, valid_action
@@ -26,6 +29,10 @@ from .dashboard import register_dashboard
 from .acknowledgement import validate_acknowledgement
 from .lifecycle import notification_tag
 from .smart import DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp
+from .simulation import simulate
+from .callbacks import make_token, read_token
+from .logging_utils import validate_transport_logging, transport_for
+from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliver_native
 
 LANES = ("telegram", "smtp", "notify", "notify")
 
@@ -47,6 +54,11 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("dedup_key"): cv.string,
     vol.Optional("strategy", default="always"): vol.In(("always", "replace", "digest")),
     vol.Optional("acknowledgement"): dict,
+    vol.Optional("test_mode"): vol.In(("off","stage")),
+    vol.Optional("only_if"): vol.Schema({
+        vol.Required("entity_id"): cv.entity_id,
+        vol.Required("state"): cv.string,
+    }),
 })
 JOB_SCHEMA = vol.Schema({vol.Required("id"): vol.All(vol.Coerce(int),vol.Range(min=1)),
                          vol.Optional("dead", default=False): cv.boolean})
@@ -66,8 +78,7 @@ def _load_routes(path):
     file = Path(path)
     if not file.exists():
         return {"recipients": {}, "groups": {}, "persons": {}}
-    with file.open(encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh) or {}
+    raw = load_yaml(file) or {}
     return validate_config(raw)
 
 
@@ -83,7 +94,10 @@ class ReliableNotifyManager:
         self._enqueue_lock = asyncio.Lock()
         self.last_error = None
         self.maintenance_info = {}
+        self.backup_info = {}
         self.min_free_bytes = 100 * 1024 * 1024
+        self.callback_secret = None
+        self._event_unsubscribers = []
 
     @property
     def settings(self):
@@ -123,20 +137,114 @@ class ReliableNotifyManager:
 
     async def start(self):
         await self.reload_routes()
+        self.callback_secret = await asyncio.to_thread(self._load_callback_secret)
+        self._event_unsubscribers = [
+            self.hass.bus.async_listen('telegram_callback', self._on_telegram_action),
+            self.hass.bus.async_listen('mobile_app_notification_action', self._on_mobile_action),
+        ]
         # Dedicated Telegram worker; two independently operating general notify workers.
         for index, lane in enumerate(LANES):
             self.tasks.append(self.hass.async_create_task(self.worker(index, lane), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.media_cleanup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.maintenance_loop(), eager_start=False))
+        self.tasks.append(self.hass.async_create_task(self.backup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.escalation_loop(), eager_start=False))
 
     async def stop(self):
         self.stopping = True
+        for unsubscribe in self._event_unsubscribers:
+            unsubscribe()
+        self._event_unsubscribers.clear()
         self.wakeup.set()
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks.clear()
+
+    def _load_callback_secret(self):
+        path = Path(self.hass.config.path(".storage","reliable_notify_callback_secret"))
+        path.parent.mkdir(parents=True,exist_ok=True)
+        try:
+            fd = os.open(path,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+            try:
+                with os.fdopen(fd,"w",encoding="ascii") as file:
+                    file.write(secrets.token_hex(32))
+            except Exception:
+                path.unlink(missing_ok=True)
+                raise
+        except FileExistsError:
+            pass
+        return path.read_text(encoding="ascii").strip()
+
+    async def _process_action(self, raw, origin):
+        token=read_token(self.callback_secret,raw)
+        if token is None:
+            return False
+        identity,action=token
+        key=await self.store.incident_key_from_action_id(identity)
+        if key is None:
+            return False
+        result=await self.store.act_on_incident(key,action,origin)
+        if result:
+            self.hass.bus.async_fire("reliable_notify_updated", {"kind":"acknowledgement"})
+        return bool(result)
+
+    async def _telegram_feedback(self,event,raw,actor):
+        try:
+            if read_token(self.callback_secret,raw) is None:
+                return  # Never intercept other Telegram bot callbacks.
+            applied=await self._process_action(raw,actor)
+            query_id=event.data.get("id")
+            if not query_id or not self.hass.services.has_service("telegram_bot","answer_callback_query"):
+                return
+            payload={"callback_query_id":str(query_id),
+                     "message":"Aktion übernommen" if applied else "Bereits bearbeitet oder ungültig"}
+            config_id=event.data.get("config_entry_id")
+            if config_id:
+                payload["config_entry_id"]=config_id
+            await self.hass.services.async_call(
+                "telegram_bot","answer_callback_query",payload,blocking=True)
+        except Exception:
+            _LOGGER.warning("Reliable Notify: unable to process Telegram action feedback")
+
+    def _on_telegram_action(self,event):
+        raw=event.data.get("data") or event.data.get("command")
+        actor="telegram:" + str(event.data.get("user_id","unknown"))
+        self.hass.async_create_task(self._telegram_feedback(event,raw,actor))
+
+    def _on_mobile_action(self,event):
+        raw=event.data.get("action")
+        actor="companion:" + str(event.context.user_id or "unknown")
+        self.hass.async_create_task(self._process_action(raw,actor))
+
+    def _action_payload(self,action,payload,key):
+        """Opt-in signed actionable buttons; do not overwrite caller buttons."""
+        if not self.callback_secret:
+            raise ValueError("callback secret unavailable")
+        prepared=dict(payload)
+        tokens={name:make_token(self.callback_secret,key,name)
+                for name in ("ack","snooze","escalate")}
+        if action.startswith("notify.mobile_app_"):
+            native=dict(prepared.get("data") or {})
+            native.setdefault("actions",[
+                {"action":tokens["ack"],"title":"Bestätigen"},
+                {"action":tokens["snooze"],"title":"15 Min. später"},
+                {"action":tokens["escalate"],"title":"Eskalieren"},
+            ])
+            prepared["data"]=native
+        elif action=="telegram_bot.send_message":
+            prepared.setdefault("inline_keyboard",[
+                "Bestätigen:"+tokens["ack"]+", 15 Min. später:"+tokens["snooze"],
+                "Eskalieren:"+tokens["escalate"],
+            ])
+        return prepared
+
+    def preview(self,data):
+        return simulate({
+            "quiet_hours":self.quiet_hours,
+            "archive_retention":self.archive_retention,
+            "default_notify":self.settings.get(CONF_TARGET),
+        },self.routes,data,now=time.time(),timezone=self.hass.config.time_zone)
 
     async def enqueue(self, data):
         try:
@@ -148,7 +256,14 @@ class ReliableNotifyManager:
                 if data.get("action") or data.get("target_entity"):
                     raise ValueError("use either recipients or action/target_entity")
                 names = [recipients] if isinstance(recipients, str) else recipients
-                targets = resolve(self.routes, names, priority=data.get("priority","info"))
+                presence={}
+                for spec in self.routes.get("persons",{}).values():
+                    entity=spec.get("entity")
+                    if entity:
+                        state=self.hass.states.get(entity)
+                        presence[entity]=state.state if state is not None else "unknown"
+                targets = resolve(self.routes, names, priority=data.get("priority","info"),
+                                  presence=presence)
             else:
                 # No default and no explicitly addressed recipient: persist for review,
                 # never guess a mobile/Telegram destination.
@@ -170,7 +285,16 @@ class ReliableNotifyManager:
                 target = rec.get("target_entity", "") if action in ("notify.send_message", "smtp.send_message") else ("(staged)" if action == "reliable_notify.staged" else name or action)
                 if action in ("notify.send_message", "smtp.send_message") and not str(target).startswith("notify."):
                     raise ValueError("notify.send_message requires a notify entity")
-                payload = {**rec.get("data", {}), **extra}
+                if action in NATIVE_ACTIONS:
+                    if not name:
+                        raise ValueError("native transports require a named recipient")
+                    payload=native_public_payload(action,rec.get("data",{}),extra)
+                else:
+                    payload = {**rec.get("data", {}), **extra}
+                if ack_plan is not None:
+                    payload=self._action_payload(action,payload,ack_plan["key"])
+                if data.get("only_if"):
+                    payload["__rn_condition"]=dict(data["only_if"])
                 if any(k in payload for k in ("message", "title", "entity_id")):
                     raise ValueError("transport data may not override message/title/entity_id")
                 if action.startswith("telegram_bot.") and not any(k in payload for k in ("chat_id", "entity_id", "config_entry_id")):
@@ -179,12 +303,23 @@ class ReliableNotifyManager:
                     raise ValueError("Telegram photo requires data.file or data.url")
                 days = retention_for_message(data, self.archive_retention)
                 jobs.append(dict(message=data["message"], title=data.get("title"),
-                    target=target, action=action, payload=payload,
+                    target=target, route_name=name, action=action, payload=payload,
                     priority=data.get("priority", "info"), ttl=data.get("ttl", 0),
                     dedup_key=data.get("dedup_key"), strategy=data.get("strategy", "always"),
                     archive_url=self.settings.get('archive_url') or None,
                     archive_days=days,
                     message_type=data.get('message_type') or data.get('priority', 'info')))
+            stage_all = data.get("test_mode")=="stage"
+            configured_test = self.settings.get("test_mode","off")=="stage"
+            test_targets = set(self.settings.get("test_recipients",[]))
+            for job in jobs:
+                if stage_all or (configured_test and (
+                    not test_targets or job["target"] in test_targets
+                    or job.get("route_name") in test_targets)):
+                    job["action"]="reliable_notify.staged"
+                    job["target"]="(test-mode)"
+                    job["payload"]={}
+                    job["archive_url"]=None
             if data.get("strategy")=="digest" and (
                 data.get("media","text")!="text" or "file" in extra or
                 "attachments" in extra or "media_source" in extra
@@ -199,6 +334,8 @@ class ReliableNotifyManager:
                     if not job.get("dedup_key"):
                         raise ValueError("digest requires dedup_key")
                     job["digest_window_seconds"]=int(self.settings.get("digest_window_seconds",300))
+            if any(job["action"]=="reliable_notify.staged" for job in jobs):
+                ack_plan=None  # Test/staged messages must never escalate.
             if jobs and ack_plan:
                 jobs[0]['ack_plan'] = ack_plan
             snapshots = []
@@ -240,6 +377,22 @@ class ReliableNotifyManager:
         return result
 
     async def _deliver(self, item):
+        try:
+            saved_payload=json.loads(item.get("payload_json") or "{}")
+        except (TypeError,ValueError):
+            raise ValueError("persisted transport payload is not JSON")
+        requirement=saved_payload.pop("__rn_condition",None)
+        if requirement:
+            state=self.hass.states.get(requirement["entity_id"])
+            if state is None or state.state!=requirement["state"]:
+                return False   # stale: never send an obsolete window/door alarm
+        item={**item,"payload_json":json.dumps(saved_payload)}
+        if item["action"] in NATIVE_ACTIONS:
+            record=self.routes.get("recipients",{}).get(item["target"])
+            if not record or record.get("action")!=item["action"]:
+                raise ValueError("configured native transport recipient no longer exists")
+            await async_deliver_native(self.hass,item["action"],record,item)
+            return True
         (domain, service), payload = create_payload(item)
         if not self.hass.services.has_service(domain, service):
             raise HomeAssistantError(f"Service unavailable: {domain}.{service}")
@@ -247,6 +400,7 @@ class ReliableNotifyManager:
         await asyncio.wait_for(
             self.hass.services.async_call(domain, service, payload, blocking=True, target=target),
             timeout=35)
+        return True
 
     async def media_cleanup_loop(self):
         while not self.stopping:
@@ -274,22 +428,55 @@ class ReliableNotifyManager:
             except Exception:
                 _LOGGER.exception("Reliable Notify maintenance failed")
 
+    async def create_backup(self):
+        if not self.settings.get("backup_enabled",True):
+            raise ValueError("Reliable Notify backup disabled in settings")
+        directory=self.hass.config.path(".storage","reliable_notify_backups")
+        self.backup_info=await self.store.online_backup(
+            directory,keep=int(self.settings.get("backup_keep",3)),
+            min_free_bytes=self.min_free_bytes)
+        self.backup_info["created_at"]=time.time()
+        self.hass.bus.async_fire("reliable_notify_updated",{"kind":"backup"})
+        return self.backup_info
+
+    async def backup_loop(self):
+        while not self.stopping:
+            try:
+                await asyncio.sleep(60 if not self.backup_info else 7*86400)
+                if self.settings.get("backup_enabled",True):
+                    await self.create_backup()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("Reliable Notify online backup failed")
+
     async def escalation_loop(self):
         while not self.stopping:
             try:
                 await asyncio.sleep(15)
                 for job in await self.store.due_escalations():
-                    # The same dedup key makes retries of the scheduler idempotent
-                    # while the message remains queued.
-                    index = job["step_index"]
-                    await self.enqueue({
-                        "message": job["message"], "title": job["title"],
-                        "priority": job["priority"],
-                        "recipients": job["step"]["recipients"],
-                        "dedup_key": "rn_escalate_" + job["ack_key"] + "_" + str(index),
-                        "strategy": "replace",
-                    })
-                    await self.store.escalation_completed(job["ack_key"], index)
+                    # Validate and prepare all routes before the transaction.
+                    routes=resolve(self.routes,job["step"]["recipients"],
+                                   priority=job["priority"])
+                    prepared=[]
+                    for name,rec in routes:
+                        action=rec.get("action","notify.send_message")
+                        if not valid_action(action) or action=="telegram_bot.send_photo":
+                            raise ValueError("escalation only supports text transports")
+                        item=dict(rec)
+                        data=rec.get("data",{})
+                        if action in NATIVE_ACTIONS:
+                            data=native_public_payload(action,data,{})
+                        else:
+                            data=self._action_payload(action,data,job["ack_key"])
+                        item["data"]=data
+                        prepared.append((name,item))
+                    # Both message insertion and step advancement commit together.
+                    inserted=await self.store.enqueue_escalation_atomic(
+                        job["ack_key"],job["step_index"],prepared,MAX_QUEUE)
+                    if inserted:
+                        self.wakeup.set()
+                        self.hass.bus.async_fire("reliable_notify_updated", {"kind":"escalation"})
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -303,7 +490,7 @@ class ReliableNotifyManager:
                     rate_limit_per_minute=int(self.settings.get("rate_limit_per_minute",10)))
                 if item:
                     try:
-                        await self._deliver(item)
+                        delivered=await self._deliver(item)
                     except asyncio.CancelledError:
                         raise
                     except Exception as err:
@@ -311,8 +498,15 @@ class ReliableNotifyManager:
                         classification = classify_error(err)
                         policy = self.policies[item['priority']]
                         # Provider error messages may contain secrets; keep logs generic.
-                        _LOGGER.warning("Reliable Notify #%s %s failed (%s)",
-                                        item["id"], item['action'], classification.kind)
+                        log_policy=validate_transport_logging(
+                            self.settings.get("transport_logging",{}))
+                        channel=transport_for(item["action"])
+                        levels={"error":logging.ERROR,"warning":logging.WARNING,
+                                "info":logging.INFO,"debug":logging.DEBUG}
+                        if log_policy[channel]!="off":
+                            _LOGGER.log(levels[log_policy[channel]],
+                                        "Reliable Notify #%s transport=%s category=%s",
+                                        item["id"],channel,classification.kind)
                         await self.store.failed(item["id"], item["attempts"] + 1,
                                                 f"{type(err).__name__}: {classification.kind}",
                                                 policy['base_seconds'],
@@ -322,7 +516,17 @@ class ReliableNotifyManager:
                                                 retry_after=classification.retry_after,
                                                 category=classification.kind)
                     else:
-                        await self.store.succeeded(item["id"])
+                        if delivered:
+                            await self.store.succeeded(item["id"])
+                        else:
+                            await self.store.suppress(item["id"])
+                        channel=transport_for(item["action"])
+                        level=validate_transport_logging(
+                            self.settings.get("transport_logging",{}))[channel]
+                        if delivered and level in ("debug","info"):
+                            _LOGGER.log(logging.DEBUG if level=="debug" else logging.INFO,
+                                        "Reliable Notify #%s accepted by transport=%s",
+                                        item["id"],channel)
                     self.hass.bus.async_fire("reliable_notify_updated", {"kind":"delivery"})
                     await asyncio.sleep(0)
                     continue
@@ -346,13 +550,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         register_dashboard(hass)
         await hass.http.async_register_static_paths([
             StaticPathConfig('/reliable_notify/reliable-notify-card.js',
-                str(Path(__file__).parent / 'reliable-notify-card.js'), False)
+                str(Path(__file__).parent / 'reliable-notify-card.js'), False),
+            StaticPathConfig('/reliable_notify/reliable-notify-panel.js',
+                str(Path(__file__).parent / 'reliable-notify-panel.js'), False),
         ])
         hass.data['reliable_notify_dashboard_registered'] = True
+    if not hass.data.get("reliable_notify_panel_registered"):
+        await panel_custom.async_register_panel(
+            hass, webcomponent_name="reliable-notify-panel",
+            frontend_url_path="reliable-notify",
+            sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
+            module_url="/reliable_notify/reliable-notify-panel.js",
+            require_admin=True)
+        hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
 
     async def enqueue(call: ServiceCall):
         await manager.enqueue(call.data)
+
+    async def simulate_action(call: ServiceCall):
+        """Read-only preview for HA automations; never persist or send."""
+        return manager.preview(call.data)
+
+    async def create_backup(call: ServiceCall):
+        return await manager.create_backup()
 
     async def retry(call: ServiceCall):
         await manager.store.retry_all()
@@ -417,6 +638,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         ("retry_one", retry_one, JOB_SCHEMA), ("delete_one", delete_one, JOB_SCHEMA),
     ):
         hass.services.async_register(DOMAIN, name, fn, schema=schema)
+    hass.services.async_register(
+        DOMAIN,"simulate",simulate_action,schema=ENQUEUE_SCHEMA,
+        supports_response=SupportsResponse.ONLY)
+    from homeassistant.helpers.service import async_register_admin_service
+    async_register_admin_service(
+        hass,DOMAIN,"backup",create_backup,schema=vol.Schema({}),
+        supports_response=SupportsResponse.ONLY)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button"])
     entry.async_on_unload(entry.add_update_listener(_reload_entry))
     return True
@@ -428,10 +656,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     manager = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if manager is not None:
         await manager.stop()
-    # Handlers and static assets are registered once per HA lifetime.
+    # WebSocket endpoints are HA-lifetime registrations; panel can be re-added on reload.
     if not hass.data.get(DOMAIN):
+        frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
+        hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup'):
             hass.services.async_remove(DOMAIN, service)
     return True
 

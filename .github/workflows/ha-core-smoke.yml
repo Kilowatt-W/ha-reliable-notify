@@ -1,0 +1,47 @@
+name: Home Assistant Core import smoke
+
+on:
+  pull_request:
+    paths:
+      - "custom_components/reliable_notify/**"
+      - ".github/workflows/ha-core-smoke.yml"
+  push:
+    branches:
+      - main
+      - "develop/**"
+    paths:
+      - "custom_components/reliable_notify/**"
+      - ".github/workflows/ha-core-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  import_smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import custom integration against Home Assistant Core runtime
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            --entrypoint python3 \
+            ghcr.io/home-assistant/home-assistant:stable \
+            -c '
+          import importlib, sys
+          sys.path.insert(0, "/workspace")
+          files = (
+              "custom_components.reliable_notify",
+              "custom_components.reliable_notify.config_flow",
+              "custom_components.reliable_notify.sensor",
+              "custom_components.reliable_notify.dashboard",
+              "custom_components.reliable_notify.native_transport",
+              "custom_components.reliable_notify.simulation",
+          )
+          for module in files:
+              imported = importlib.import_module(module)
+              print("OK", imported.__name__)
+          print("Home Assistant integration imports successfully")
+          '

@@ -1,14 +1,100 @@
 {
-  "config": {"step": {"user": {"title": "Set up Reliable Notify", "data": {"target_entity": "Default notify entity", "retry_interval": "Base retry interval (seconds)"}}}, "abort": {"already_configured": "Already configured"}},
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Reliable Notify",
+        "data": {
+          "target_entity": "Optional default notify entity",
+          "retry_interval": "Base retry interval (seconds)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Already configured"
+    }
+  },
   "options": {
     "step": {
-      "init": {"title": "Manage Reliable Notify", "data": {"manage": "Choose configuration task"}},
-      "settings": {"title": "General settings", "data": {"target_entity": "Default notify entity", "retry_interval": "Base retry interval (seconds)"}},
-      "recipient": {"title": "Add or update recipient", "description": "Enter an existing Home Assistant notification action and its transport parameters. For custom legacy notify services use the YAML routes file.", "data": {"name": "Logical recipient name", "action": "Transport action", "target_entity": "Notify entity (modern notify only)", "data_json": "Transport parameters (JSON)"}},
-      "group": {"title": "Add or update group", "description": "Members may be recipients or other groups, separated by commas.", "data": {"name": "Group name", "members": "Members (comma separated)"}},
-      "delete": {"title": "Delete UI-defined route", "data": {"route": "Route"}}
+      "init": {
+        "title": "Manage Reliable Notify",
+        "data": {
+          "manage": "Configuration area"
+        }
+      },
+      "settings": {
+        "title": "General settings",
+        "data": {
+          "target_entity": "Optional default notify entity",
+          "retry_interval": "Base retry interval (seconds)",
+          "archive_url": "Notification archive view URL",
+          "dead_letter_days": "Noncritical dead-letter retention (days)"
+        }
+      },
+      "recipient": {
+        "title": "Add or update recipient",
+        "data": {
+          "name": "Recipient alias",
+          "action": "Home Assistant action",
+          "target_entity": "Notify target entity",
+          "data_json": "Transport parameters (JSON)"
+        }
+      },
+      "person": {
+        "title": "Add or update person",
+        "data": {
+          "name": "Person alias",
+          "settings_json": "Channels and presence rules (JSON)"
+        }
+      },
+      "group": {
+        "title": "Add or update group",
+        "data": {
+          "name": "Group alias",
+          "members": "Members separated by commas"
+        }
+      },
+      "delete": {
+        "title": "Delete UI-managed route",
+        "data": {
+          "route": "Route"
+        }
+      },
+      "retries": {
+        "title": "Central retry policies",
+        "data": {
+          "policies_json": "Retry policy JSON"
+        }
+      },
+      "retention": {
+        "title": "Archive retention by message type",
+        "data": {
+          "days_json": "Retention policy JSON"
+        }
+      },
+      "smart": {
+        "title": "Quiet hours and digest",
+        "data": {
+          "quiet_hours_json": "Quiet hours JSON",
+          "rate_limit_per_minute": "Attempts/minute per endpoint",
+          "digest_window_seconds": "Digest window (seconds)"
+        }
+      },
+      "testing": {
+        "title": "Test mode, logging and backups",
+        "data": {
+          "test_mode": "Test mode",
+          "test_recipients": "Affected recipient aliases (comma-separated)",
+          "transport_logging_json": "Transport logging levels (JSON)",
+          "backup_enabled": "Enable weekly SQLite backups",
+          "backup_keep": "Backups to retain"
+        }
+      }
     },
-    "error": {"invalid_route": "Invalid route: check recipients, group members, Telegram target and JSON."},
-    "abort": {"no_routes": "No UI-defined routes to delete"}
+    "error": {
+      "invalid_route": "Invalid configuration, verify JSON, routes and parameters."
+    },
+    "abort": {
+      "no_routes": "No UI-managed routes available"
+    }
   }
 }

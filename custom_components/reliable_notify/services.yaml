@@ -79,6 +79,17 @@ enqueue:
             - always
             - replace
             - digest
+    only_if:
+      description: Optional current HA entity-state guard; suppress the notification before delivery if the state no longer matches (for example a closed window).
+      selector:
+        object:
+    test_mode:
+      description: Force local staging for this notification, with no delivery or escalation.
+      selector:
+        select:
+          options:
+            - "off"
+            - stage
 retry_all:
   name: Retry waiting messages
   description: Schedule queued notifications for immediate retry.
@@ -171,3 +182,35 @@ dismiss:
       required: true
       selector:
         object:
+
+simulate:
+  name: Simulate routing (no delivery)
+  description: Read-only preview of recipients, priorities, quiet hours and archive lifetime. Does not write SQLite or send pushes. Requires response_variable.
+  fields:
+    message:
+      required: true
+      selector:
+        text:
+          multiline: true
+    recipients:
+      selector:
+        object:
+    priority:
+      selector:
+        select:
+          options:
+            - info
+            - warning
+            - critical
+    message_type:
+      selector:
+        text:
+    archive_days:
+      selector:
+        number:
+          min: 0
+          max: 365
+
+backup:
+  name: Create consistent SQLite backup
+  description: Admin-only online SQLite snapshot with integrity check. Requires response_variable. Retains configured number of prior snapshots.

@@ -2,6 +2,10 @@
 from __future__ import annotations
 import asyncio
 import json
+import hashlib
+import os
+import shutil
+import tempfile
 import sqlite3
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -52,6 +56,13 @@ class QueueStore:
                 next_step INTEGER NOT NULL DEFAULT 0,
                 acknowledged_at REAL, acknowledged_by TEXT
             )""")
+            cols_ack={r[1] for r in con.execute("PRAGMA table_info(acknowledgements)")}
+            if "action_id" not in cols_ack:
+                con.execute("ALTER TABLE acknowledgements ADD COLUMN action_id TEXT")
+            for (key,) in con.execute("SELECT ack_key FROM acknowledgements WHERE action_id IS NULL"):
+                digest=hashlib.sha256(key.encode("utf8")).hexdigest()[:16]
+                con.execute("UPDATE acknowledgements SET action_id=? WHERE ack_key=?",(digest,key))
+            con.execute("CREATE INDEX IF NOT EXISTS idx_ack_action ON acknowledgements(action_id)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_ack_active ON acknowledgements(acknowledged_at,created_at)")
             con.execute("""CREATE TABLE IF NOT EXISTS send_rate_windows (
                 bucket TEXT PRIMARY KEY, window_start REAL NOT NULL,
@@ -80,6 +91,9 @@ class QueueStore:
                 target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
                 status TEXT NOT NULL, attempts INTEGER NOT NULL, occurred_at REAL NOT NULL,
                 detail TEXT)""")
+            history_cols={col[1] for col in con.execute("PRAGMA table_info(delivery_history)")}
+            if "duration_ms" not in history_cols:
+                con.execute("ALTER TABLE delivery_history ADD COLUMN duration_ms INTEGER")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_time ON delivery_history(occurred_at)")
             con.execute("""CREATE TABLE IF NOT EXISTS message_archive (
                 id INTEGER PRIMARY KEY, title TEXT, message TEXT NOT NULL,
@@ -212,15 +226,17 @@ class QueueStore:
                 ack=items[0]["ack_plan"]
                 con.execute("""INSERT INTO acknowledgements(
                     ack_key,message_id,title,message,priority,created_at,steps_json,
-                    next_step,acknowledged_at,acknowledged_by)
-                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL)
+                    next_step,acknowledged_at,acknowledged_by,action_id)
+                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?)
                     ON CONFLICT(ack_key) DO UPDATE SET
                     message_id=excluded.message_id,title=excluded.title,
                     message=excluded.message,priority=excluded.priority,
                     created_at=excluded.created_at,steps_json=excluded.steps_json,
-                    next_step=0,acknowledged_at=NULL,acknowledged_by=NULL""",
+                    next_step=0,acknowledged_at=NULL,acknowledged_by=NULL,
+                    action_id=excluded.action_id""",
                     (ack["key"],ids[0],items[0].get("title"),items[0]["message"],
-                     items[0]["priority"],now,json.dumps(ack["steps"])))
+                     items[0]["priority"],now,json.dumps(ack["steps"]),
+                     hashlib.sha256(ack["key"].encode("utf8")).hexdigest()[:16]))
             return ids
         return await self._run(op)
 
@@ -279,6 +295,19 @@ class QueueStore:
             return dict(row) if row else None
         return await self._run(op)
 
+    async def suppress(self, identifier):
+        """Permanently drop an obsolete state-guarded delivery, not a failure."""
+        now=time.time()
+        def op(con):
+            row=con.execute("SELECT target,action,priority,attempts FROM messages WHERE id=?",(identifier,)).fetchone()
+            if con.execute("DELETE FROM messages WHERE id=?",(identifier,)).rowcount:
+                self._history(con,identifier,row,"suppressed",None)
+                con.execute("UPDATE message_archive SET status='suppressed',updated_at=? WHERE id=?",(now,identifier))
+                con.execute("DELETE FROM message_archive WHERE id=? AND retention_days=0",(identifier,))
+                return 1
+            return 0
+        return await self._run(op)
+
     async def succeeded(self, identifier):
         def op(con):
             row = con.execute("SELECT target,action,priority,attempts FROM messages WHERE id=?",(identifier,)).fetchone()
@@ -297,9 +326,11 @@ class QueueStore:
     @staticmethod
     def _history(con, identifier, row, status, detail):
         if row is not None:
+            created=con.execute("SELECT created_at FROM message_archive WHERE id=?",(identifier,)).fetchone()
+            duration=max(0,int((time.time()-created[0])*1000)) if created else None
             con.execute("""INSERT INTO delivery_history(message_id,target,action,priority,status,
-                attempts,occurred_at,detail) VALUES (?,?,?,?,?,?,?,?)""",
-                (identifier,row[0],row[1],row[2],status,row[3],time.time(),(detail or "")[:300]))
+                attempts,occurred_at,detail,duration_ms) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (identifier,row[0],row[1],row[2],status,row[3],time.time(),(detail or "")[:300],duration))
             # Bound history to 2000 entries and 30 days.
             con.execute("DELETE FROM delivery_history WHERE occurred_at<?",(time.time()-30*86400,))
             con.execute("""DELETE FROM delivery_history WHERE history_id NOT IN
@@ -358,6 +389,50 @@ class QueueStore:
             return updated
         return await self._run(op)
 
+    async def online_backup(self,directory,keep=3,min_free_bytes=100*1024*1024):
+        """Online-consistent SQLite snapshot, including uncheckpointed WAL data.
+
+        Never copy the live .db file directly. Backup uses SQLite backup API
+        under the store lock; failure leaves no final/partial backup file.
+        """
+        if type(keep) is not int or not 1<=keep<=20:
+            raise ValueError("backup retention must be 1..20")
+        path=Path(directory)
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._online_backup_sync,path,keep,min_free_bytes)
+
+    def _online_backup_sync(self,directory,keep,min_free_bytes):
+        directory.mkdir(parents=True,exist_ok=True)
+        source_size=self.path.stat().st_size if self.path.exists() else 0
+        if shutil.disk_usage(directory).free < max(source_size*2,10*1024*1024)+min_free_bytes:
+            raise OSError("not enough space for online SQLite snapshot")
+        stamp=time.strftime("%Y%m%d-%H%M%S",time.localtime())
+        destination=directory/f"reliable_notify-{stamp}-{time.time_ns()}.sqlite3"
+        fd,temp=tempfile.mkstemp(prefix=".rn-backup-",suffix=".sqlite3",dir=directory)
+        os.close(fd)
+        try:
+            source=sqlite3.connect(self.path,timeout=15)
+            target=sqlite3.connect(temp,timeout=15)
+            try:
+                source.backup(target,pages=128,sleep=0.1)
+                result=target.execute("PRAGMA quick_check(1)").fetchone()[0]
+                if result!="ok":
+                    raise OSError("backup integrity check failed")
+                target.commit()
+            finally:
+                target.close()
+                source.close()
+            os.replace(temp,destination)
+            backups=sorted(directory.glob("reliable_notify-*.sqlite3"),
+                           key=lambda p:p.stat().st_mtime,reverse=True)
+            for old in backups[keep:]:
+                old.unlink(missing_ok=True)
+            return {"filename":destination.name,"bytes":destination.stat().st_size,
+                    "integrity":"ok"}
+        finally:
+            Path(temp).unlink(missing_ok=True)
+
     async def maintenance(self, dead_letter_days=30):
         """Prune old noncritical failures and inspect database health.
 
@@ -408,11 +483,8 @@ class QueueStore:
             con.close()
 
     async def acknowledgement(self, key, by="manual"):
-        now=time.time()
-        def op(con):
-            return con.execute("""UPDATE acknowledgements SET acknowledged_at=?,acknowledged_by=?
-                WHERE ack_key=? AND acknowledged_at IS NULL""",(now,by[:100],key)).rowcount
-        return await self._run(op)
+        """Public legacy ACK method delegates to atomic incident state update."""
+        return int(await self.act_on_incident(key,"ack",by))
 
     async def active_acknowledgements(self, limit=50):
         def op(con):
@@ -448,6 +520,91 @@ class QueueStore:
                 (key,index)).rowcount
         return await self._run(op)
 
+    async def enqueue_escalation_atomic(self, key, index, recipients, limit=1000):
+        """Commit escalation jobs and stage advancement in one SQLite transaction.
+
+        No duplicate jobs after process restart/crash at the enqueue boundary.
+        Recipients are already validated by the HA routing layer. Only text
+        transport jobs are accepted (no media/attachments).
+        """
+        now=time.time()
+        def op(con):
+            con.row_factory=sqlite3.Row
+            ack=con.execute("""SELECT ack_key,message,title,priority,created_at,
+                steps_json,next_step,acknowledged_at FROM acknowledgements
+                WHERE ack_key=?""",(key,)).fetchone()
+            if not ack or ack["acknowledged_at"] is not None or ack["next_step"]!=index:
+                return []
+            steps=json.loads(ack["steps_json"])
+            if index>=len(steps) or ack["created_at"]+steps[index]["after"]>now:
+                return []
+            if con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]+len(recipients)>limit:
+                raise OverflowError("queue full; escalation deferred")
+            ids=[]
+            for name,rec in recipients:
+                action=rec.get("action","notify.send_message")
+                if action=="reliable_notify.staged" or action=="telegram_bot.send_photo":
+                    raise ValueError("escalation text only")
+                target=rec.get("target_entity","") if action in ("notify.send_message","smtp.send_message") else name
+                payload=json.dumps(rec.get("data",{}),ensure_ascii=False,allow_nan=False)
+                cur=con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
+                    expires_at,next_attempt,created_at,action,payload_json,media_paths_json)
+                    VALUES(?,?,?,?,?,NULL,?,?,?,?,?)""",
+                    (ack["message"],ack["title"],target,ack["priority"],
+                     "rn_esc_"+hashlib.sha256(key.encode("utf8")).hexdigest()[:16],
+                     now,now,action,payload,"[]"))
+                ident=cur.lastrowid
+                ids.append(ident)
+                con.execute("""INSERT INTO message_archive(
+                    id,title,message,target,action,priority,status,created_at,updated_at,message_type,retention_days)
+                    VALUES(?,?,?,?,?,?,'queued',?,?,?,?)""",
+                    (ident,ack["title"],ack["message"],target,action,ack["priority"],
+                     now,now,ack["priority"],30))
+            con.execute("UPDATE acknowledgements SET next_step=next_step+1 WHERE ack_key=?",(key,))
+            return ids
+        return await self._run(op)
+
+    async def incident_key_from_action_id(self,identity):
+        def op(con):
+            row=con.execute("SELECT ack_key FROM acknowledgements WHERE action_id=?",(identity,)).fetchone()
+            return row[0] if row else None
+        return await self._run(op)
+
+    async def act_on_incident(self,key,action,by="callback"):
+        """Atomic ACK, snooze (15m), or immediate next-step escalation."""
+        if action not in ("ack","snooze","escalate"):
+            raise ValueError("unsupported incident action")
+        now=time.time()
+        def op(con):
+            con.row_factory=sqlite3.Row
+            row=con.execute("""SELECT next_step,steps_json FROM acknowledgements
+                WHERE ack_key=? AND acknowledged_at IS NULL""",(key,)).fetchone()
+            if row is None:
+                return False
+            if action=="ack":
+                con.execute("""UPDATE acknowledgements
+                    SET acknowledged_at=?,acknowledged_by=? WHERE ack_key=?""",
+                    (now,by[:100],key))
+                # Cancel unsent escalation stages only; never touch an in-flight lease.
+                esc_key="rn_esc_"+hashlib.sha256(key.encode("utf8")).hexdigest()[:16]
+                ids=[r[0] for r in con.execute("""SELECT id FROM messages
+                    WHERE dedup_key=? AND (lease_until IS NULL OR lease_until<=?)""",
+                    (esc_key,now))]
+                con.executemany("DELETE FROM messages WHERE id=?",[(ident,) for ident in ids])
+                con.executemany("UPDATE message_archive SET status='cancelled',updated_at=? WHERE id=?",
+                                [(now,ident) for ident in ids])
+            elif action=="snooze":
+                con.execute("UPDATE acknowledgements SET created_at=created_at+900 WHERE ack_key=?",(key,))
+            else:
+                steps=json.loads(row["steps_json"])
+                if row["next_step"]>=len(steps):
+                    return False
+                required=steps[row["next_step"]]["after"]
+                con.execute("UPDATE acknowledgements SET created_at=? WHERE ack_key=?",
+                            (now-required-1,key))
+            return True
+        return await self._run(op)
+
     async def archive_list(self, limit=40, search=""):
         """Admin-only searchable index; intentionally no message bodies."""
         def op(con):
@@ -477,6 +634,37 @@ class QueueStore:
 
     async def dead_count(self):
         return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0])
+
+    async def statistics(self, days=7):
+        """Aggregated metadata only: no message text, tokens, or payloads."""
+        if type(days) is not int or not 1<=days<=30:
+            raise ValueError("days must be 1..30")
+        cutoff=time.time()-days*86400
+        def op(con):
+            con.row_factory=sqlite3.Row
+            transport=[dict(row) for row in con.execute("""
+                SELECT action,COUNT(*) AS events,
+                  SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent,
+                  SUM(CASE WHEN status='dead' THEN 1 ELSE 0 END) AS failed,
+                  ROUND(AVG(CASE WHEN status='sent' THEN duration_ms END)/1000.0,2) AS avg_delivery_seconds,
+                  MAX(occurred_at) AS last_event
+                FROM delivery_history WHERE occurred_at>=?
+                GROUP BY action ORDER BY events DESC""",(cutoff,))]
+            byday=[dict(row) for row in con.execute("""
+                SELECT date(occurred_at,'unixepoch') AS day,status,
+                  COUNT(*) AS count FROM delivery_history
+                WHERE occurred_at>=? GROUP BY day,status ORDER BY day""",(cutoff,))]
+            ack=con.execute("""SELECT COUNT(*),SUM(acknowledged_at IS NOT NULL),
+                AVG(CASE WHEN acknowledged_at IS NOT NULL
+                    THEN acknowledged_at-created_at END)
+                FROM acknowledgements WHERE created_at>=?""",(cutoff,)).fetchone()
+            queued=con.execute("SELECT COUNT(*),MIN(created_at) FROM messages WHERE action!='reliable_notify.staged'").fetchone()
+            return {"transports":transport,"timeline":byday,
+                    "acknowledgements":{"total":ack[0],"confirmed":ack[1] or 0,
+                                        "avg_seconds":round(ack[2],1) if ack[2] is not None else None},
+                    "queued":queued[0],"oldest_queued_seconds":
+                        round(time.time()-queued[1],1) if queued[1] else None}
+        return await self._run(op)
 
     async def metrics(self):
         return await self._run(lambda con: dict(con.execute("SELECT key,value FROM metrics").fetchall()))

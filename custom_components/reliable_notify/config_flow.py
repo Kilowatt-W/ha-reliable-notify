@@ -12,6 +12,7 @@ from .routing import validate_config
 from .retry import validate_policies, DEFAULT_POLICIES
 from .retention import validate_retention, DEFAULT_RETENTION
 from .smart import validate_quiet_hours, DEFAULT_QUIET_HOURS
+from .logging_utils import validate_transport_logging
 
 
 class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -57,6 +58,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             operation = user_input.get('manage', 'settings')
             if operation == 'smart':
                 return await self.async_step_smart()
+            if operation == 'testing':
+                return await self.async_step_testing()
             if operation == 'retention':
                 return await self.async_step_retention()
             if operation == 'retries':
@@ -74,6 +77,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Required('manage', default='settings'): vol.In({
                 'settings': 'General settings',
                 'smart': 'Quiet hours, delivery limits and digests',
+                'testing': 'Test mode, diagnostic logging and backup',
                 'retries': 'Retry policies by priority',
                 'retention': 'Archive retention by message type',
                 'recipient': 'Add/update recipient',
@@ -241,4 +245,35 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                 vol.All(vol.Coerce(int),vol.Range(min=1,max=1000)),
             vol.Required("digest_window_seconds",default=current.get("digest_window_seconds",300)):
                 vol.All(vol.Coerce(int),vol.Range(min=10,max=3600)),
+        }))
+
+    async def async_step_testing(self, user_input=None):
+        errors={}
+        if user_input is not None:
+            try:
+                recipients=[x.strip() for x in user_input["test_recipients"].split(",") if x.strip()]
+                if len(recipients)>100:
+                    raise ValueError("too many test recipients")
+                config=validate_transport_logging(json.loads(user_input["transport_logging_json"]))
+                return self.async_create_entry(title='',data={
+                    **self.config_entry.options,
+                    "test_mode":user_input["test_mode"],
+                    "test_recipients":recipients,
+                    "transport_logging":config,
+                    "backup_enabled":user_input["backup_enabled"],
+                    "backup_keep":user_input["backup_keep"],
+                })
+            except (ValueError,TypeError,json.JSONDecodeError):
+                errors["base"]="invalid_route"
+        current=self.config_entry.options
+        return self.async_show_form(step_id="testing",errors=errors,data_schema=vol.Schema({
+            vol.Required("test_mode",default=current.get("test_mode","off")):
+                vol.In(("off","stage")),
+            vol.Optional("test_recipients",default=",".join(current.get("test_recipients",[]))):str,
+            vol.Required("transport_logging_json",
+                default=json.dumps(current.get("transport_logging",{}),indent=2)):
+                selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            vol.Required("backup_enabled",default=current.get("backup_enabled",True)):bool,
+            vol.Required("backup_keep",default=current.get("backup_keep",3)):
+                vol.All(vol.Coerce(int),vol.Range(min=1,max=20)),
         }))

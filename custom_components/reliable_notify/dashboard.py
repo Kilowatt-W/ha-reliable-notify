@@ -199,7 +199,183 @@ def register_dashboard(hass):
         })
         connection.send_result(msg['id'],{'saved':True})
 
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/simulate",
+        vol.Required("notification"): dict,
+    })
+    @websocket_api.async_response
+    async def dry_run(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        try:
+            result=manager.preview(msg["notification"])
+        except (ValueError,TypeError,KeyError) as err:
+            connection.send_error(msg['id'],"invalid_input",str(err))
+            return
+        connection.send_result(msg["id"],result)
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/admin_inventory",
+    })
+    @websocket_api.async_response
+    async def admin_inventory(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        services=hass.services.async_services()
+        phones=sorted("notify."+name for name in services.get("notify",{})
+                      if name.startswith("mobile_app_"))
+        # Never expose per-recipient transport credentials/chat IDs.
+        routes=manager.routes
+        recipients={name:{"action":record.get("action","notify.send_message"),
+                          "target_entity":record.get("target_entity","")}
+                    for name,record in routes.get("recipients",{}).items()}
+        connection.send_result(msg["id"],{
+            "companion_actions":phones,
+            "people":sorted(hass.states.async_entity_ids("person")),
+            "notify_entities":sorted(hass.states.async_entity_ids("notify")),
+            "routes":{"recipients":recipients,"groups":routes.get("groups",{}),
+                      "persons":routes.get("persons",{})},
+            "options_routes":{"recipients":sorted(manager.entry.options.get("routes",{}).get("recipients",{})),
+                             "groups":sorted(manager.entry.options.get("routes",{}).get("groups",{})),
+                             "persons":sorted(manager.entry.options.get("routes",{}).get("persons",{}))},
+        })
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/set_route",
+        vol.Required("category"): vol.In(("recipients","groups","persons")),
+        vol.Required("name"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$"),
+        vol.Optional("definition"): object,
+        vol.Optional("delete",default=False): bool,
+    })
+    @websocket_api.async_response
+    async def set_route(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        from .routing import validate_config
+        category,name=msg["category"],msg["name"]
+        old=manager.entry.options.get("routes",{})
+        updated={kind:dict(old.get(kind,{}))
+                 for kind in ("recipients","groups","persons")}
+        if msg["delete"]:
+            if name not in updated[category]:
+                connection.send_error(msg["id"],"not_managed","Only UI-managed entries may be deleted")
+                return
+            updated[category].pop(name)
+        else:
+            if "definition" not in msg:
+                connection.send_error(msg["id"],"bad_input","Missing route definition")
+                return
+            updated[category][name]=msg["definition"]
+        from . import _load_routes
+        file_routes=await __import__("asyncio").to_thread(_load_routes,manager.route_path)
+        merged={kind:{**file_routes.get(kind,{}),**updated[kind]}
+                for kind in ("recipients","groups","persons")}
+        try:
+            validate_config(merged)
+        except (TypeError,ValueError) as err:
+            connection.send_error(msg["id"],"invalid_route",str(err))
+            return
+        hass.config_entries.async_update_entry(manager.entry,options={
+            **manager.entry.options,"routes":updated,
+        })
+        connection.send_result(msg["id"],{"saved":True})
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/settings_v2",
+        vol.Optional("test_mode"): vol.In(("off","stage")),
+        vol.Optional("test_recipients"): [str],
+        vol.Optional("transport_logging"): dict,
+    })
+    @websocket_api.async_response
+    async def settings_v2(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        from .logging_utils import validate_transport_logging
+        opts=dict(manager.entry.options)
+        if "test_mode" in msg:opts["test_mode"]=msg["test_mode"]
+        if "test_recipients" in msg:
+            if len(msg["test_recipients"])>100 or any(len(x)>100 for x in msg["test_recipients"]):
+                connection.send_error(msg["id"],"invalid_input","Too many test recipients")
+                return
+            opts["test_recipients"]=msg["test_recipients"]
+        if "transport_logging" in msg:
+            try:opts["transport_logging"]=validate_transport_logging(msg["transport_logging"])
+            except ValueError as err:
+                connection.send_error(msg["id"],"invalid_input",str(err))
+                return
+        hass.config_entries.async_update_entry(manager.entry,options=opts)
+        connection.send_result(msg["id"],{"saved":True})
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/incident_action",
+        vol.Required("key"): vol.All(str,vol.Length(min=1,max=128)),
+        vol.Required("action"): vol.In(("ack","snooze","escalate")),
+    })
+    @websocket_api.async_response
+    async def incident_action(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        changed=await manager.store.act_on_incident(
+            msg["key"],msg["action"],connection.user.name or "HA admin")
+        if changed:
+            manager.hass.bus.async_fire("reliable_notify_updated",{"kind":"incident"})
+        connection.send_result(msg["id"],{"changed":bool(changed)})
+
+    @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/statistics",
+        vol.Optional("days",default=7): vol.All(vol.Coerce(int),vol.Range(min=1,max=30)),
+    })
+    @websocket_api.async_response
+    async def statistics(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        stats=await manager.store.statistics(msg["days"])
+        storage=await manager.storage_status()
+        connection.send_result(msg["id"],{
+            **stats,"storage":storage,"maintenance":manager.maintenance_info,
+            "test_mode":manager.settings.get("test_mode","off"),
+            "test_recipients":manager.settings.get("test_recipients",[]),
+            "transport_logging":manager.settings.get("transport_logging",{}),
+            "version":"2.0.0-dev",
+        })
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, dry_run)
+    websocket_api.async_register_command(hass, admin_inventory)
+    websocket_api.async_register_command(hass, set_route)
+    websocket_api.async_register_command(hass, settings_v2)
+    websocket_api.async_register_command(hass, incident_action)
+    websocket_api.async_register_command(hass, statistics)
     websocket_api.async_register_command(hass, set_smart)
     websocket_api.async_register_command(hass, acknowledge_command)
     websocket_api.async_register_command(hass, set_retention)
