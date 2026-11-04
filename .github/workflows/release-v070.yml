@@ -22,6 +22,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: python -m compileall -q custom_components/reliable_notify
+      - run: node --check custom_components/reliable_notify/reliable-notify-card.js
       - run: python -m unittest discover -s tests -v
       - name: Verify version number
         run: |
