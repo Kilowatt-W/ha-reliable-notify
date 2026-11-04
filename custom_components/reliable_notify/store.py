@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import hashlib
+import os
+import shutil
+import tempfile
 import sqlite3
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -372,6 +375,50 @@ class QueueStore:
                 con.execute("UPDATE message_archive SET target=?,action=?,status=\'queued\',updated_at=? WHERE id=?",(target,action,now,identifier))
             return updated
         return await self._run(op)
+
+    async def online_backup(self,directory,keep=3,min_free_bytes=100*1024*1024):
+        """Online-consistent SQLite snapshot, including uncheckpointed WAL data.
+
+        Never copy the live .db file directly. Backup uses SQLite backup API
+        under the store lock; failure leaves no final/partial backup file.
+        """
+        if type(keep) is not int or not 1<=keep<=20:
+            raise ValueError("backup retention must be 1..20")
+        path=Path(directory)
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._online_backup_sync,path,keep,min_free_bytes)
+
+    def _online_backup_sync(self,directory,keep,min_free_bytes):
+        directory.mkdir(parents=True,exist_ok=True)
+        source_size=self.path.stat().st_size if self.path.exists() else 0
+        if shutil.disk_usage(directory).free < max(source_size*2,10*1024*1024)+min_free_bytes:
+            raise OSError("not enough space for online SQLite snapshot")
+        stamp=time.strftime("%Y%m%d-%H%M%S",time.localtime())
+        destination=directory/f"reliable_notify-{stamp}-{os.getpid()}.sqlite3"
+        fd,temp=tempfile.mkstemp(prefix=".rn-backup-",suffix=".sqlite3",dir=directory)
+        os.close(fd)
+        try:
+            source=sqlite3.connect(self.path,timeout=15)
+            target=sqlite3.connect(temp,timeout=15)
+            try:
+                source.backup(target,pages=128,sleep=0.1)
+                result=target.execute("PRAGMA quick_check(1)").fetchone()[0]
+                if result!="ok":
+                    raise OSError("backup integrity check failed")
+                target.commit()
+            finally:
+                target.close()
+                source.close()
+            os.replace(temp,destination)
+            backups=sorted(directory.glob("reliable_notify-*.sqlite3"),
+                           key=lambda p:p.stat().st_mtime,reverse=True)
+            for old in backups[keep:]:
+                old.unlink(missing_ok=True)
+            return {"filename":destination.name,"bytes":destination.stat().st_size,
+                    "integrity":"ok"}
+        finally:
+            Path(temp).unlink(missing_ok=True)
 
     async def maintenance(self, dead_letter_days=30):
         """Prune old noncritical failures and inspect database health.
