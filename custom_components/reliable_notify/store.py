@@ -7,6 +7,8 @@ import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from pathlib import Path
 
+MAX_COMPLETED_ARCHIVE_BYTES = 32 * 1024 * 1024
+
 PRIORITY_ORDER = "CASE priority WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END"
 
 
@@ -82,7 +84,7 @@ class QueueStore:
                       OVER (ORDER BY updated_at DESC,id DESC) AS running_bytes
                     FROM message_archive WHERE id NOT IN
                     (SELECT id FROM messages UNION SELECT id FROM dead_letters)
-                ) WHERE running_bytes > ?)""",(32 * 1024 * 1024,))
+                ) WHERE running_bytes > ?)""",(MAX_COMPLETED_ARCHIVE_BYTES,))
             result = op(con, *args)
             con.commit()
             return result
