@@ -14,3 +14,4 @@ Back up `/config/.storage/reliable_notify.db` and the YAML routes before updatin
 **Status:** Developer release; tested locally against standalone unit tests only. Live HA and SMTP/Telegram tests are still outstanding.
 - Dashboard can edit centralized retry policies directly with an admin-only WebSocket command; bulk retry controls included.
 - 32 local unit tests passed. Runtime tests with real HA and SMTP/Telegram providers still pending.
+- New diagnostic Storage Free sensor polls available media filesystem space every 15 seconds and exposes low-space health.
