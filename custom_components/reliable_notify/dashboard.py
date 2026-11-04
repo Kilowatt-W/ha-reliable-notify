@@ -281,10 +281,8 @@ def register_dashboard(hass):
                 connection.send_error(msg["id"],"bad_input","Missing route definition")
                 return
             updated[category][name]=msg["definition"]
-        file_routes=await __import__("asyncio").to_thread(
-            __import__("functools").partial(__import__("yaml").safe_load,
-                open(manager.route_path,encoding="utf8").read()) ) if __import__("os").path.isfile(manager.route_path) else {}
-        file_routes=file_routes or {}
+        from . import _load_routes
+        file_routes=await __import__("asyncio").to_thread(_load_routes,manager.route_path)
         merged={kind:{**file_routes.get(kind,{}),**updated[kind]}
                 for kind in ("recipients","groups","persons")}
         try:
