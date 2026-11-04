@@ -90,6 +90,7 @@ class ReliableNotifyManager:
         self._enqueue_lock = asyncio.Lock()
         self.last_error = None
         self.maintenance_info = {}
+        self.backup_info = {}
         self.min_free_bytes = 100 * 1024 * 1024
         self.callback_secret = None
         self._event_unsubscribers = []
@@ -142,6 +143,7 @@ class ReliableNotifyManager:
             self.tasks.append(self.hass.async_create_task(self.worker(index, lane), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.media_cleanup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.maintenance_loop(), eager_start=False))
+        self.tasks.append(self.hass.async_create_task(self.backup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.escalation_loop(), eager_start=False))
 
     async def stop(self):
@@ -395,6 +397,28 @@ class ReliableNotifyManager:
             except Exception:
                 _LOGGER.exception("Reliable Notify maintenance failed")
 
+    async def create_backup(self):
+        if not self.settings.get("backup_enabled",True):
+            raise ValueError("Reliable Notify backup disabled in settings")
+        directory=self.hass.config.path(".storage","reliable_notify_backups")
+        self.backup_info=await self.store.online_backup(
+            directory,keep=int(self.settings.get("backup_keep",3)),
+            min_free_bytes=self.min_free_bytes)
+        self.backup_info["created_at"]=time.time()
+        self.hass.bus.async_fire("reliable_notify_updated",{"kind":"backup"})
+        return self.backup_info
+
+    async def backup_loop(self):
+        while not self.stopping:
+            try:
+                await asyncio.sleep(60 if not self.backup_info else 7*86400)
+                if self.settings.get("backup_enabled",True):
+                    await self.create_backup()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("Reliable Notify online backup failed")
+
     async def escalation_loop(self):
         while not self.stopping:
             try:
@@ -502,6 +526,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         """Read-only preview for HA automations; never persist or send."""
         return manager.preview(call.data)
 
+    async def create_backup(call: ServiceCall):
+        return await manager.create_backup()
+
     async def retry(call: ServiceCall):
         await manager.store.retry_all()
         manager.wakeup.set()
@@ -568,6 +595,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.services.async_register(
         DOMAIN,"simulate",simulate_action,schema=ENQUEUE_SCHEMA,
         supports_response=SupportsResponse.ONLY)
+    from homeassistant.helpers.service import async_register_admin_service
+    async_register_admin_service(
+        hass,DOMAIN,"backup",create_backup,schema=vol.Schema({}),
+        supports_response=SupportsResponse.ONLY)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button"])
     entry.async_on_unload(entry.add_update_listener(_reload_entry))
     return True
@@ -584,7 +615,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
         hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup'):
             hass.services.async_remove(DOMAIN, service)
     return True
 
