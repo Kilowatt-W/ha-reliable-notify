@@ -296,22 +296,42 @@ class QueueStore:
 
     async def cancel(self, key, target=None):
         def op(con):
+            now=time.time()
+            sql="SELECT id FROM messages WHERE dedup_key=? AND (lease_until IS NULL OR lease_until<=?)"
+            params=[key,now]
             if target:
-                return con.execute("DELETE FROM messages WHERE dedup_key=? AND target=? AND (lease_until IS NULL OR lease_until<=?)",(key,target,time.time())).rowcount
-            return con.execute("DELETE FROM messages WHERE dedup_key=? AND (lease_until IS NULL OR lease_until<=?)",(key,time.time())).rowcount
+                sql+=" AND target=?"
+                params.append(target)
+            ids=[row[0] for row in con.execute(sql,params)]
+            if not ids:
+                return 0
+            con.executemany("DELETE FROM messages WHERE id=?",[(i,) for i in ids])
+            con.executemany("UPDATE message_archive SET status='cancelled',updated_at=? WHERE id=?",
+                            [(now,i) for i in ids])
+            return len(ids)
         return await self._run(op)
 
     async def clear(self):
-        await self._run(lambda con: con.execute("DELETE FROM messages WHERE lease_until IS NULL OR lease_until<=?",(time.time(),)))
+        def op(con):
+            now=time.time()
+            ids=[row[0] for row in con.execute(
+                "SELECT id FROM messages WHERE lease_until IS NULL OR lease_until<=?",(now,))]
+            con.executemany("DELETE FROM messages WHERE id=?",[(i,) for i in ids])
+            con.executemany("UPDATE message_archive SET status='cleared',updated_at=? WHERE id=?",
+                            [(now,i) for i in ids])
+        await self._run(op)
 
     async def retry_one(self, identifier: int, dead: bool = False):
         """Retry a single eligible job; never mutate a currently leased job."""
         now = time.time()
         def op(con):
             if not dead:
-                return con.execute("""UPDATE messages SET next_attempt=?,lease_until=NULL
+                updated=con.execute("""UPDATE messages SET next_attempt=?,lease_until=NULL
                     WHERE id=? AND action!='reliable_notify.staged' AND (lease_until IS NULL OR lease_until<=?)""",
                     (now,identifier,now)).rowcount
+                if updated:
+                    con.execute("UPDATE message_archive SET status='queued',updated_at=? WHERE id=?",(now,identifier))
+                return updated
             row = con.execute("SELECT * FROM dead_letters WHERE id=? AND (expires_at IS NULL OR expires_at>?)",(identifier,now)).fetchone()
             if not row:
                 return 0
@@ -323,6 +343,7 @@ class QueueStore:
             values[6],values[7],values[9],values[12] = 0,now,None,None
             con.execute(f"INSERT INTO messages ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",values)
             con.execute("DELETE FROM dead_letters WHERE id=?",(identifier,))
+            con.execute("UPDATE message_archive SET status='queued',updated_at=?,attempts=0 WHERE id=?",(now,identifier))
             return 1
         return await self._run(op)
 
