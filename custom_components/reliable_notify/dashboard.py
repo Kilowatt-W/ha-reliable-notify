@@ -9,6 +9,7 @@ from homeassistant.components import websocket_api
 
 from .const import DOMAIN
 from .retry import validate_policies
+from .retention import validate_retention
 
 
 def register_dashboard(hass):
@@ -33,7 +34,7 @@ def register_dashboard(hass):
             'queue': recent, 'dead_letters': dead_recent, 'history': history,
             'staged': staged, 'staged_count': len(staged),
             'recipient_names': sorted(manager.routes['recipients']),
-            'policies': manager.policies, 'storage': await manager.storage_status(),
+            'policies': manager.policies, 'retention': manager.archive_retention, 'storage': await manager.storage_status(),
         })
 
     @websocket_api.websocket_command({
@@ -125,7 +126,31 @@ def register_dashboard(hass):
             return
         connection.send_result(msg['id'], item)
 
+    @websocket_api.websocket_command({
+        vol.Required('type'): 'reliable_notify/set_archive_retention',
+        vol.Required('retention'): dict,
+    })
+    @websocket_api.async_response
+    async def set_retention(hass, connection, msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'], 'unauthorized', 'Administrator required')
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
+            return
+        try:
+            configured = validate_retention(msg['retention'])
+        except ValueError as err:
+            connection.send_error(msg['id'], 'invalid_retention', str(err))
+            return
+        hass.config_entries.async_update_entry(manager.entry, options={
+            **manager.entry.options, 'archive_retention': configured,
+        })
+        connection.send_result(msg['id'], {'saved': True})
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, set_retention)
     websocket_api.async_register_command(hass, archive_search)
     websocket_api.async_register_command(hass, archive_detail)
     websocket_api.async_register_command(hass, send_staged)
