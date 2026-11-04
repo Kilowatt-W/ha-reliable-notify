@@ -276,6 +276,46 @@ class QueueStore:
             return updated
         return await self._run(op)
 
+    async def maintenance(self, dead_letter_days=30):
+        """Prune old noncritical failures and inspect database health.
+
+        Critical dead letters are deliberately excluded from automatic
+        deletion. Checkpoint uses PASSIVE and never forces active writers.
+        """
+        if type(dead_letter_days) is not int or not 1 <= dead_letter_days <= 365:
+            raise ValueError("dead_letter_days must be an integer 1..365")
+        now=time.time()
+        def prune(con):
+            candidates=[row[0] for row in con.execute(
+                """SELECT id FROM dead_letters WHERE priority!='critical'
+                   AND failed_at<?""",(now-dead_letter_days*86400,))]
+            for (ident,) in [(x,) for x in candidates]:
+                con.execute("DELETE FROM dead_letters WHERE id=?",(ident,))
+                con.execute("UPDATE message_archive SET status='dead_expired',updated_at=? WHERE id=?",
+                            (now,ident))
+            return len(candidates)
+        removed=await self._run(prune)
+        async with self._lock:
+            result=await asyncio.to_thread(self._maintenance_probe)
+        result["removed_dead_letters"]=removed
+        return result
+
+    def _maintenance_probe(self):
+        con=sqlite3.connect(self.path, timeout=15)
+        try:
+            con.execute("PRAGMA busy_timeout=15000")
+            integrity=con.execute("PRAGMA quick_check(1)").fetchone()[0]
+            checkpoint=con.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchone()
+            size=sum(p.stat().st_size for p in (
+                self.path, Path(str(self.path)+"-wal"), Path(str(self.path)+"-shm")
+            ) if p.exists())
+            dead=con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0]
+            critical=con.execute("SELECT COUNT(*) FROM dead_letters WHERE priority='critical'").fetchone()[0]
+            return {"integrity":integrity,"checkpoint_busy":checkpoint[0],
+                    "database_bytes":size,"dead_letters":dead,"critical_dead_letters":critical}
+        finally:
+            con.close()
+
     async def archive_list(self, limit=40, search=""):
         """Admin-only searchable index; intentionally no message bodies."""
         def op(con):
