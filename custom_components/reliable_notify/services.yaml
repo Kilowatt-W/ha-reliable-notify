@@ -41,6 +41,24 @@ enqueue:
             - info
             - warning
             - critical
+    message_type:
+      description: Archive category, such as windows, pvec, security, or default priority.
+      selector:
+        text:
+    archive:
+      description: Keep in archive, or delete immediately after successful delivery.
+      selector:
+        select:
+          options:
+            - keep
+            - delete_after_send
+    archive_days:
+      description: Explicit retention override in days. Zero deletes after successful delivery.
+      selector:
+        number:
+          min: 0
+          max: 365
+          mode: box
     ttl:
       selector:
         number:
