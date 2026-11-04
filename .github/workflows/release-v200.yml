@@ -1,0 +1,94 @@
+name: Publish Reliable Notify v2.0.0
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - RELEASE_NOTES_v2.0.0.md
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reliable-notify-release-v2.0.0
+  cancel-in-progress: false
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m compileall -q custom_components/reliable_notify
+      - run: node --check custom_components/reliable_notify/reliable-notify-card.js
+      - run: node --input-type=module --check < custom_components/reliable_notify/reliable-notify-panel.js
+      - run: python -m unittest discover -s tests -v
+      - name: Verify version number
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          assert json.loads(Path("custom_components/reliable_notify/manifest.json").read_text())["version"] == "2.0.0"
+          PY
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  home_assistant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify integration imports with real Home Assistant Core runtime
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" --entrypoint python3 \
+            ghcr.io/home-assistant/home-assistant:stable -c '
+          import importlib,sys
+          sys.path.insert(0,"/workspace")
+          for module in (
+              "custom_components.reliable_notify",
+              "custom_components.reliable_notify.config_flow",
+              "custom_components.reliable_notify.dashboard",
+              "custom_components.reliable_notify.native_transport",
+              "custom_components.reliable_notify.sensor",
+          ):
+              importlib.import_module(module)
+              print("Imported",module)
+          '
+
+  publish:
+    needs: [python, hassfest, hacs, home_assistant]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release after validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CURRENT_HEAD=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
+          if [ "$CURRENT_HEAD" != "${GITHUB_SHA}" ]; then
+            echo "Skipping outdated commit; a newer build must be validated."
+            exit 0
+          fi
+          if gh release view v2.0.0 >/dev/null 2>&1; then
+            echo "v2.0.0 already exists"
+            exit 0
+          fi
+          gh release create v2.0.0 \
+            --title "Reliable Notify v2.0.0" \
+            --notes-file RELEASE_NOTES_v2.0.0.md \
+            --target "${{ github.sha }}" \
+            --latest
