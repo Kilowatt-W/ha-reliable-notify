@@ -56,7 +56,7 @@ class ReliableNotifyCard extends HTMLElement {
       box.replaceChildren();
       for(const entry of result.items||[]) {
         const button=document.createElement('button');button.style.margin='4px';
-        button.textContent='#'+entry.id+' '+(entry.title||entry.action)+' — '+entry.status;
+        button.textContent='#'+entry.id+' '+(entry.title||entry.action)+' — '+entry.status+' ['+(entry.message_type||entry.priority)+', '+entry.retention_days+'d]';
         button.addEventListener('click',()=>this.showArchiveMessage(entry.id));box.append(button);
       }
       if(!(result.items||[]).length) box.textContent='No archived notifications';
