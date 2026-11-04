@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import hashlib
 import sqlite3
 import time
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -52,6 +53,13 @@ class QueueStore:
                 next_step INTEGER NOT NULL DEFAULT 0,
                 acknowledged_at REAL, acknowledged_by TEXT
             )""")
+            cols_ack={r[1] for r in con.execute("PRAGMA table_info(acknowledgements)")}
+            if "action_id" not in cols_ack:
+                con.execute("ALTER TABLE acknowledgements ADD COLUMN action_id TEXT")
+            for (key,) in con.execute("SELECT ack_key FROM acknowledgements WHERE action_id IS NULL"):
+                digest=hashlib.sha256(key.encode("utf8")).hexdigest()[:16]
+                con.execute("UPDATE acknowledgements SET action_id=? WHERE ack_key=?",(digest,key))
+            con.execute("CREATE INDEX IF NOT EXISTS idx_ack_action ON acknowledgements(action_id)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_ack_active ON acknowledgements(acknowledged_at,created_at)")
             con.execute("""CREATE TABLE IF NOT EXISTS send_rate_windows (
                 bucket TEXT PRIMARY KEY, window_start REAL NOT NULL,
@@ -212,15 +220,17 @@ class QueueStore:
                 ack=items[0]["ack_plan"]
                 con.execute("""INSERT INTO acknowledgements(
                     ack_key,message_id,title,message,priority,created_at,steps_json,
-                    next_step,acknowledged_at,acknowledged_by)
-                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL)
+                    next_step,acknowledged_at,acknowledged_by,action_id)
+                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?)
                     ON CONFLICT(ack_key) DO UPDATE SET
                     message_id=excluded.message_id,title=excluded.title,
                     message=excluded.message,priority=excluded.priority,
                     created_at=excluded.created_at,steps_json=excluded.steps_json,
-                    next_step=0,acknowledged_at=NULL,acknowledged_by=NULL""",
+                    next_step=0,acknowledged_at=NULL,acknowledged_by=NULL,
+                    action_id=excluded.action_id""",
                     (ack["key"],ids[0],items[0].get("title"),items[0]["message"],
-                     items[0]["priority"],now,json.dumps(ack["steps"])))
+                     items[0]["priority"],now,json.dumps(ack["steps"]),
+                     hashlib.sha256(ack["key"].encode("utf8")).hexdigest()[:16]))
             return ids
         return await self._run(op)
 
@@ -489,6 +499,12 @@ class QueueStore:
                      now,now,ack["priority"],30))
             con.execute("UPDATE acknowledgements SET next_step=next_step+1 WHERE ack_key=?",(key,))
             return ids
+        return await self._run(op)
+
+    async def incident_key_from_action_id(self,identity):
+        def op(con):
+            row=con.execute("SELECT ack_key FROM acknowledgements WHERE action_id=?",(identity,)).fetchone()
+            return row[0] if row else None
         return await self._run(op)
 
     async def act_on_incident(self,key,action,by="callback"):
