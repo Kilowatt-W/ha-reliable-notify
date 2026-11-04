@@ -82,6 +82,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                 CONF_TARGET: user_input.get(CONF_TARGET, ''),
                 CONF_INTERVAL: user_input[CONF_INTERVAL],
                 'archive_url': user_input.get('archive_url', '').strip(),
+                'dead_letter_days': user_input.get('dead_letter_days',30),
             })
         current = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(step_id='settings', data_schema=vol.Schema({
@@ -92,6 +93,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Optional('archive_url', description={
                 'suggested_value': current.get('archive_url', '')
             }): str,
+            vol.Optional('dead_letter_days',default=current.get('dead_letter_days',30)):
+                vol.All(vol.Coerce(int), vol.Range(min=1,max=365)),
         }))
 
     async def async_step_recipient(self, user_input=None):
