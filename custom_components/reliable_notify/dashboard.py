@@ -35,6 +35,7 @@ def register_dashboard(hass):
             'staged': staged, 'staged_count': len(staged),
             'recipient_names': sorted(manager.routes['recipients']),
             'policies': manager.policies, 'retention': manager.archive_retention, 'storage': await manager.storage_status(),
+            'acknowledgements': await manager.store.active_acknowledgements(), 'maintenance': manager.maintenance_info,
         })
 
     @websocket_api.websocket_command({
@@ -149,7 +150,24 @@ def register_dashboard(hass):
         })
         connection.send_result(msg['id'], {'saved': True})
 
+    @websocket_api.websocket_command({
+        vol.Required('type'): 'reliable_notify/acknowledge',
+        vol.Required('key'): str,
+    })
+    @websocket_api.async_response
+    async def acknowledge_command(hass, connection, msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'], 'unauthorized', 'Administrator required')
+            return
+        manager=next(iter(hass.data.get(DOMAIN, {}).values()),None)
+        if manager is None:
+            connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
+            return
+        changed=await manager.store.acknowledgement(msg['key'], connection.user.name or 'admin')
+        connection.send_result(msg['id'], {'acknowledged':bool(changed)})
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, acknowledge_command)
     websocket_api.async_register_command(hass, set_retention)
     websocket_api.async_register_command(hass, archive_search)
     websocket_api.async_register_command(hass, archive_detail)
