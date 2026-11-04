@@ -26,7 +26,7 @@ SCHEMA = vol.Schema(
 EXTRAS = frozenset((
     "priority", "message_type", "archive", "archive_days",
     "dedup_key", "strategy", "ttl", "test_mode", "only_if",
-    "acknowledgement",
+    "acknowledgement", "profile",
 ))
 
 
