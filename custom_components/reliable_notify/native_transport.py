@@ -46,6 +46,8 @@ def validate_native_route(action,data):
     if not isinstance(data,dict):
         raise ValueError("transport settings must be mapping")
     endpoint=checked_endpoint(data.get("base_url"),data.get("allow_private",False) is True)
+    if action!="reliable_notify.webhook" and urlsplit(endpoint).query:
+        raise ValueError("ntfy and Gotify base URLs must not include query parameters")
     if action=="reliable_notify.ntfy":
         if not TOPIC.fullmatch(str(data.get("topic",""))):
             raise ValueError("ntfy requires topic (letters, digits, dash, underscore)")
