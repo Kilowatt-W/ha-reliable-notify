@@ -293,3 +293,34 @@ Then send a message with a **tap destination**, using the Companion App's docume
 The push notification body is **not yet automatically stored as a permanent readable message archive after successful delivery**. For a durable in-HA copy of critical notices, use an additional `notify.persistent_notification` action or send to an HA dashboard entity/view containing the full details. The staging inbox is for **unaddressed test messages only**, not an archive of delivered push notifications.
 
 **Privacy:** staged message bodies are readable to Home Assistant administrators through the dashboard. Avoid storing passwords, access tokens, or other secrets in notification messages.
+
+
+## v0.7.0: full notification archive and Companion tap-to-read
+
+The archive preserves **full message bodies** after a notification has been sent or removed from the queue. Administrator-only archive search and message details are available in the built-in `custom:reliable-notify-card`. Completed entries are retained for **30 days or up to 2000 messages**; still-pending and dead-letter messages remain available.
+
+To make an Android/iOS push notification open its full text:
+
+1. Create a Lovelace dashboard view, for example `/lovelace/reliable-notify`, that contains the Reliable Notify card.
+2. Under **Settings → Devices & services → Reliable Notify → Configure → General settings**, set **Archive URL** to that same view path.
+3. Add a named recipient whose action is the Companion app service `notify.mobile_app_<device>`.
+4. Send via `reliable_notify.enqueue` with `recipients: [your_mobile_recipient]`.
+
+The integration then attaches `data.url` (iOS) and `data.clickAction` (Android) to the outgoing Companion message, including the archived message ID. If the automation already provided a click destination, it is **not overridden**. The message detail is administrator-only; the deep link is useful only when the person is an HA administrator.
+
+```yaml
+recipients:
+  my_phone:
+    action: notify.mobile_app_my_phone
+```
+
+```yaml
+- action: reliable_notify.enqueue
+  data:
+    recipients: [my_phone]
+    title: "Fensterüberwachung"
+    message: "Fenster Schlafzimmer seit 90 Minuten geöffnet."
+    priority: warning
+```
+
+See `RELEASE_NOTES_v0.7.0.md` for privacy, retention and testing limitations. The queue and archive are local SQLite data; protect the HA database and backups.
