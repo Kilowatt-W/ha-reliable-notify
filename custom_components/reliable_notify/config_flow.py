@@ -77,6 +77,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                 **self.config_entry.options,
                 CONF_TARGET: user_input.get(CONF_TARGET, ''),
                 CONF_INTERVAL: user_input[CONF_INTERVAL],
+                'archive_url': user_input.get('archive_url', '').strip(),
             })
         current = {**self.config_entry.data, **self.config_entry.options}
         return self.async_show_form(step_id='settings', data_schema=vol.Schema({
@@ -84,6 +85,9 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelector(selector.EntitySelectorConfig(domain='notify')),
             vol.Required(CONF_INTERVAL, default=current.get(CONF_INTERVAL, DEFAULT_INTERVAL)):
                 vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+            vol.Optional('archive_url', description={
+                'suggested_value': current.get('archive_url', '')
+            }): str,
         }))
 
     async def async_step_recipient(self, user_input=None):
