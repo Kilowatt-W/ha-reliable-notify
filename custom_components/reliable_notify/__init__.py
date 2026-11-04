@@ -11,7 +11,7 @@ from pathlib import Path
 
 import voluptuous as vol
 import yaml
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
@@ -173,19 +173,36 @@ class ReliableNotifyManager:
     async def _process_action(self, raw, origin):
         token=read_token(self.callback_secret,raw)
         if token is None:
-            return
+            return False
         identity,action=token
         key=await self.store.incident_key_from_action_id(identity)
         if key is None:
-            return
+            return False
         result=await self.store.act_on_incident(key,action,origin)
         if result:
             self.hass.bus.async_fire("reliable_notify_updated", {"kind":"acknowledgement"})
+        return bool(result)
+
+    async def _telegram_feedback(self,event,raw,actor):
+        try:
+            applied=await self._process_action(raw,actor)
+            query_id=event.data.get("id")
+            if not query_id or not self.hass.services.has_service("telegram_bot","answer_callback_query"):
+                return
+            payload={"callback_query_id":str(query_id),
+                     "message":"Aktion übernommen" if applied else "Bereits bearbeitet oder ungültig"}
+            config_id=event.data.get("config_entry_id")
+            if config_id:
+                payload["config_entry_id"]=config_id
+            await self.hass.services.async_call(
+                "telegram_bot","answer_callback_query",payload,blocking=True)
+        except Exception:
+            _LOGGER.warning("Reliable Notify: unable to process Telegram action feedback")
 
     def _on_telegram_action(self,event):
         raw=event.data.get("data") or event.data.get("command")
         actor="telegram:" + str(event.data.get("user_id","unknown"))
-        self.hass.async_create_task(self._process_action(raw,actor))
+        self.hass.async_create_task(self._telegram_feedback(event,raw,actor))
 
     def _on_mobile_action(self,event):
         raw=event.data.get("action")
@@ -481,6 +498,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async def enqueue(call: ServiceCall):
         await manager.enqueue(call.data)
 
+    async def simulate_action(call: ServiceCall):
+        """Read-only preview for HA automations; never persist or send."""
+        return manager.preview(call.data)
+
     async def retry(call: ServiceCall):
         await manager.store.retry_all()
         manager.wakeup.set()
@@ -544,6 +565,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         ("retry_one", retry_one, JOB_SCHEMA), ("delete_one", delete_one, JOB_SCHEMA),
     ):
         hass.services.async_register(DOMAIN, name, fn, schema=schema)
+    hass.services.async_register(
+        DOMAIN,"simulate",simulate_action,schema=ENQUEUE_SCHEMA,
+        supports_response=SupportsResponse.ONLY)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button"])
     entry.async_on_unload(entry.add_update_listener(_reload_entry))
     return True
@@ -560,7 +584,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
         hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate'):
             hass.services.async_remove(DOMAIN, service)
     return True
 
