@@ -16,33 +16,7 @@ MAX_BYTES=16_384
 DEFAULT_RATE=30
 
 
-def validate_api_message(value, routes, allowed_routes):
-    if not isinstance(value,dict):
-        raise ValueError("JSON object required")
-    if set(value)-{"message","title","recipients","priority","message_type",
-                   "dedup_key","profile","archive","archive_days","ttl"}:
-        raise ValueError("unsupported field")
-    message=value.get("message")
-    if not isinstance(message,str) or not message or len(message)>8192:
-        raise ValueError("message required, max 8192 characters")
-    names=value.get("recipients")
-    if isinstance(names,str):names=[names]
-    if not isinstance(names,list) or not 1<=len(names)<=20 or not all(isinstance(x,str) for x in names):
-        raise ValueError("explicit recipients required")
-    configured=set(routes.get("recipients",{})) | set(routes.get("persons",{})) | set(routes.get("groups",{}))
-    if any(name not in configured for name in names):
-        raise ValueError("unconfigured recipient")
-    if any(name not in allowed_routes for name in names):
-        raise ValueError("recipient not allowed through the external API")
-    if value.get("priority","info") not in ("info","warning","critical"):
-        raise ValueError("invalid priority")
-    if value.get("priority")=="critical":
-        raise ValueError("critical API messages require Home Assistant automation")
-    if "archive_days" in value and (type(value["archive_days"]) is not int or not 0<=value["archive_days"]<=365):
-        raise ValueError("invalid archive_days")
-    if "ttl" in value and (type(value["ttl"]) is not int or not 0<=value["ttl"]<=86400):
-        raise ValueError("invalid TTL")
-    return {**value,"recipients":names}
+from .api_validation import validate_api_message
 
 
 class ReliableNotifyAPIView(HomeAssistantView):
