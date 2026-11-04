@@ -1,0 +1,68 @@
+name: Publish validated release
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - RELEASE_NOTES_v0.5.0.md
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reliable-notify-release-v0.5.0
+  cancel-in-progress: false
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Validate Python syntax
+        run: python -m compileall -q custom_components/reliable_notify
+      - name: Run all 26 unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Confirm release version
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          v = json.loads(Path("custom_components/reliable_notify/manifest.json").read_text())["version"]
+          assert v == "0.5.0", f"Expected 0.5.0, got {v}"
+          PY
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  release:
+    needs: [python, hassfest, hacs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish GitHub release v0.5.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.5.0 >/dev/null 2>&1; then
+            echo "v0.5.0 already published; no changes"
+            exit 0
+          fi
+          gh release create v0.5.0 \
+            --title "Reliable Notify v0.5.0" \
+            --notes-file RELEASE_NOTES_v0.5.0.md \
+            --target "${{ github.sha }}" \
+            --latest
