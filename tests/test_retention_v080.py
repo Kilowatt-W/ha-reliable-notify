@@ -13,7 +13,8 @@ def load(name):
     spec.loader.exec_module(obj)
     return obj
 rules=load("retention")
-QueueStore=load("store").QueueStore
+module=load("store")
+QueueStore=module.QueueStore
 
 
 def item(days,kind="windows"):
