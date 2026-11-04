@@ -22,6 +22,7 @@ from .media import snapshot_file, cleanup_media, snapshot_attachments, free_disk
 from .retry import classify_error, validate_policies, DEFAULT_POLICIES
 from .retention import validate_retention, retention_for_message, DEFAULT_RETENTION
 from .dashboard import register_dashboard
+from .acknowledgement import validate_acknowledgement
 
 LANES = ("telegram", "smtp", "notify", "notify")
 
@@ -42,9 +43,14 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("ttl", default=0): vol.All(vol.Coerce(int), vol.Range(min=0)),
     vol.Optional("dedup_key"): cv.string,
     vol.Optional("strategy", default="always"): vol.In(("always", "replace")),
+    vol.Optional("acknowledgement"): dict,
 })
 JOB_SCHEMA = vol.Schema({vol.Required("id"): vol.All(vol.Coerce(int),vol.Range(min=1)),
                          vol.Optional("dead", default=False): cv.boolean})
+ACK_SCHEMA = vol.Schema({
+    vol.Required("dedup_key"): cv.string,
+    vol.Optional("by", default="manual"): cv.string,
+})
 CANCEL_SCHEMA = vol.Schema({vol.Required("dedup_key"): cv.string, vol.Optional("target_entity"): cv.string})
 
 
@@ -109,6 +115,7 @@ class ReliableNotifyManager:
             self.tasks.append(self.hass.async_create_task(self.worker(index, lane), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.media_cleanup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.maintenance_loop(), eager_start=False))
+        self.tasks.append(self.hass.async_create_task(self.escalation_loop(), eager_start=False))
 
     async def stop(self):
         self.stopping = True
@@ -136,6 +143,10 @@ class ReliableNotifyManager:
                 action = data.get("action") or ("notify.send_message" if target_entity else "reliable_notify.staged")
                 targets = [("", {"action": action,
                     "target_entity": target_entity or "", "data": {}})]
+            ack_plan = validate_acknowledgement(data.get('acknowledgement'), data.get('dedup_key'))
+            if ack_plan:
+                for step in ack_plan['steps']:
+                    resolve(self.routes, step['recipients'])
             jobs = []
             for name, rec in targets:
                 action = rec.get("action", "notify.send_message")
@@ -161,6 +172,8 @@ class ReliableNotifyManager:
                     archive_url=self.settings.get('archive_url') or None,
                     archive_days=days,
                     message_type=data.get('message_type') or data.get('priority', 'info')))
+            if jobs and ack_plan:
+                jobs[0]['ack_plan'] = ack_plan
             snapshots = []
             try:
                 # A queued photo must not depend on a rotating camera snapshot file.
@@ -232,6 +245,27 @@ class ReliableNotifyManager:
                 raise
             except Exception:
                 _LOGGER.exception("Reliable Notify maintenance failed")
+
+    async def escalation_loop(self):
+        while not self.stopping:
+            try:
+                await asyncio.sleep(15)
+                for job in await self.store.due_escalations():
+                    # The same dedup key makes retries of the scheduler idempotent
+                    # while the message remains queued.
+                    index = job["step_index"]
+                    await self.enqueue({
+                        "message": job["message"], "title": job["title"],
+                        "priority": job["priority"],
+                        "recipients": job["step"]["recipients"],
+                        "dedup_key": "rn_escalate_" + job["ack_key"] + "_" + str(index),
+                        "strategy": "replace",
+                    })
+                    await self.store.escalation_completed(job["ack_key"], index)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("Reliable Notify escalation processing failed")
 
     async def worker(self, index, lane):
         while not self.stopping:
@@ -310,6 +344,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if not await manager.store.delete_one(call.data["id"],call.data.get("dead",False)):
             raise HomeAssistantError("Message missing or currently leased")
 
+    async def acknowledge(call: ServiceCall):
+        changed = await manager.store.acknowledgement(call.data["dedup_key"],call.data.get("by","manual"))
+        if not changed:
+            raise HomeAssistantError("Acknowledgement key not found or already acknowledged")
+
     async def cancel(call: ServiceCall):
         await manager.store.cancel(call.data["dedup_key"], call.data.get("target_entity"))
 
@@ -322,7 +361,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     for name, fn, schema in (
         ("enqueue", enqueue, ENQUEUE_SCHEMA), ("retry_all", retry, None),
         ("retry_dead", retry_dead, None), ("clear_queue", clear, None),
-        ("cancel", cancel, CANCEL_SCHEMA), ("reload_routes", reload_routes, None),
+        ("cancel", cancel, CANCEL_SCHEMA), ("acknowledge", acknowledge, ACK_SCHEMA),
+        ("reload_routes", reload_routes, None),
         ("retry_one", retry_one, JOB_SCHEMA), ("delete_one", delete_one, JOB_SCHEMA),
     ):
         hass.services.async_register(DOMAIN, name, fn, schema=schema)
@@ -340,7 +380,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Handlers and static assets are registered once per HA lifetime.
     if not hass.data.get(DOMAIN):
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge'):
             hass.services.async_remove(DOMAIN, service)
     return True
 
