@@ -552,9 +552,10 @@ class QueueStore:
                 payload=json.dumps(rec.get("data",{}),ensure_ascii=False,allow_nan=False)
                 cur=con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
                     expires_at,next_attempt,created_at,action,payload_json,media_paths_json)
-                    VALUES(?,?,?,?,NULL,NULL,?,?,?,?,?)""",
-                    (ack["message"],ack["title"],target,ack["priority"],now,now,
-                     action,payload,"[]"))
+                    VALUES(?,?,?,?,?,NULL,?,?,?,?,?)""",
+                    (ack["message"],ack["title"],target,ack["priority"],
+                     "rn_esc_"+hashlib.sha256(key.encode("utf8")).hexdigest()[:16],
+                     now,now,action,payload,"[]"))
                 ident=cur.lastrowid
                 ids.append(ident)
                 con.execute("""INSERT INTO message_archive(
@@ -587,6 +588,14 @@ class QueueStore:
                 con.execute("""UPDATE acknowledgements
                     SET acknowledged_at=?,acknowledged_by=? WHERE ack_key=?""",
                     (now,by[:100],key))
+                # Cancel unsent escalation stages only; never touch an in-flight lease.
+                esc_key="rn_esc_"+hashlib.sha256(key.encode("utf8")).hexdigest()[:16]
+                ids=[r[0] for r in con.execute("""SELECT id FROM messages
+                    WHERE dedup_key=? AND (lease_until IS NULL OR lease_until<=?)""",
+                    (esc_key,now))]
+                con.executemany("DELETE FROM messages WHERE id=?",[(ident,) for ident in ids])
+                con.executemany("UPDATE message_archive SET status='cancelled',updated_at=? WHERE id=?",
+                                [(now,ident) for ident in ids])
             elif action=="snooze":
                 con.execute("UPDATE acknowledgements SET created_at=created_at+900 WHERE ack_key=?",(key,))
             else:
