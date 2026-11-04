@@ -322,10 +322,3 @@ async def _reload_entry(hass, entry):
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass, entry):
-    ok = await hass.config_entries.async_unload_platforms(entry, ["sensor", "button"])
-    if ok:
-        await hass.data[DOMAIN].pop(entry.entry_id).stop()
-        for name in ("enqueue", "retry_all", "retry_dead", "clear_queue", "cancel", "reload_routes", "retry_one", "delete_one"):
-            hass.services.async_remove(DOMAIN, name)
-    return ok
