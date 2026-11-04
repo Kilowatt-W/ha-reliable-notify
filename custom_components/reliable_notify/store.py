@@ -95,6 +95,19 @@ class QueueStore:
             if "duration_ms" not in history_cols:
                 con.execute("ALTER TABLE delivery_history ADD COLUMN duration_ms INTEGER")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_time ON delivery_history(occurred_at)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_history_action_time ON delivery_history(action,occurred_at)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_queue_dedup_route ON messages(dedup_key,target,action,lease_until)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_dead_priority_age ON dead_letters(priority,failed_at)")
+            con.execute("""CREATE TABLE IF NOT EXISTS delivery_daily (
+                day TEXT NOT NULL, action TEXT NOT NULL, status TEXT NOT NULL,
+                events INTEGER NOT NULL DEFAULT 0, total_latency_ms INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(day,action,status)
+            )""")
+            if con.execute("SELECT COUNT(*) FROM delivery_daily").fetchone()[0]==0:
+                con.execute("""INSERT INTO delivery_daily(day,action,status,events,total_latency_ms)
+                    SELECT date(occurred_at,'unixepoch'),action,status,COUNT(*),
+                           COALESCE(SUM(duration_ms),0)
+                    FROM delivery_history GROUP BY 1,2,3""")
             con.execute("""CREATE TABLE IF NOT EXISTS message_archive (
                 id INTEGER PRIMARY KEY, title TEXT, message TEXT NOT NULL,
                 target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
@@ -331,6 +344,11 @@ class QueueStore:
             con.execute("""INSERT INTO delivery_history(message_id,target,action,priority,status,
                 attempts,occurred_at,detail,duration_ms) VALUES (?,?,?,?,?,?,?,?,?)""",
                 (identifier,row[0],row[1],row[2],status,row[3],time.time(),(detail or "")[:300],duration))
+            con.execute("""INSERT INTO delivery_daily(day,action,status,events,total_latency_ms)
+                VALUES(date(?,'unixepoch'),?,?,1,?)
+                ON CONFLICT(day,action,status) DO UPDATE SET
+                    events=events+1,total_latency_ms=total_latency_ms+excluded.total_latency_ms""",
+                    (time.time(),row[1],status,duration or 0))
             # Bound history to 2000 entries and 30 days.
             con.execute("DELETE FROM delivery_history WHERE occurred_at<?",(time.time()-30*86400,))
             con.execute("""DELETE FROM delivery_history WHERE history_id NOT IN
@@ -451,6 +469,7 @@ class QueueStore:
                 con.execute("UPDATE message_archive SET status='dead_expired',updated_at=? WHERE id=?",
                             (now,ident))
             con.execute("DELETE FROM send_rate_windows WHERE window_start<?",(now-300,))
+            con.execute("DELETE FROM delivery_daily WHERE day<date(?,'unixepoch')",(now-366*86400,))
             con.execute("""DELETE FROM acknowledgements
                 WHERE acknowledged_at IS NOT NULL AND acknowledged_at<?""",
                 (now-30*86400,))
@@ -634,6 +653,24 @@ class QueueStore:
 
     async def dead_count(self):
         return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0])
+
+    async def long_term_statistics(self, days=365):
+        """Daily aggregates maintained independently of short-term history retention."""
+        if type(days) is not int or not 1<=days<=365:
+            raise ValueError("days must be within 1..365")
+        def op(con):
+            con.row_factory=sqlite3.Row
+            return [dict(row) for row in con.execute("""
+                SELECT day,action,
+                    SUM(events) AS events,
+                    SUM(CASE WHEN status='sent' THEN events ELSE 0 END) AS sent,
+                    SUM(CASE WHEN status='dead' THEN events ELSE 0 END) AS failed,
+                    ROUND(SUM(total_latency_ms)/1000.0,2) AS elapsed_seconds
+                FROM delivery_daily
+                WHERE day>=date(?,'unixepoch')
+                GROUP BY day,action ORDER BY day DESC,action LIMIT 1000""",
+                (time.time()-days*86400,))]
+        return await self._run(op)
 
     async def statistics(self, days=7):
         """Aggregated metadata only: no message text, tokens, or payloads."""
