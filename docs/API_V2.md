@@ -68,3 +68,12 @@ The v2 API is additive relative to the 1.1 service names. Config options and SQL
 - `reliable_notify/migration_scan`: admin WebSocket read-only scan of `automations.yaml` and `scripts.yaml`; returns proposals, ambiguity notices and **no writes**.
 - `reliable_notify/templates` / `reliable_notify/set_templates`: admin WebSocket listing/editing of approved templates.
 - `reliable_notify/statistics` includes `daily_trends` (rolling 365-day daily aggregates).
+
+## v3 API additions
+
+- `reliable_notify.enqueue` and compatible classic `notify.reliable_* ` actions accept optional `profile` (configured message defaults).
+- `reliable_notify.telegram_lifecycle`: recipient + dedup_key + operation (edit/delete), optional message for edit. Telegram must have emitted a tracked `telegram_sent` event for that message.
+- `POST /api/reliable_notify/v1/messages`: opt-in, requires HA Admin Bearer token and explicit recipient allowlist; returns HTTP 202 on queue insertion, not end-device receipt.
+- `reliable_notify/profiles`, `/set_profiles`, `/set_external_api`: admin WebSocket profile editor and API configuration.
+- `reliable_notify/migration_scan` now includes package files and diffs.
+- `reliable_notify/migration_apply`: admin-only explicitly approved package single-action conversion with SHA-256 and backup; never modifies automations.yaml or scripts.yaml.

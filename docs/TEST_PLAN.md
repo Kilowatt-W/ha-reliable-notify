@@ -25,3 +25,23 @@ GitHub Actions perform Python syntax, unit tests, frontend JS syntax, hassfest a
 | Long-term | Run daily for 7 days with bursts and queued media | No unbounded growth beyond intentional protected records |
 
 **Status:** These are acceptance tests for the operator to execute. Passing GitHub CI does not mean these were completed on real devices. Record actual results in a release checklist or GitHub issue before a production critical-alarm deployment.
+
+## v3.0 additional live acceptance tests
+
+| Test | Expected result |
+|---|---|
+| HA Integrations icon after upgrade | New shield-bell-check icon visible (HA 2026.3+), transparent outside shield |
+| Marketplace icon on HA 2026.11 | Local brand asset displayed; old standalone HACS may still show placeholder |
+| Profile priority/retention | New messages use defaults; explicit fields override profile |
+| External API disabled | HTTP 403 even with valid admin token |
+| Nonadmin API token | HTTP 403; cannot send |
+| External API allowlist | Only configured aliases accepted; no arbitrary action/target |
+| Profile critical via API | HTTP non-2xx, never queues critical message |
+| External API rate limit | HTTP 429 after configured per-user submission quota |
+| Package migration | Explicit approval backs up source YAML, updates exactly one action, produces valid YAML |
+| Modified file during migration | SHA-256 mismatch rejects without overwriting |
+| UI-managed automations | No automatic writes to automations.yaml or scripts.yaml |
+| Telegram lifecycle | Captured sent-message ID permits edit/delete; missing IDs safely rejected |
+| Long-term chart | Reflects daily aggregates without exposing message contents |
+
+These tests require access to a real HA OS installation and actual sender devices; successful CI is not sufficient to mark them passed.

@@ -66,3 +66,9 @@ Action IDs are HMAC signed and verified before the integration changes incident 
 5. Stage a test notification, then assign it to a real recipient once the route is verified.
 6. Verify your actual device and service names; notify transports change with HA releases.
 7. Use the backup and restore procedure above before major upgrades.
+
+## v3 compatibility and branding
+
+The integration brand images are shipped locally under `custom_components/reliable_notify/brand/`. If the new icon does not appear in HA integrations, restart HA Core and hard-refresh the browser. For legacy HACS that still displays its CDN placeholder even though HA shows the icon, use Home Assistant 2026.11 Marketplace where supported (see [branding](BRANDING.md)).
+
+The external app API is disabled by default. Exposed routes are explicit, admin-authorized, and rate-limited; keep your HA Bearer token out of scripts you commit to source control. Protect automatic backups and migration backups under `.storage`.
