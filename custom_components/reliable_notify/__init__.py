@@ -270,12 +270,12 @@ class ReliableNotifyManager:
                     archive_url=self.settings.get('archive_url') or None,
                     archive_days=days,
                     message_type=data.get('message_type') or data.get('priority', 'info')))
-            if data.get("test_mode")=="stage" or (
-                self.settings.get("test_mode","off")=="stage" and
-                (not self.settings.get("test_recipients") or any(
-                    job["target"] in self.settings["test_recipients"] for job in jobs))
-            ):
-                for job in jobs:
+            stage_all = data.get("test_mode")=="stage"
+            configured_test = self.settings.get("test_mode","off")=="stage"
+            test_targets = set(self.settings.get("test_recipients",[]))
+            for job in jobs:
+                if stage_all or (configured_test and (
+                    not test_targets or job["target"] in test_targets)):
                     job["action"]="reliable_notify.staged"
                     job["target"]="(test-mode)"
                     job["payload"]={}
