@@ -53,7 +53,12 @@ def _patch(source,path,replacement):
     if "#" in before or "&" in before or "*" in before:
         raise ValueError("comments or YAML anchors in action require manual editing")
     # Only action mappings with the existing exact action fields are rewriteable.
-    old_obj=yaml.safe_load(before)
+    lines=before.splitlines()
+    normalized="\n".join([lines[0]]+[
+        line[indent:] if line.startswith(" "*indent) else line
+        for line in lines[1:]
+    ])
+    old_obj=yaml.safe_load(normalized)
     if not isinstance(old_obj,dict) or not ("action" in old_obj or "service" in old_obj):
         raise ValueError("not a standalone notify action")
     indent=target.start_mark.column
