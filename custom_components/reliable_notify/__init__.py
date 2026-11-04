@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import json
+import time
 from pathlib import Path
 
 import voluptuous as vol
@@ -24,6 +25,7 @@ from .retention import validate_retention, retention_for_message, DEFAULT_RETENT
 from .dashboard import register_dashboard
 from .acknowledgement import validate_acknowledgement
 from .lifecycle import notification_tag
+from .smart import DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp
 
 LANES = ("telegram", "smtp", "notify", "notify")
 
@@ -43,7 +45,7 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("archive_days"): vol.All(vol.Coerce(int), vol.Range(min=0, max=365)),
     vol.Optional("ttl", default=0): vol.All(vol.Coerce(int), vol.Range(min=0)),
     vol.Optional("dedup_key"): cv.string,
-    vol.Optional("strategy", default="always"): vol.In(("always", "replace")),
+    vol.Optional("strategy", default="always"): vol.In(("always", "replace", "digest")),
     vol.Optional("acknowledgement"): dict,
 })
 JOB_SCHEMA = vol.Schema({vol.Required("id"): vol.All(vol.Coerce(int),vol.Range(min=1)),
@@ -86,6 +88,10 @@ class ReliableNotifyManager:
     @property
     def settings(self):
         return {**self.entry.data, **self.entry.options}
+
+    @property
+    def quiet_hours(self):
+        return validate_quiet_hours(self.settings.get('quiet_hours', DEFAULT_QUIET_HOURS))
 
     @property
     def archive_retention(self):
@@ -179,6 +185,15 @@ class ReliableNotifyManager:
                     archive_url=self.settings.get('archive_url') or None,
                     archive_days=days,
                     message_type=data.get('message_type') or data.get('priority', 'info')))
+            if ack_plan and data.get("strategy")=="digest":
+                raise ValueError("digest is incompatible with acknowledgements")
+            for job in jobs:
+                job["not_before"]=next_allowed_timestamp(
+                    time.time(),job["priority"],self.quiet_hours,self.hass.config.time_zone)
+                if job.get("strategy")=="digest":
+                    if not job.get("dedup_key"):
+                        raise ValueError("digest requires dedup_key")
+                    job["digest_window_seconds"]=int(self.settings.get("digest_window_seconds",300))
             if jobs and ack_plan:
                 jobs[0]['ack_plan'] = ack_plan
             snapshots = []
@@ -279,7 +294,8 @@ class ReliableNotifyManager:
         while not self.stopping:
             interval = self.settings.get(CONF_INTERVAL, DEFAULT_INTERVAL)
             try:
-                item = await self.store.claim_due(lease_seconds=90, lane=lane)
+                item = await self.store.claim_due(lease_seconds=90, lane=lane,
+                    rate_limit_per_minute=int(self.settings.get("rate_limit_per_minute",10)))
                 if item:
                     try:
                         await self._deliver(item)

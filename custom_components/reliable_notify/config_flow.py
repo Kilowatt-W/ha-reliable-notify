@@ -11,6 +11,7 @@ from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN
 from .routing import validate_config
 from .retry import validate_policies, DEFAULT_POLICIES
 from .retention import validate_retention, DEFAULT_RETENTION
+from .smart import validate_quiet_hours, DEFAULT_QUIET_HOURS
 
 
 class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -54,6 +55,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             operation = user_input.get('manage', 'settings')
+            if operation == 'smart':
+                return await self.async_step_smart()
             if operation == 'retention':
                 return await self.async_step_retention()
             if operation == 'retries':
@@ -70,6 +73,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id='init', data_schema=vol.Schema({
             vol.Required('manage', default='settings'): vol.In({
                 'settings': 'General settings',
+                'smart': 'Quiet hours, delivery limits and digests',
                 'retries': 'Retry policies by priority',
                 'retention': 'Archive retention by message type',
                 'recipient': 'Add/update recipient',
@@ -214,4 +218,27 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Required("name"):str,
             vol.Required("settings_json",default='{"entity":"person.example","channels":{"mobile":"mobile_recipient"},"preferred":{"info":"mobile"}}'):
                 selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+        }))
+
+    async def async_step_smart(self, user_input=None):
+        errors={}
+        if user_input is not None:
+            try:
+                quiet=validate_quiet_hours(json.loads(user_input["quiet_hours_json"]))
+                return self.async_create_entry(title='',data={
+                    **self.config_entry.options,
+                    "quiet_hours":quiet,
+                    "rate_limit_per_minute":user_input["rate_limit_per_minute"],
+                    "digest_window_seconds":user_input["digest_window_seconds"],
+                })
+            except (ValueError,TypeError):
+                errors["base"]="invalid_route"
+        current=self.config_entry.options
+        return self.async_show_form(step_id='smart',errors=errors,data_schema=vol.Schema({
+            vol.Required("quiet_hours_json",default=json.dumps(current.get("quiet_hours",DEFAULT_QUIET_HOURS),indent=2)):
+                selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+            vol.Required("rate_limit_per_minute",default=current.get("rate_limit_per_minute",10)):
+                vol.All(vol.Coerce(int),vol.Range(min=1,max=1000)),
+            vol.Required("digest_window_seconds",default=current.get("digest_window_seconds",300)):
+                vol.All(vol.Coerce(int),vol.Range(min=10,max=3600)),
         }))

@@ -53,6 +53,12 @@ class QueueStore:
                 acknowledged_at REAL, acknowledged_by TEXT
             )""")
             con.execute("CREATE INDEX IF NOT EXISTS idx_ack_active ON acknowledgements(acknowledged_at,created_at)")
+            con.execute("""CREATE TABLE IF NOT EXISTS send_rate_windows (
+                bucket TEXT PRIMARY KEY, window_start REAL NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0)""")
+            message_cols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
+            if "occurrences" not in message_cols:
+                con.execute("ALTER TABLE messages ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1")
             con.execute("CREATE INDEX IF NOT EXISTS idx_due ON messages(next_attempt)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON messages(dedup_key,target,action)")
             con.execute("CREATE TABLE IF NOT EXISTS metrics (key TEXT PRIMARY KEY,value INTEGER NOT NULL DEFAULT 0)")
@@ -146,12 +152,31 @@ class QueueStore:
                 if item.get("dedup_key") and item["action"].startswith("notify.mobile_app_"):
                     transport_payload=_ensure_companion_tag(transport_payload,item["dedup_key"])
                 payload = json.dumps(transport_payload, ensure_ascii=False, allow_nan=False)
+                if item.get("strategy")=="digest":
+                    if not item.get("dedup_key"):
+                        raise ValueError("digest requires dedup_key")
+                    existing=con.execute("""SELECT id,occurrences FROM messages WHERE
+                        dedup_key=? AND action=? AND target=? AND priority=?
+                        AND next_attempt>? AND (lease_until IS NULL OR lease_until<=?)
+                        ORDER BY id DESC LIMIT 1""",
+                        (item["dedup_key"],item["action"],item["target"],item["priority"],now,now)).fetchone()
+                    if existing:
+                        count=existing[1]+1
+                        summary=f"{count} events (latest): {item['message']}"
+                        con.execute("""UPDATE messages SET message=?,occurrences=?,payload_json=?
+                            WHERE id=?""",(summary,count,payload,existing[0]))
+                        con.execute("UPDATE message_archive SET message=?,updated_at=? WHERE id=?",
+                                    (summary,now,existing[0]))
+                        ids.append(existing[0])
+                        continue
                 cur = con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
                     expires_at,next_attempt,created_at,action,payload_json,media_path,media_paths_json)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (item["message"], item.get("title"), item["target"], item["priority"],
                      item.get("dedup_key"), now + item["ttl"] if item.get("ttl") else None,
-                     now, now, item["action"], payload, item.get("media_path"),
+                     max(now,item.get("not_before",now),
+                         now+item.get("digest_window_seconds",0) if item.get("strategy")=="digest" else now),
+                     now, item["action"], payload, item.get("media_path"),
                      json.dumps(item.get("media_paths", []))))
                 ident = cur.lastrowid
                 ids.append(ident)
@@ -327,6 +352,7 @@ class QueueStore:
                 con.execute("DELETE FROM dead_letters WHERE id=?",(ident,))
                 con.execute("UPDATE message_archive SET status='dead_expired',updated_at=? WHERE id=?",
                             (now,ident))
+            con.execute("DELETE FROM send_rate_windows WHERE window_start<?",(now-300,))
             con.execute("""DELETE FROM acknowledgements
                 WHERE acknowledged_at IS NOT NULL AND acknowledged_at<?""",
                 (now-30*86400,))

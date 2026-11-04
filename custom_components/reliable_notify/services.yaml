@@ -78,6 +78,7 @@ enqueue:
           options:
             - always
             - replace
+            - digest
 retry_all:
   name: Retry waiting messages
   description: Schedule queued notifications for immediate retry.
