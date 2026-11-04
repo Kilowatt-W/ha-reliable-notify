@@ -1,11 +1,11 @@
 {
   "domain": "reliable_notify",
   "name": "Reliable Notify",
-  "version": "0.6.0",
-  "documentation": "https://github.com/Kilowatt-W/ha-reliable-notify",
   "codeowners": [],
   "config_flow": true,
+  "documentation": "https://github.com/Kilowatt-W/ha-reliable-notify",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/Kilowatt-W/ha-reliable-notify/issues",
   "requirements": [],
-  "issue_tracker": "https://github.com/Kilowatt-W/ha-reliable-notify/issues"
+  "version": "0.6.0"
 }
