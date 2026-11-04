@@ -5,7 +5,7 @@ Routes never contain credentials; external mail transports use existing HA notif
 from __future__ import annotations
 
 import re
-from .native_transport import NATIVE_ACTIONS,validate_native_route
+NATIVE_ACTIONS = frozenset(("reliable_notify.ntfy","reliable_notify.gotify","reliable_notify.webhook"))
 ALLOWED = {"notify.send_message", "telegram_bot.send_message", "telegram_bot.send_photo", "smtp.send_message"}
 LEGACY_NOTIFY = re.compile(r"^notify\.[a-z][a-z0-9_]*$")
 REST_COMMAND = re.compile(r"^rest_command\.[a-z][a-z0-9_]*$")
@@ -33,6 +33,7 @@ def validate_config(config):
         if not isinstance(rec.get("data", {}), dict):
             raise ValueError(f"invalid data for {name}")
         if action in NATIVE_ACTIONS:
+            from .native_transport import validate_native_route
             validate_native_route(action,rec.get("data",{}))
         if action in ("notify.send_message", "smtp.send_message") and not str(rec.get("target_entity", "")).startswith("notify."):
             raise ValueError(f"{name} requires a notify entity")
