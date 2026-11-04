@@ -5,7 +5,7 @@
 - **Delete after delivery:** Set `archive: delete_after_send` on an enqueue call to remove the archive message body in the *same database transaction* that records successful delivery. The queue retains the content until the provider has accepted it. Failed/dead-letter messages remain available for troubleshooting and retry.
 - **Retention by message type:** An optional `message_type` such as `windows`, `pvec`, or `security` selects a centrally configured number of days.
 - **Per-message override:** Set `archive_days: 0..365` to override the type policy. `archive_days: 0` also deletes the archived body immediately after successful delivery.
-- **Automatic cleanup:** Completed archive entries expire based on their last status update plus configured retention. An independent maximum of **2,000 completed records** prevents unlimited growth.
+- **Automatic cleanup:** Completed archive entries expire based on their last status update plus configured retention. An independent maximum of **2,000 completed records**, plus a **32 MiB cap** on completed archive message text, prevents unlimited archive growth.
 - **Backward-compatible migration:** Existing archive messages remain at the historical 30-day retention unless updated; existing queued and dead-letter records remain intact.
 - **Companion links:** Automatic deep links are skipped for messages set to delete after delivery, because the content will not remain available to read.
 
@@ -68,3 +68,5 @@ Configure more message types in **Settings → Devices & services → Reliable N
 The retention policy is **captured when the message is enqueued**, so changes in the settings apply to new messages, not existing archive rows. In-flight, staged and dead-letter messages are not purged merely because their archive retention expired; their delivery or manual investigation would otherwise break. Existing TTL values are separate from archive retention. GitHub Actions validate syntax, tests, HACS and hassfest before a tagged release. Home Assistant Core restart required after update.
 
 **SQLite caveat:** Deleting records marks database pages for reuse but does not necessarily shrink the file on disk. For unusually large databases, plan SQLite maintenance/backup with Home Assistant stopped; do not vacuum a running WAL database from outside the integration.
+
+The Lovelace admin dashboard also allows editing the retention JSON and displays each archived item's type and configured days. SQLite storage remains subject to the existing free-disk guard.
