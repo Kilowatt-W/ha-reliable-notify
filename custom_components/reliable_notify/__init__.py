@@ -173,7 +173,10 @@ class ReliableNotifyManager:
         token=read_token(self.callback_secret,raw)
         if token is None:
             return
-        key,action=token
+        identity,action=token
+        key=await self.store.incident_key_from_action_id(identity)
+        if key is None:
+            return
         result=await self.store.act_on_incident(key,action,origin)
         if result:
             self.hass.bus.async_fire("reliable_notify_updated", {"kind":"acknowledgement"})
@@ -290,6 +293,8 @@ class ReliableNotifyManager:
                     if not job.get("dedup_key"):
                         raise ValueError("digest requires dedup_key")
                     job["digest_window_seconds"]=int(self.settings.get("digest_window_seconds",300))
+            if any(job["action"]=="reliable_notify.staged" for job in jobs):
+                ack_plan=None  # Test/staged messages must never escalate.
             if jobs and ack_plan:
                 jobs[0]['ack_plan'] = ack_plan
             snapshots = []
@@ -411,9 +416,12 @@ class ReliableNotifyManager:
                         log_policy=validate_transport_logging(
                             self.settings.get("transport_logging",{}))
                         channel=transport_for(item["action"])
+                        levels={"error":logging.ERROR,"warning":logging.WARNING,
+                                "info":logging.INFO,"debug":logging.DEBUG}
                         if log_policy[channel]!="off":
-                            _LOGGER.warning("Reliable Notify #%s transport=%s category=%s",
-                                            item["id"],channel,classification.kind)
+                            _LOGGER.log(levels[log_policy[channel]],
+                                        "Reliable Notify #%s transport=%s category=%s",
+                                        item["id"],channel,classification.kind)
                         await self.store.failed(item["id"], item["attempts"] + 1,
                                                 f"{type(err).__name__}: {classification.kind}",
                                                 policy['base_seconds'],
