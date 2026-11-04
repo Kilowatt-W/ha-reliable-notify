@@ -12,3 +12,5 @@
 Back up `/config/.storage/reliable_notify.db` and the YAML routes before updating. Restart HA Core after installation. Register `/reliable_notify/reliable-notify-card.js` as a JavaScript module resource in the dashboard and use `dashboard.example.yaml`. Configure policies through integration options. See README for media limitations and the SQLite at-least-once delivery contract.
 
 **Status:** Developer release; tested locally against standalone unit tests only. Live HA and SMTP/Telegram tests are still outstanding.
+- Dashboard can edit centralized retry policies directly with an admin-only WebSocket command; bulk retry controls included.
+- 32 local unit tests passed. Runtime tests with real HA and SMTP/Telegram providers still pending.

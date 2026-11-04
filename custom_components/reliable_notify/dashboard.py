@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 
 from .const import DOMAIN
+from .retry import validate_policies
 
 
 def register_dashboard(hass):
@@ -33,4 +34,28 @@ def register_dashboard(hass):
             'policies': manager.policies, 'storage': await manager.storage_status(),
         })
 
+    @websocket_api.websocket_command({
+        vol.Required('type'): 'reliable_notify/set_retry_policies',
+        vol.Required('policies'): dict,
+    })
+    @websocket_api.async_response
+    async def set_policies(hass, connection, msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'], 'unauthorized', 'Administrator required')
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
+            return
+        try:
+            policies = validate_policies(msg['policies'])
+        except ValueError as err:
+            connection.send_error(msg['id'], 'invalid_policy', str(err))
+            return
+        hass.config_entries.async_update_entry(manager.entry, options={
+            **manager.entry.options, 'retry_policies': policies,
+        })
+        connection.send_result(msg['id'], {'saved': True})
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, set_policies)

@@ -95,5 +95,21 @@ class StoreMigrationTest(unittest.TestCase):
         asyncio.run(run())
 
 
+class MassRetryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_dead_letters_retain_snapshot_list_on_mass_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = QueueStore(Path(tmp) / 'storage.sqlite3')
+            ids = await store.enqueue_many([{
+                'message': 'report', 'target': 'notify.mail', 'priority': 'warning',
+                'action': 'smtp.send_message', 'payload': {}, 'ttl': 0,
+                'media_paths': ['/media/reliable_notify/a.pdf', '/media/reliable_notify/b.pdf']
+            }], 10)
+            await store.failed(ids[0], 5, 'auth', 2, permanent=True)
+            await store.retry_dead()
+            self.assertEqual(await store.pending_media_paths(), {
+                '/media/reliable_notify/a.pdf', '/media/reliable_notify/b.pdf'})
+
+
+
 if __name__ == '__main__':
     unittest.main()

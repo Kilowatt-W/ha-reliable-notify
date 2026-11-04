@@ -53,7 +53,10 @@ class ReliableNotifyCard extends HTMLElement {
       const button=document.createElement('button'); button.textContent=label; button.disabled=this.showDead===value;
       button.addEventListener('click',()=>{this.showDead=value;this.render(data);}); tabs.append(button);
     }
-    const refresh=document.createElement('button');refresh.textContent='Refresh';refresh.addEventListener('click',()=>this.refresh());tabs.append(refresh);card.append(tabs);
+    const refresh=document.createElement('button');refresh.textContent='Refresh';refresh.addEventListener('click',()=>this.refresh());tabs.append(refresh);
+    const bulk=document.createElement('button');bulk.textContent=this.showDead?'Retry all dead':'Retry all pending';
+    bulk.addEventListener('click',async()=>{try {await this._hass.callService('reliable_notify',this.showDead?'retry_dead':'retry_all',{});await this.refresh();}catch(e){alert(e.message);}});
+    tabs.append(bulk);card.append(tabs);
     const wrap=document.createElement('div');wrap.className='scroll';
     const table=document.createElement('table');
     const head=document.createElement('tr');
@@ -74,7 +77,32 @@ class ReliableNotifyCard extends HTMLElement {
     if(!rows.length){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=7;td.className='muted';td.textContent='No messages';tr.append(td);table.append(tr);}
     wrap.append(table);card.append(wrap);
     const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Retry policies and history';details.append(summary);
-    const info=document.createElement('pre');info.textContent=JSON.stringify(data.policies,null,2);details.append(info);
+    const policyTitle=document.createElement('p');policyTitle.textContent='Retry policies (0 attempts = unlimited)';details.append(policyTitle);
+    const policyFields={};
+    for(const [priority, values] of Object.entries(data.policies)) {
+      const row=document.createElement('div');row.style.margin='8px 0';
+      const label=document.createElement('strong');label.textContent=priority+' ';row.append(label);
+      policyFields[priority]={};
+      for(const [key,val] of Object.entries(values)) {
+        const name=document.createElement('label');name.textContent=key+' ';
+        const input=document.createElement('input');input.type='number';input.min=key==='max_attempts'?'0':'1';
+        input.max=key==='max_attempts'?'10000':key==='max_delay'?'86400':'3600';
+        input.value=val;input.style.width='68px';input.style.marginRight='8px';
+        policyFields[priority][key]=input;name.append(input);row.append(name);
+      }
+      details.append(row);
+    }
+    const save=document.createElement('button');save.textContent='Save retry policies';
+    save.addEventListener('click',async()=>{
+      const policies={};
+      for(const [priority, fields] of Object.entries(policyFields)) {
+        policies[priority]={};
+        for(const [key,input] of Object.entries(fields)) policies[priority][key]=Number(input.value);
+      }
+      try {await this._hass.callWS({type:'reliable_notify/set_retry_policies',policies}); await this.refresh();}
+      catch(error){alert('Cannot save retry policies: '+error.message);}
+    });
+    details.append(save);
     const recent=document.createElement('div');recent.textContent=(data.history||[]).slice(0,15).map(r=>`#${r.id} ${r.status} ${r.action} (${r.attempts})`).join('\n');recent.style.whiteSpace='pre-line';details.append(recent);card.append(details);
     root.append(card);
   }
