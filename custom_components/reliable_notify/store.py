@@ -88,6 +88,9 @@ class QueueStore:
                 target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
                 status TEXT NOT NULL, attempts INTEGER NOT NULL, occurred_at REAL NOT NULL,
                 detail TEXT)""")
+            history_cols={col[1] for col in con.execute("PRAGMA table_info(delivery_history)")}
+            if "duration_ms" not in history_cols:
+                con.execute("ALTER TABLE delivery_history ADD COLUMN duration_ms INTEGER")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_time ON delivery_history(occurred_at)")
             con.execute("""CREATE TABLE IF NOT EXISTS message_archive (
                 id INTEGER PRIMARY KEY, title TEXT, message TEXT NOT NULL,
@@ -307,9 +310,11 @@ class QueueStore:
     @staticmethod
     def _history(con, identifier, row, status, detail):
         if row is not None:
+            created=con.execute("SELECT created_at FROM message_archive WHERE id=?",(identifier,)).fetchone()
+            duration=max(0,int((time.time()-created[0])*1000)) if created else None
             con.execute("""INSERT INTO delivery_history(message_id,target,action,priority,status,
-                attempts,occurred_at,detail) VALUES (?,?,?,?,?,?,?,?)""",
-                (identifier,row[0],row[1],row[2],status,row[3],time.time(),(detail or "")[:300]))
+                attempts,occurred_at,detail,duration_ms) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (identifier,row[0],row[1],row[2],status,row[3],time.time(),(detail or "")[:300],duration))
             # Bound history to 2000 entries and 30 days.
             con.execute("DELETE FROM delivery_history WHERE occurred_at<?",(time.time()-30*86400,))
             con.execute("""DELETE FROM delivery_history WHERE history_id NOT IN
@@ -563,6 +568,37 @@ class QueueStore:
 
     async def dead_count(self):
         return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0])
+
+    async def statistics(self, days=7):
+        """Aggregated metadata only: no message text, tokens, or payloads."""
+        if type(days) is not int or not 1<=days<=30:
+            raise ValueError("days must be 1..30")
+        cutoff=time.time()-days*86400
+        def op(con):
+            con.row_factory=sqlite3.Row
+            transport=[dict(row) for row in con.execute("""
+                SELECT action,COUNT(*) AS events,
+                  SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent,
+                  SUM(CASE WHEN status='dead' THEN 1 ELSE 0 END) AS failed,
+                  ROUND(AVG(CASE WHEN status='sent' THEN duration_ms END)/1000.0,2) AS avg_delivery_seconds,
+                  MAX(occurred_at) AS last_event
+                FROM delivery_history WHERE occurred_at>=?
+                GROUP BY action ORDER BY events DESC""",(cutoff,))]
+            byday=[dict(row) for row in con.execute("""
+                SELECT date(occurred_at,'unixepoch') AS day,status,
+                  COUNT(*) AS count FROM delivery_history
+                WHERE occurred_at>=? GROUP BY day,status ORDER BY day""",(cutoff,))]
+            ack=con.execute("""SELECT COUNT(*),SUM(acknowledged_at IS NOT NULL),
+                AVG(CASE WHEN acknowledged_at IS NOT NULL
+                    THEN acknowledged_at-created_at END)
+                FROM acknowledgements WHERE created_at>=?""",(cutoff,)).fetchone()
+            queued=con.execute("SELECT COUNT(*),MIN(created_at) FROM messages WHERE action!='reliable_notify.staged'").fetchone()
+            return {"transports":transport,"timeline":byday,
+                    "acknowledgements":{"total":ack[0],"confirmed":ack[1] or 0,
+                                        "avg_seconds":round(ack[2],1) if ack[2] is not None else None},
+                    "queued":queued[0],"oldest_queued_seconds":
+                        round(time.time()-queued[1],1) if queued[1] else None}
+        return await self._run(op)
 
     async def metrics(self):
         return await self._run(lambda con: dict(con.execute("SELECT key,value FROM metrics").fetchall()))
