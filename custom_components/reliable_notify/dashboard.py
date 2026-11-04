@@ -366,7 +366,8 @@ def register_dashboard(hass):
             "test_mode":manager.settings.get("test_mode","off"),
             "test_recipients":manager.settings.get("test_recipients",[]),
             "transport_logging":manager.settings.get("transport_logging",{}),
-            "version":"2.0.0-dev",
+            "version":"2.5.0",
+            "daily_trends":await manager.store.long_term_statistics(365),
         })
 
     @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/migration_scan"})
