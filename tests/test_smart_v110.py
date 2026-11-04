@@ -54,6 +54,22 @@ class DigestTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("pump stopped",message["message"])
             self.assertIsNone(await q.claim_due(lane="notify"))
 
+    async def test_digest_preserves_companion_archive_link(self):
+        import json
+        with tempfile.TemporaryDirectory() as td:
+            q=QueueStore(Path(td)/"q.db")
+            source={**make("first",strategy="digest",dedup_key="window"),
+                    "action":"notify.mobile_app_my_phone",
+                    "archive_url":"/lovelace/notifications"}
+            [ident]=await q.enqueue_many([source],100)
+            await q.enqueue_many([{**source,"message":"latest"}],100)
+            import sqlite3
+            with sqlite3.connect(q.path) as db:
+                row=db.execute("SELECT payload_json FROM messages WHERE id=?",(ident,)).fetchone()
+            data=json.loads(row[0])
+            self.assertIn("rn_message="+str(ident),data["data"]["clickAction"])
+            self.assertIn("rn_message="+str(ident),data["data"]["url"])
+
     async def test_per_target_limit_and_critical_bypass(self):
         with tempfile.TemporaryDirectory() as td:
             q=QueueStore(Path(td)/"q.db")
