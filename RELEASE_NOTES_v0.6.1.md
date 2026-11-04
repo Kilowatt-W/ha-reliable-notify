@@ -17,3 +17,5 @@
 - Long notification text display is controlled by Android/iOS, not Reliable Notify.
 - Delivered Companion push bodies are not archived automatically: staging is intentionally only for unaddressed messages.
 - Staged messages require an administrator to assign an individual recipient. Staged messages cannot be automatically dispatched by bulk retry.
+
+Release publication is gated on successful Python tests, HACS validation and hassfest.
