@@ -43,7 +43,7 @@ class ReliableNotifyPanel extends HTMLElement {
     container.replaceChildren();
     ({messages:()=>this.messages(container),routes:()=>this.routes(container),
       incidents:()=>this.incidents(container),simulation:()=>this.simulation(container),
-      analytics:()=>this.analytics(container),migration:()=>this.migration(container),settings:()=>this.settings(container)
+      analytics:()=>this.analytics(container),templates:()=>this.templates(container),migration:()=>this.migration(container),settings:()=>this.settings(container)
     }[this._section]||(()=>{}))();
   }
   render(){
@@ -80,7 +80,7 @@ class ReliableNotifyPanel extends HTMLElement {
     shell.append(this.element('p','Benachrichtigungen • Zustellung • Eskalation • Diagnose','muted'));
     const tabs=this.element('nav',null,'tabs');
     for(const [id,name] of [['messages','Nachrichten'],['routes','Empfänger & Personen'],
-       ['incidents','Eskalationen'],['simulation','Simulation'],['analytics','Statistik'],['migration','Automation-Migration'],['settings','Einstellungen']]){
+       ['incidents','Eskalationen'],['simulation','Simulation'],['analytics','Statistik'],['templates','Vorlagen'],['migration','Automation-Migration'],['settings','Einstellungen']]){
       const button=this.element('button',name);
       button.addEventListener('click',()=>{this._section=id;
         for(const sibling of tabs.children)sibling.classList.remove('active');
@@ -235,6 +235,22 @@ class ReliableNotifyPanel extends HTMLElement {
     });
     wrapper.append(days,refresh,exportButton,report);box.append(wrapper);
     await this.run(report,load);
+  }
+  async templates(box){
+    const section=this.element('div',null,'panel');
+    section.append(this.element('h2','Wiederverwendbare Vorlagen'));
+    section.append(this.element('p','Vorlagen können mit reliable_notify.send_template verwendet werden. Jinja-Variablen werden beim Versand ausgewertet.','muted'));
+    const json=this.element('textarea');json.rows=14;
+    const status=this.element('pre');
+    const save=this.element('button','Vorlagen speichern');
+    save.addEventListener('click',()=>this.run(status,async()=>{
+      await this.call('set_templates',{templates:JSON.parse(json.value)});
+    }));
+    section.append(json,save,status);box.append(section);
+    try{
+      const result=await this.call('templates');
+      json.value=JSON.stringify(result.templates||{},null,2);
+    }catch(e){this.status(status,e.message,true);}
   }
   async migration(box){
     const wrapper=this.element('div',null,'panel');
