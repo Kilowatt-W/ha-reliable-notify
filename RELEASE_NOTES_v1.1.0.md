@@ -53,3 +53,5 @@ Existing Telegram, SMTP and Companion App routing remain supported. ntfy and Got
 ## Compatibility
 
 Keeps HACS / Home Assistant Marketplace `hacs.json` support. Unit tests, Python compile, Node.js syntax, hassfest and HACS repository validation gate the GitHub release.
+
+Digest safety: only text messages without attachments may be coalesced; existing Companion deep links and tags remain unchanged through subsequent digest updates.
