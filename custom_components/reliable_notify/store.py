@@ -65,12 +65,14 @@ class QueueStore:
                 con.execute("ALTER TABLE message_archive ADD COLUMN message_type TEXT NOT NULL DEFAULT 'info'")
             if "retention_days" not in archive_cols:
                 con.execute("ALTER TABLE message_archive ADD COLUMN retention_days INTEGER NOT NULL DEFAULT 30")
-            con.execute("""DELETE FROM message_archive WHERE created_at<? AND id NOT IN
-                (SELECT id FROM messages UNION SELECT id FROM dead_letters)""",(time.time()-30*86400,))
+            con.execute("""DELETE FROM message_archive WHERE
+                (retention_days=0 OR updated_at <= ?-(retention_days*86400))
+                AND id NOT IN (SELECT id FROM messages UNION SELECT id FROM dead_letters)""",
+                (time.time(),))
             con.execute("""DELETE FROM message_archive WHERE id IN (
                 SELECT id FROM message_archive WHERE id NOT IN
                 (SELECT id FROM messages UNION SELECT id FROM dead_letters)
-                ORDER BY created_at DESC LIMIT -1 OFFSET 2000)""")
+                ORDER BY updated_at DESC,id DESC LIMIT -1 OFFSET 2000)""")
             result = op(con, *args)
             con.commit()
             return result
