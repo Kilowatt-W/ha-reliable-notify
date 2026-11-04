@@ -75,6 +75,27 @@ class ArchiveStoreRetentionTests(unittest.IsolatedAsyncioTestCase):
                 db.commit()
             self.assertIsNone(await queue.archive_detail(message_id))
 
+    async def test_completed_archive_byte_quota(self):
+        with tempfile.TemporaryDirectory() as td:
+            path=Path(td)/"q.db"
+            queue=QueueStore(path)
+            previous=module.MAX_COMPLETED_ARCHIVE_BYTES
+            module.MAX_COMPLETED_ARCHIVE_BYTES=35
+            try:
+                ids=[]
+                for label in ("a"*24,"b"*24):
+                    [ident]=await queue.enqueue_many([{
+                        **item(5),"message":label,"title":""
+                    }],100)
+                    await queue.succeeded(ident)
+                    ids.append(ident)
+                # A subsequent database transaction runs cleanup.
+                remaining=await queue.archive_list()
+                self.assertEqual(len(remaining),1)
+                self.assertEqual(remaining[0]["id"],ids[-1])
+            finally:
+                module.MAX_COMPLETED_ARCHIVE_BYTES=previous
+
     async def test_legacy_archive_migration(self):
         with tempfile.TemporaryDirectory() as td:
             path=Path(td)/"q.db"
