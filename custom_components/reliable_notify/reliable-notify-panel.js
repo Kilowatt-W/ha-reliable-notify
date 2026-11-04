@@ -339,6 +339,25 @@ class ReliableNotifyPanel extends HTMLElement {
           details.append(name,this.element('p',item.reason));
           if(item.replacement){
             details.append(this.element('pre',JSON.stringify(item.replacement,null,2)));
+            if(item.preview_diff){
+              const diff=this.element('pre',item.preview_diff);
+              diff.style.whiteSpace='pre-wrap';details.append(diff);
+            }
+            if(file.relative_file?.startsWith('packages/')&&file.sha256){
+              const apply=this.element('button','Einzelne Änderung mit Backup übernehmen');
+              const status=this.element('p');
+              apply.addEventListener('click',()=>this.run(status,async()=>{
+                if(!confirm('Nur dieser EINE Paket-Eintrag wird geändert. Backup wird erstellt. Keine automatische HA-Neuladung. Fortfahren?'))return;
+                const response=await this.call('migration_apply',{
+                  file:file.relative_file,sha256:file.sha256,
+                  path:item.path,confirmation:'APPLY_SINGLE_CHANGE'
+                });
+                status.textContent='Geändert. Backup: '+response.backup+
+                   ' — Paket-Automationen über HA neu laden.';
+                apply.disabled=true;
+              }));
+              details.append(apply,status);
+            }
           }
           section.append(details);
         }
