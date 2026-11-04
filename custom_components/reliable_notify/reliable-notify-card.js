@@ -84,6 +84,27 @@ class ReliableNotifyCard extends HTMLElement {
     const bulk=document.createElement('button');bulk.textContent=this.showDead?'Retry all dead':'Retry all pending';
     bulk.addEventListener('click',async()=>{try {await this._hass.callService('reliable_notify',this.showDead?'retry_dead':'retry_all',{});await this.refresh();}catch(e){alert(e.message);}});
     tabs.append(bulk);card.append(tabs);
+    const acks=document.createElement('details');
+    const ackTitle=document.createElement('summary');
+    ackTitle.textContent='Acknowledgement needed: '+(data.acknowledgements||[]).length;
+    acks.append(ackTitle);
+    for(const ack of data.acknowledgements||[]) {
+      const row=document.createElement('div');row.style.margin='9px 0';
+      const label=document.createElement('span');
+      label.textContent=(ack.title||ack.ack_key)+' • '+ack.priority+' • '+ack.ack_key+' ';
+      const button=document.createElement('button');button.textContent='Acknowledge';
+      button.addEventListener('click',async()=>{
+        try {await this._hass.callWS({type:'reliable_notify/acknowledge',key:ack.ack_key});await this.refresh();}
+        catch(error){alert(error.message);}
+      });
+      row.append(label,button);acks.append(row);
+    }
+    card.append(acks);
+    if(data.maintenance?.database_bytes) {
+      const health=document.createElement('p');
+      health.textContent='Database: '+(data.maintenance.database_bytes/1048576).toFixed(1)+' MiB • Integrity: '+data.maintenance.integrity;
+      card.append(health);
+    }
     const stagedBox=document.createElement('details');
     const stagedSummary=document.createElement('summary');stagedSummary.textContent='Staged (no recipient): '+(data.staged_count||0);stagedBox.append(stagedSummary);
     for(const item of data.staged||[]){
