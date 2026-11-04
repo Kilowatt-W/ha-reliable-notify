@@ -10,13 +10,23 @@ class ReliableNotifyCard extends HTMLElement {
     const changed = this._hass !== value;
     this._hass = value;
     if (changed && !this._timer) {
-      this._timer = setInterval(() => this.refresh(), 15000);
+      this._timer = setInterval(() => this.refresh(), 60000);
+      this._subscribe();
       this.refresh();
     }
   }
   disconnectedCallback() {
     if (this._timer) clearInterval(this._timer);
     this._timer = null;
+    if (this._unsubscribe) this._unsubscribe();
+    this._unsubscribe=null;
+  }
+  async _subscribe() {
+    if (!this._hass?.connection?.subscribeEvents || this._unsubscribe) return;
+    try {
+      this._unsubscribe = await this._hass.connection.subscribeEvents(
+        () => this.refresh(), 'reliable_notify_updated');
+    } catch (_) { /* periodic refresh remains available */ }
   }
   static getStubConfig() { return {title: 'Reliable Notify'}; }
   getCardSize() { return 7; }
@@ -68,6 +78,7 @@ class ReliableNotifyCard extends HTMLElement {
     const style = document.createElement('style');
     style.textContent = `:host{display:block;color:var(--primary-text-color)}ha-card{padding:18px}h2{margin:0 0 12px} .stats{display:flex;gap:18px;flex-wrap:wrap} .tabs{margin:12px 0}button{border:1px solid var(--divider-color);border-radius:8px;padding:5px 10px;background:var(--card-background-color);color:inherit;cursor:pointer}button:hover{background:var(--secondary-background-color)}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px;text-align:left;border-bottom:1px solid var(--divider-color)} .scroll{overflow-x:auto} .muted{color:var(--secondary-text-color)} .actions{white-space:nowrap}`;
     style.textContent += '.rn-message-overlay{border:1px solid var(--divider-color);border-radius:10px;background:var(--card-background-color);padding:14px;margin-bottom:16px}.rn-message-overlay pre{max-height:55vh;overflow:auto}';
+    style.textContent += '@media(max-width:600px){ha-card{padding:10px!important}.scroll{overflow-x:auto}table{min-width:630px}button{margin:2px}}';
     root.append(style);
     const card = document.createElement('ha-card');
     const heading = document.createElement('h2'); heading.textContent = this.config.title || 'Reliable Notify'; card.append(heading);
@@ -104,6 +115,12 @@ class ReliableNotifyCard extends HTMLElement {
       const health=document.createElement('p');
       health.textContent='Database: '+(data.maintenance.database_bytes/1048576).toFixed(1)+' MiB • Integrity: '+data.maintenance.integrity;
       card.append(health);
+    }
+    if((data.persons||[]).length) {
+      const persons=document.createElement('p');
+      persons.className='muted';
+      persons.textContent='Configured people: '+data.persons.join(', ');
+      card.append(persons);
     }
     const stagedBox=document.createElement('details');
     const stagedSummary=document.createElement('summary');stagedSummary.textContent='Staged (no recipient): '+(data.staged_count||0);stagedBox.append(stagedSummary);
