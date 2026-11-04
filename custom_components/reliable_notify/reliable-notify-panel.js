@@ -17,7 +17,8 @@ class ReliableNotifyPanel extends HTMLElement {
   }
   set panel(value){this._panel=value;}
   set narrow(value){this._narrow=value;}
-  disconnectedCallback(){this._destroyed=true;this.shadowRoot.querySelector('reliable-notify-card')?.remove();}
+  connectedCallback(){if(this._rendered&&this._hass)this.refreshSection();}
+  disconnectedCallback(){this._destroyed=true;}
   element(tag,txt,cls) {
     const n=document.createElement(tag);
     if(txt!==undefined && txt!==null)n.textContent=txt;
@@ -30,8 +31,11 @@ class ReliableNotifyPanel extends HTMLElement {
   }
   status(node,value,error=false){node.textContent=value;node.className=error?'error':'status';}
   async run(node, fn){
-    try {await fn();this.status(node,'Saved / completed');}
-    catch(e){this.status(node,e.message||String(e),true);}
+    const oldText=node.textContent;
+    try {
+      await fn();
+      if(node.textContent===oldText)this.status(node,'Erfolgreich');
+    }catch(e){this.status(node,e.message||String(e),true);}
   }
   refreshSection(){
     const container=this.shadowRoot.querySelector('#content');
@@ -164,7 +168,7 @@ class ReliableNotifyPanel extends HTMLElement {
           const button=this.element('button',label);
           button.addEventListener('click',()=>this.run(status,async()=>{
             await this.call('incident_action',{key:item.ack_key,action});
-            this.incidents(box.replaceChildren()||box);
+            box.replaceChildren();await this.incidents(box);
           }));
           row.append(button);
         }
