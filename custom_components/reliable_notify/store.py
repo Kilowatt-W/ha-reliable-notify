@@ -125,12 +125,15 @@ class QueueStore:
                 ids.append(ident)
                 status = 'staged' if item["action"] == 'reliable_notify.staged' else 'queued'
                 con.execute("""INSERT INTO message_archive
-                    (id,title,message,target,action,priority,status,created_at,updated_at)
-                    VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (id,title,message,target,action,priority,status,created_at,updated_at,
+                     message_type,retention_days)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                     (ident,item.get('title'),item['message'],item['target'],
-                     item['action'],item['priority'],status,now,now))
+                     item['action'],item['priority'],status,now,now,
+                     item.get('message_type') or item['priority'],
+                     item.get('archive_days',30)))
                 archive_url = item.get('archive_url')
-                if archive_url and item['action'].startswith('notify.mobile_app_'):
+                if archive_url and item.get('archive_days',30) > 0 and item['action'].startswith('notify.mobile_app_'):
                     notification = dict(item.get('payload') or {})
                     phone_data = dict(notification.get('data') or {})
                     if not phone_data.get('url') and not phone_data.get('clickAction'):
