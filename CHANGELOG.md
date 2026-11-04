@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.5.0 — 2026-11-04
+- Native notify entities per configured recipient/group/person and optional classic notify.reliable_* services.
+- Read-only migration advisor with safe suggestions for automation/script notifications.
+- User-configurable Jinja message templates with bounded variable mappings.
+- Long-term daily aggregates (365 days) and query indexes for delivery reporting.
+- Better route lifecycle and compatibility settings; tests and docs.
+
+
 ## 2.0.0 — 2026-11-04
 - Admin-only HA sidebar panel with integrated queue, people/groups/routes editor, incident wizard, safe simulator, statistics and test-mode controls.
 - Signed native Companion / Telegram ACK, snooze and escalate callbacks, compact enough for Telegram.

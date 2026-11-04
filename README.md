@@ -2,7 +2,7 @@
 
 **Reliable notifications for Home Assistant.** A local SQLite-backed queue with retries, sender adapters, recipient and person routing, escalation, searchable archive, and a full admin panel.
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
+![Version](https://img.shields.io/badge/version-2.5.0-blue)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5)
 
 > **Important:** GitHub CI does not prove that a phone displayed or received a push. Reliable Notify uses *at-least-once* delivery to the transport, so providers can receive duplicates after ambiguous timeouts. Test your actual installation and devices before using critical alarm chains.
@@ -13,7 +13,7 @@ Install from the public repository **Kilowatt-W/ha-reliable-notify** as a custom
 
 The optional default notify entity can remain empty; unaddressed messages are stored in the **Staging** inbox instead of being delivered.
 
-## What's included in v2
+## What's included in v2.5
 
 | Area | Capabilities |
 |---|---|
@@ -111,3 +111,11 @@ recipients:
 - [Change history](CHANGELOG.md)
 
 Source licensed under [MIT](LICENSE). Issues and contributions are welcome.
+
+## v2.5: Native Notify and migration advisor
+
+All configured, validly named recipients, people and groups are now also available as **modern Home Assistant notify entities**. For a route named `telegram_wolfgang`, use `notify.send_message` with `target.entity_id: notify.reliable_telegram_wolfgang` (check actual entity ID in Home Assistant). For classic automations, the optional `notify.reliable_telegram_wolfgang` service is available with conventional `message` and `title` keys and optional nested Reliable Notify `data` settings.
+
+Open the admin panel **Automation-Migration** tab for a safe, read-only audit of `automations.yaml` and `scripts.yaml`. Static, unambiguous actions receive conversion proposals; complex/templated actions are explicitly marked manual. No automation files are modified.
+
+Version 2.5 also adds reusable notification templates via `reliable_notify.send_template`, up to one year of daily transport aggregates, and database indexes. See [Notify migration](docs/NOTIFY_MIGRATION.md) and [v2.5 release notes](RELEASE_NOTES_v2.5.0.md).

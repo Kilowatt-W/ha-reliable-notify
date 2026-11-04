@@ -120,3 +120,13 @@ You can also manually call `reliable_notify.acknowledge` with the incident's `de
 ## Logging
 
 Use the **Test mode, diagnostic logging and backup** options screen. Loglevels: `off`, `error`, `warning`, `info`, `debug`, separately for `telegram`, `smtp`, `notify`, `companion`, `ntfy`, `gotify` and `webhook`. Logs include only message IDs, transport type and classified failure reason; they do not intentionally print message bodies or credentials.
+
+## Notify entity exports (v2.5)
+
+For each safely named route, Reliable Notify creates `notify.reliable_<route>` with the supported modern `notify.send_message` service. The legacy `notify.reliable_<route>` action is enabled by default for compatibility and can be disabled in integration **General settings → Legacy notify services**. Reload the integration after editing the YAML recipient inventory to synchronize exposed services and entities.
+
+## Templates (v2.5)
+
+In the admin panel **Vorlagen**, store named JSON template specifications containing a Jinja `message` and optional `title`, `recipients`, `priority` and archive policy. Then invoke `reliable_notify.send_template` with a template name and simple variables. Template editing is administrator-only. Rendered message bodies have a size limit.
+
+For conversion from existing automations, see [Notify migration](NOTIFY_MIGRATION.md). The automatic scan is deliberately read-only.
