@@ -90,7 +90,7 @@ class StoreMigrationTest(unittest.TestCase):
                 self.assertEqual(len(await q.pending_media_paths()), 2)
                 self.assertEqual(await q.retry_one(ids[0], dead=True), 1)
                 self.assertEqual(len(await q.pending_media_paths()), 2)
-                await q.delete_one(ids[0] + 1)
+                await q.delete_one(ids[0])
                 self.assertEqual(await q.pending_media_paths(), set())
         asyncio.run(run())
 
