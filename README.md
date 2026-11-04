@@ -324,3 +324,40 @@ recipients:
 ```
 
 See `RELEASE_NOTES_v0.7.0.md` for privacy, retention and testing limitations. The queue and archive are local SQLite data; protect the HA database and backups.
+
+
+## v0.8.0: automatic archive retention by message type
+
+Reliable Notify now lets you decide **per notification** whether its full text should remain archived after successful delivery. Keeping a message in the *delivery queue* is separate from archiving its body: a message is never discarded before successful delivery just because archival retention is zero.
+
+**Send but do not archive afterwards:**
+
+```yaml
+- action: reliable_notify.enqueue
+  data:
+    recipients: [wolfgang_phone]
+    priority: info
+    message_type: pvec
+    archive: delete_after_send
+    title: PVEC
+    message: "Pool pump switched on."
+```
+
+**Retain a window warning for two days:**
+
+```yaml
+- action: reliable_notify.enqueue
+  data:
+    recipients: [wolfgang_phone]
+    priority: warning
+    message_type: windows
+    archive_days: 2
+    title: Open window
+    message: "Bedroom window has been open for 90 minutes."
+```
+
+**Default retention:** info 1 day, warning 7 days, critical 30 days. Change per-type retention in **Settings → Devices & services → Reliable Notify → Configure → Archive retention by message type**, or edit the same JSON object in the interactive Lovelace card. Add custom types such as `windows`, `pvec` or `security`.
+
+Priority order: `archive: delete_after_send` > explicit `archive_days` > configured `message_type` > `priority`. A zero-day policy means **immediate archive deletion upon successful send**. Failed and dead-letter messages remain available for retry and diagnosis. New settings apply to notifications subsequently queued; the existing archive retains its original retention settings.
+
+Automatic cleanup runs as part of the ongoing database operations and caps completed archive messages at 2000 records. As with all SQLite databases, freed pages are typically reused but may not immediately reduce the size of the database file. See `RELEASE_NOTES_v0.8.0.md` for examples and migration notes.
