@@ -295,6 +295,19 @@ class QueueStore:
             return dict(row) if row else None
         return await self._run(op)
 
+    async def suppress(self, identifier):
+        """Permanently drop an obsolete state-guarded delivery, not a failure."""
+        now=time.time()
+        def op(con):
+            row=con.execute("SELECT target,action,priority,attempts FROM messages WHERE id=?",(identifier,)).fetchone()
+            if con.execute("DELETE FROM messages WHERE id=?",(identifier,)).rowcount:
+                self._history(con,identifier,row,"suppressed",None)
+                con.execute("UPDATE message_archive SET status='suppressed',updated_at=? WHERE id=?",(now,identifier))
+                con.execute("DELETE FROM message_archive WHERE id=? AND retention_days=0",(identifier,))
+                return 1
+            return 0
+        return await self._run(op)
+
     async def succeeded(self, identifier):
         def op(con):
             row = con.execute("SELECT target,action,priority,attempts FROM messages WHERE id=?",(identifier,)).fetchone()

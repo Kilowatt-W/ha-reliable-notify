@@ -55,6 +55,10 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("strategy", default="always"): vol.In(("always", "replace", "digest")),
     vol.Optional("acknowledgement"): dict,
     vol.Optional("test_mode"): vol.In(("off","stage")),
+    vol.Optional("only_if"): vol.Schema({
+        vol.Required("entity_id"): cv.entity_id,
+        vol.Required("state"): cv.string,
+    }),
 })
 JOB_SCHEMA = vol.Schema({vol.Required("id"): vol.All(vol.Coerce(int),vol.Range(min=1)),
                          vol.Optional("dead", default=False): cv.boolean})
@@ -289,6 +293,8 @@ class ReliableNotifyManager:
                     payload = {**rec.get("data", {}), **extra}
                 if ack_plan is not None:
                     payload=self._action_payload(action,payload,ack_plan["key"])
+                if data.get("only_if"):
+                    payload["__rn_condition"]=dict(data["only_if"])
                 if any(k in payload for k in ("message", "title", "entity_id")):
                     raise ValueError("transport data may not override message/title/entity_id")
                 if action.startswith("telegram_bot.") and not any(k in payload for k in ("chat_id", "entity_id", "config_entry_id")):
@@ -370,12 +376,22 @@ class ReliableNotifyManager:
         return result
 
     async def _deliver(self, item):
+        try:
+            saved_payload=json.loads(item.get("payload_json") or "{}")
+        except (TypeError,ValueError):
+            raise ValueError("persisted transport payload is not JSON")
+        requirement=saved_payload.pop("__rn_condition",None)
+        if requirement:
+            state=self.hass.states.get(requirement["entity_id"])
+            if state is None or state.state!=requirement["state"]:
+                return False   # stale: never send an obsolete window/door alarm
+        item={**item,"payload_json":json.dumps(saved_payload)}
         if item["action"] in NATIVE_ACTIONS:
             record=self.routes.get("recipients",{}).get(item["target"])
             if not record or record.get("action")!=item["action"]:
                 raise ValueError("configured native transport recipient no longer exists")
             await async_deliver_native(self.hass,item["action"],record,item)
-            return
+            return True
         (domain, service), payload = create_payload(item)
         if not self.hass.services.has_service(domain, service):
             raise HomeAssistantError(f"Service unavailable: {domain}.{service}")
@@ -383,6 +399,7 @@ class ReliableNotifyManager:
         await asyncio.wait_for(
             self.hass.services.async_call(domain, service, payload, blocking=True, target=target),
             timeout=35)
+        return True
 
     async def media_cleanup_loop(self):
         while not self.stopping:
@@ -472,7 +489,7 @@ class ReliableNotifyManager:
                     rate_limit_per_minute=int(self.settings.get("rate_limit_per_minute",10)))
                 if item:
                     try:
-                        await self._deliver(item)
+                        delivered=await self._deliver(item)
                     except asyncio.CancelledError:
                         raise
                     except Exception as err:
@@ -498,11 +515,14 @@ class ReliableNotifyManager:
                                                 retry_after=classification.retry_after,
                                                 category=classification.kind)
                     else:
-                        await self.store.succeeded(item["id"])
+                        if delivered:
+                            await self.store.succeeded(item["id"])
+                        else:
+                            await self.store.suppress(item["id"])
                         channel=transport_for(item["action"])
                         level=validate_transport_logging(
                             self.settings.get("transport_logging",{}))[channel]
-                        if level in ("debug","info"):
+                        if delivered and level in ("debug","info"):
                             _LOGGER.log(logging.DEBUG if level=="debug" else logging.INFO,
                                         "Reliable Notify #%s accepted by transport=%s",
                                         item["id"],channel)
