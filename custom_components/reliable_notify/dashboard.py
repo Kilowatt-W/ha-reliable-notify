@@ -88,6 +88,45 @@ def register_dashboard(hass):
         manager.wakeup.set()
         connection.send_result(msg['id'], {'assigned': True})
 
+
+    @websocket_api.websocket_command({
+        vol.Required('type'): 'reliable_notify/archive',
+        vol.Optional('limit', default=50): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+        vol.Optional('search', default=''): vol.All(str, vol.Length(max=200)),
+    })
+    @websocket_api.async_response
+    async def archive_search(hass, connection, msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'], 'unauthorized', 'Administrator required')
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
+            return
+        rows = await manager.store.archive_list(msg['limit'], msg['search'])
+        connection.send_result(msg['id'], {'items': rows})
+
+    @websocket_api.websocket_command({
+        vol.Required('type'): 'reliable_notify/archive_detail',
+        vol.Required('message_id'): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    })
+    @websocket_api.async_response
+    async def archive_detail(hass, connection, msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'], 'unauthorized', 'Administrator required')
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
+            return
+        item = await manager.store.archive_detail(msg['message_id'])
+        if item is None:
+            connection.send_error(msg['id'], 'not_found', 'Message not in archive')
+            return
+        connection.send_result(msg['id'], item)
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, archive_search)
+    websocket_api.async_register_command(hass, archive_detail)
     websocket_api.async_register_command(hass, send_staged)
     websocket_api.async_register_command(hass, set_policies)
