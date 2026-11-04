@@ -15,6 +15,8 @@ def route_targets(routes):
     """Canonicalize configured destinations for static source lookup."""
     index={}
     for name,spec in routes.get("recipients",{}).items():
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,62}",name):
+            continue  # This alias is not exportable as a notify service.
         action=spec.get("action","notify.send_message")
         data=spec.get("data",{})
         key=None
