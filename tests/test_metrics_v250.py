@@ -24,6 +24,7 @@ class MetricTests(unittest.IsolatedAsyncioTestCase):
             recent=await q.long_term_statistics()
             self.assertTrue(recent)
             self.assertEqual(recent[0]["sent"],1)
+            await q.count()  # Initialize SQLite schema before inspecting indexes.
             with sqlite3.connect(q.path) as db:
                 db.execute("DELETE FROM delivery_history")
             q=module.QueueStore(q.path)
