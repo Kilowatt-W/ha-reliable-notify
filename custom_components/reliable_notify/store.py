@@ -193,6 +193,7 @@ class QueueStore:
                 self._history(con, identifier, row, "sent", None)
                 con.execute("UPDATE message_archive SET status='sent',updated_at=?,attempts=? WHERE id=?",
                             (time.time(), (row[3] if row else 0)+1, identifier))
+                con.execute("DELETE FROM message_archive WHERE id=? AND retention_days=0",(identifier,))
         await self._run(op)
 
     @staticmethod
@@ -268,7 +269,8 @@ class QueueStore:
         def op(con):
             con.row_factory=sqlite3.Row
             return [dict(row) for row in con.execute("""
-                SELECT id,title,target,action,priority,status,created_at,updated_at,attempts
+                SELECT id,title,target,action,priority,status,created_at,updated_at,attempts,
+                       message_type,retention_days
                 FROM message_archive
                 WHERE (? = '' OR instr(lower(message),lower(?)) > 0
                        OR instr(lower(coalesce(title,'')),lower(?)) > 0)
@@ -281,7 +283,7 @@ class QueueStore:
         def op(con):
             con.row_factory=sqlite3.Row
             row=con.execute("""SELECT id,title,message,target,action,priority,status,
-                created_at,updated_at,attempts,last_error FROM message_archive
+                created_at,updated_at,attempts,last_error,message_type,retention_days FROM message_archive
                 WHERE id=?""",(identifier,)).fetchone()
             return dict(row) if row else None
         return await self._run(op)
