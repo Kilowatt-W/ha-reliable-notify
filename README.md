@@ -2,7 +2,7 @@
 
 **Reliable notifications for Home Assistant.** A local SQLite-backed queue with retries, sender adapters, recipient and person routing, escalation, searchable archive, and a full admin panel.
 
-![Version](https://img.shields.io/badge/version-2.0.0%20beta-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Custom%20Integration-41BDF5)
 
 > **Important:** GitHub CI does not prove that a phone displayed or received a push. Reliable Notify uses *at-least-once* delivery to the transport, so providers can receive duplicates after ambiguous timeouts. Test your actual installation and devices before using critical alarm chains.
