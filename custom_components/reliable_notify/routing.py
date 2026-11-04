@@ -12,6 +12,8 @@ REST_COMMAND = re.compile(r"^rest_command\.[a-z][a-z0-9_]*$")
 
 
 def valid_action(action):
+    if action.startswith('notify.reliable_'):
+        return False
     return (action in ALLOWED or action in NATIVE_ACTIONS or bool(REST_COMMAND.fullmatch(action))
             or (bool(LEGACY_NOTIFY.fullmatch(action)) and action != "notify.send_message"))
 
