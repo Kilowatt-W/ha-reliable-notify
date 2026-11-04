@@ -5,6 +5,10 @@ Never mistake a provider's acceptance for end-device delivery.
 from __future__ import annotations
 
 import re
+import ssl
+import smtplib
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass
 
 
@@ -16,30 +20,73 @@ class Failure:
 
 
 def classify_error(err: Exception) -> Failure:
-    """Conservative handling of common HA/API errors, no secrets in logs."""
-    if isinstance(err, (ValueError, TypeError, KeyError)):
-        return Failure("invalid_payload", False)
-    if isinstance(err, (TimeoutError, ConnectionError, OSError)):
-        return Failure("network", True)
-    code = getattr(err, "status", None) or getattr(err, "status_code", None)
-    try:
-        code = int(code)
-    except (TypeError, ValueError):
-        code = None
-    detail = str(err).lower()
-    match = re.search(r"retry.after\D{0,8}(\d+)", detail)
-    retry_after = min(int(match.group(1)), 86400) if match else None
-    if code == 429 or "too many requests" in detail or "flood control" in detail:
-        return Failure("rate_limit", True, retry_after)
-    if code in (401, 403) or any(x in detail for x in ("unauthorized", "forbidden", "chat not found", "invalid token")):
+    """Categorize provider failures without persisting sensitive error text."""
+    if isinstance(err, ssl.SSLCertVerificationError):
+        return Failure("tls_certificate", False)
+    if isinstance(err, smtplib.SMTPAuthenticationError):
         return Failure("authentication", False)
-    if code in (400, 404, 422) or any(x in detail for x in ("bad request", "invalid chat id", "unsupported file")):
-        return Failure("invalid_payload", False)
-    if code is not None and 500 <= code <= 599:
-        return Failure("provider_unavailable", True)
-    if any(x in detail for x in ("timed out", "connection reset", "network unreachable", "service unavailable", "temporary failure")):
-        return Failure("network", True)
-    return Failure("unknown", True)
+    if isinstance(err, smtplib.SMTPRecipientsRefused):
+        return Failure("invalid_recipient", False)
+    if isinstance(err, smtplib.SMTPResponseException):
+        code=int(err.smtp_code)
+        if code in (530, 534, 535):
+            return Failure("authentication",False)
+        if 400<=code<500:
+            return Failure("provider_unavailable",True)
+        if code in (550,551,553):
+            return Failure("invalid_recipient",False)
+        return Failure("invalid_payload",False)
+    if isinstance(err, (ValueError, TypeError, KeyError)):
+        return Failure("invalid_payload",False)
+
+    detail=str(err).lower()
+    if any(x in detail for x in (
+        "certificate verify failed","self signed certificate",
+        "unknown ca","hostname mismatch")):
+        return Failure("tls_certificate",False)
+
+    code=getattr(err,"status",None) or getattr(err,"status_code",None)
+    try:
+        code=int(code)
+    except (TypeError,ValueError):
+        code=None
+
+    retry_after=None
+    headers=getattr(err,"headers",None)
+    if headers is not None:
+        raw=headers.get("Retry-After") or headers.get("retry-after")
+        if raw is not None:
+            try:
+                retry_after=int(raw)
+            except (TypeError,ValueError):
+                try:
+                    deadline=parsedate_to_datetime(raw)
+                    retry_after=int((deadline-datetime.now(timezone.utc)).total_seconds())
+                except (TypeError,ValueError,OverflowError):
+                    pass
+    if retry_after is None:
+        match=re.search(r"retry.after\D{0,8}(\d+)",detail)
+        if match:retry_after=int(match.group(1))
+    if retry_after is not None:
+        retry_after=max(1,min(86400,retry_after))
+
+    if code==429 or "too many requests" in detail or "flood control" in detail:
+        return Failure("rate_limit",True,retry_after)
+    if code in (401,403) or any(x in detail for x in (
+        "unauthorized","forbidden","chat not found","invalid token")):
+        return Failure("authentication",False)
+    if code in (400,404,413,415,422) or any(x in detail for x in (
+        "bad request","invalid chat id","unsupported file")):
+        return Failure("invalid_payload",False)
+    if code in (408,425) or (code is not None and 500<=code<=599):
+        return Failure("provider_unavailable",True,retry_after)
+    if isinstance(err, (TimeoutError, ConnectionError, OSError)):
+        return Failure("network",True,retry_after)
+    if any(x in detail for x in (
+        "timed out","connection reset","network unreachable",
+        "service unavailable","temporary failure")):
+        return Failure("network",True,retry_after)
+    return Failure("unknown",True,retry_after)
 
 
 DEFAULT_POLICIES = {
