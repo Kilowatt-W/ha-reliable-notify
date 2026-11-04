@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0 (development)
+## 2.0.0 — 2026-11-04
 - Admin-only HA sidebar panel with integrated queue, people/groups/routes editor, incident wizard, safe simulator, statistics and test-mode controls.
 - Signed native Companion / Telegram ACK, snooze and escalate callbacks, compact enough for Telegram.
 - Exactly-once SQLite escalation step advancement and queued message creation (not provider-side exactly-once receipt).
