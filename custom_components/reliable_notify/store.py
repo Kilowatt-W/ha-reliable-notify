@@ -73,6 +73,16 @@ class QueueStore:
                 SELECT id FROM message_archive WHERE id NOT IN
                 (SELECT id FROM messages UNION SELECT id FROM dead_letters)
                 ORDER BY updated_at DESC,id DESC LIMIT -1 OFFSET 2000)""")
+            # Cap completed message bodies at 32 MiB even if individual
+            # messages are unusually long. Pending/dead bodies are protected.
+            con.execute("""DELETE FROM message_archive WHERE id IN (
+                SELECT id FROM (
+                    SELECT id, SUM(LENGTH(CAST(message AS BLOB))
+                      + LENGTH(CAST(COALESCE(title,'') AS BLOB)))
+                      OVER (ORDER BY updated_at DESC,id DESC) AS running_bytes
+                    FROM message_archive WHERE id NOT IN
+                    (SELECT id FROM messages UNION SELECT id FROM dead_letters)
+                ) WHERE running_bytes > ?)""",(32 * 1024 * 1024,))
             result = op(con, *args)
             con.commit()
             return result
