@@ -460,13 +460,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             StaticPathConfig('/reliable_notify/reliable-notify-panel.js',
                 str(Path(__file__).parent / 'reliable-notify-panel.js'), False),
         ])
+        hass.data['reliable_notify_dashboard_registered'] = True
+    if not hass.data.get("reliable_notify_panel_registered"):
         await panel_custom.async_register_panel(
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
             module_url="/reliable_notify/reliable-notify-panel.js",
             require_admin=True)
-        hass.data['reliable_notify_dashboard_registered'] = True
+        hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
 
     async def enqueue(call: ServiceCall):
@@ -549,7 +551,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # WebSocket endpoints are HA-lifetime registrations; panel can be re-added on reload.
     if not hass.data.get(DOMAIN):
         frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
-        hass.data.pop('reliable_notify_dashboard_registered',None)
+        hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
                         'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss'):
             hass.services.async_remove(DOMAIN, service)
