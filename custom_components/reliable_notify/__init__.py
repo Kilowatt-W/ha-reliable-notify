@@ -32,6 +32,7 @@ from .smart import DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_times
 from .simulation import simulate
 from .callbacks import make_token, read_token
 from .logging_utils import validate_transport_logging, transport_for
+from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliver_native
 
 LANES = ("telegram", "smtp", "notify", "notify")
 
@@ -281,7 +282,12 @@ class ReliableNotifyManager:
                 target = rec.get("target_entity", "") if action in ("notify.send_message", "smtp.send_message") else ("(staged)" if action == "reliable_notify.staged" else name or action)
                 if action in ("notify.send_message", "smtp.send_message") and not str(target).startswith("notify."):
                     raise ValueError("notify.send_message requires a notify entity")
-                payload = {**rec.get("data", {}), **extra}
+                if action in NATIVE_ACTIONS:
+                    if not name:
+                        raise ValueError("native transports require a named recipient")
+                    payload=native_public_payload(action,rec.get("data",{}),extra)
+                else:
+                    payload = {**rec.get("data", {}), **extra}
                 if ack_plan is not None:
                     payload=self._action_payload(action,payload,ack_plan["key"])
                 if any(k in payload for k in ("message", "title", "entity_id")):
@@ -365,6 +371,12 @@ class ReliableNotifyManager:
         return result
 
     async def _deliver(self, item):
+        if item["action"] in NATIVE_ACTIONS:
+            record=self.routes.get("recipients",{}).get(item["target"])
+            if not record or record.get("action")!=item["action"]:
+                raise ValueError("configured native transport recipient no longer exists")
+            await async_deliver_native(self.hass,item["action"],record,item)
+            return
         (domain, service), payload = create_payload(item)
         if not self.hass.services.has_service(domain, service):
             raise HomeAssistantError(f"Service unavailable: {domain}.{service}")
@@ -435,7 +447,12 @@ class ReliableNotifyManager:
                         if not valid_action(action) or action=="telegram_bot.send_photo":
                             raise ValueError("escalation only supports text transports")
                         item=dict(rec)
-                        item["data"]=self._action_payload(action,rec.get("data",{}),job["ack_key"])
+                        data=rec.get("data",{})
+                        if action in NATIVE_ACTIONS:
+                            data=native_public_payload(action,data,{})
+                        else:
+                            data=self._action_payload(action,data,job["ack_key"])
+                        item["data"]=data
                         prepared.append((name,item))
                     # Both message insertion and step advancement commit together.
                     inserted=await self.store.enqueue_escalation_atomic(

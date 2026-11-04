@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 LEVELS=("off","error","warning","info","debug")
-TRANSPORTS=("telegram","smtp","companion","notify","webhook")
+TRANSPORTS=("telegram","smtp","companion","notify","webhook","ntfy","gotify")
 
 
 def validate_transport_logging(settings):
@@ -18,5 +18,8 @@ def transport_for(action):
     if action.startswith("telegram_bot."):return "telegram"
     if action.startswith("notify.mobile_app_"):return "companion"
     if action.startswith("rest_command."):return "webhook"
+    if action=="reliable_notify.ntfy":return "ntfy"
+    if action=="reliable_notify.gotify":return "gotify"
+    if action=="reliable_notify.webhook":return "webhook"
     if action.startswith("smtp."):return "smtp"
     return "notify"
