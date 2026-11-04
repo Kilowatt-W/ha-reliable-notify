@@ -29,7 +29,8 @@ class QueueStore:
             cols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
             for name, definition in (("action", "TEXT NOT NULL DEFAULT 'notify.send_message'"),
                                      ("payload_json", "TEXT NOT NULL DEFAULT '{}'"),
-                                     ("lease_until", "REAL"), ("media_path", "TEXT")):
+                                     ("lease_until", "REAL"), ("media_path", "TEXT"),
+                                     ("media_paths_json", "TEXT NOT NULL DEFAULT '[]'")):
                 if name not in cols:
                     con.execute(f"ALTER TABLE messages ADD COLUMN {name} {definition}")
             con.execute("CREATE INDEX IF NOT EXISTS idx_due ON messages(next_attempt)")
@@ -44,6 +45,8 @@ class QueueStore:
             dead_cols = {r[1] for r in con.execute("PRAGMA table_info(dead_letters)")}
             if "media_path" not in dead_cols:
                 con.execute("ALTER TABLE dead_letters ADD COLUMN media_path TEXT")
+            if "media_paths_json" not in dead_cols:
+                con.execute("ALTER TABLE dead_letters ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
             con.execute("""CREATE TABLE IF NOT EXISTS delivery_history (
                 history_id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER,
                 target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
@@ -87,11 +90,12 @@ class QueueStore:
                         (item["dedup_key"], item["target"], item["action"], now))
                 payload = json.dumps(item.get("payload") or {}, ensure_ascii=False, allow_nan=False)
                 cur = con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
-                    expires_at,next_attempt,created_at,action,payload_json,media_path)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    expires_at,next_attempt,created_at,action,payload_json,media_path,media_paths_json)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (item["message"], item.get("title"), item["target"], item["priority"],
                      item.get("dedup_key"), now + item["ttl"] if item.get("ttl") else None,
-                     now, now, item["action"], payload, item.get("media_path")))
+                     now, now, item["action"], payload, item.get("media_path"),
+                     json.dumps(item.get("media_paths", []))))
                 ids.append(cur.lastrowid)
             return ids
         return await self._run(op)
@@ -153,8 +157,11 @@ class QueueStore:
             con.execute("""DELETE FROM delivery_history WHERE history_id NOT IN
                 (SELECT history_id FROM delivery_history ORDER BY history_id DESC LIMIT 2000)""")
 
-    async def failed(self, identifier, attempts, error, base_interval, max_attempts=12, permanent=False):
-        delay = min(3600, base_interval * (2 ** min(max(0,attempts-1),10)))
+    async def failed(self, identifier, attempts, error, base_interval, max_attempts=12,
+                     permanent=False, max_delay=3600, retry_after=None, category='unknown'):
+        delay = min(max_delay, base_interval * (2 ** min(max(0,attempts-1),10)))
+        if retry_after is not None:
+            delay = max(delay, retry_after)
         def op(con):
             con.row_factory = sqlite3.Row
             row = con.execute("SELECT * FROM messages WHERE id=?", (identifier,)).fetchone()
@@ -163,7 +170,7 @@ class QueueStore:
             self._inc(con,"failures")
             if permanent or (max_attempts is not None and attempts >= max_attempts):
                 record = dict(row)
-                record.update(attempts=attempts, last_error=error[:1000], lease_until=None)
+                record.update(attempts=attempts, last_error=f"[{category}] {error}"[:1000], lease_until=None)
                 fields = [k for k in record if k != "failed_at"]
                 con.execute(f"INSERT INTO dead_letters ({','.join(fields)},failed_at) VALUES ({','.join('?' for _ in fields)},?)",
                             (*[record[k] for k in fields], time.time()))
@@ -172,7 +179,7 @@ class QueueStore:
                 self._history(con,identifier,(row["target"],row["action"],row["priority"],attempts),"dead",error)
             else:
                 con.execute("""UPDATE messages SET attempts=?,last_error=?,next_attempt=?,lease_until=NULL
-                    WHERE id=?""", (attempts,error[:1000],time.time()+delay,identifier))
+                    WHERE id=?""", (attempts,f"[{category}] {error}"[:1000],time.time()+delay,identifier))
         await self._run(op)
 
     async def count(self):
@@ -192,9 +199,9 @@ class QueueStore:
         def op(con):
             count = con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0]
             con.execute("""INSERT INTO messages (message,title,target,priority,dedup_key,expires_at,
-                attempts,next_attempt,created_at,last_error,action,payload_json,lease_until,media_path)
+                attempts,next_attempt,created_at,last_error,action,payload_json,lease_until,media_path,media_paths_json)
                 SELECT message,title,target,priority,dedup_key,expires_at,0,?,created_at,NULL,
-                action,payload_json,NULL,media_path FROM dead_letters WHERE expires_at IS NULL OR expires_at>?""", (time.time(),time.time()))
+                action,payload_json,NULL,media_path,media_paths_json FROM dead_letters WHERE expires_at IS NULL OR expires_at>?""", (time.time(),time.time()))
             con.execute("DELETE FROM dead_letters")
             return count
         return await self._run(op)
@@ -223,7 +230,7 @@ class QueueStore:
             con.row_factory = sqlite3.Row
             record = con.execute("SELECT * FROM dead_letters WHERE id=?",(identifier,)).fetchone()
             columns = ['message','title','target','priority','dedup_key','expires_at','attempts',
-                       'next_attempt','created_at','last_error','action','payload_json','lease_until','media_path']
+                       'next_attempt','created_at','last_error','action','payload_json','lease_until','media_path','media_paths_json']
             values = [record[col] for col in columns]
             values[6],values[7],values[9],values[12] = 0,now,None,None
             con.execute(f"INSERT INTO messages ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",values)
@@ -257,8 +264,16 @@ class QueueStore:
     async def pending_media_paths(self):
         """Media references still used by queued or dead-letter jobs."""
         def op(con):
-            return {row[0] for table in ("messages", "dead_letters")
-                    for row in con.execute(f"SELECT DISTINCT media_path FROM {table} WHERE media_path IS NOT NULL")}
+            files = set()
+            for table in ('messages', 'dead_letters'):
+                for path, encoded in con.execute(f"SELECT media_path,media_paths_json FROM {table}"):
+                    if path:
+                        files.add(path)
+                    try:
+                        files.update(json.loads(encoded or '[]'))
+                    except (ValueError, TypeError):
+                        pass
+            return files
         return await self._run(op)
 
     async def recent(self, limit=40, dead=False):

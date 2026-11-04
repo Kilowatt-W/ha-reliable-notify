@@ -9,6 +9,7 @@ from homeassistant.helpers import selector
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN
 from .routing import validate_config
+from .retry import validate_policies, DEFAULT_POLICIES
 
 
 class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -51,6 +52,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             operation = user_input.get('manage', 'settings')
+            if operation == 'retries':
+                return await self.async_step_retries()
             if operation == 'recipient':
                 return await self.async_step_recipient()
             if operation == 'group':
@@ -61,6 +64,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(step_id='init', data_schema=vol.Schema({
             vol.Required('manage', default='settings'): vol.In({
                 'settings': 'General settings',
+                'retries': 'Retry policies by priority',
                 'recipient': 'Add/update recipient',
                 'group': 'Add/update group',
                 'delete': 'Delete UI-managed recipient/group',
@@ -142,4 +146,20 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                     data_schema=vol.Schema({vol.Required('route'): vol.In(choices)}))
         return self.async_show_form(step_id='delete', data_schema=vol.Schema({
             vol.Required('route'): vol.In(choices),
+        }))
+
+    async def async_step_retries(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            try:
+                result = validate_policies(json.loads(user_input['policies_json']))
+                return self.async_create_entry(title='', data={
+                    **self.config_entry.options, 'retry_policies': result,
+                })
+            except (ValueError, TypeError, json.JSONDecodeError):
+                errors['base'] = 'invalid_route'
+        current = self.config_entry.options.get('retry_policies', DEFAULT_POLICIES)
+        return self.async_show_form(step_id='retries', errors=errors, data_schema=vol.Schema({
+            vol.Required('policies_json', default=json.dumps(current, indent=2)):
+                selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
         }))

@@ -12,12 +12,15 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.components.http import StaticPathConfig
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
 from .routing import resolve, validate_config, valid_action
 from .store import QueueStore
 from .transport import create_payload
-from .media import snapshot_file, cleanup_media
+from .media import snapshot_file, cleanup_media, snapshot_attachments, free_disk_bytes
+from .retry import classify_error, validate_policies, DEFAULT_POLICIES
+from .dashboard import register_dashboard
 
 LANES = ("telegram", "smtp", "notify", "notify")
 
@@ -61,10 +64,23 @@ class ReliableNotifyManager:
         self.stopping = False
         self._enqueue_lock = asyncio.Lock()
         self.last_error = None
+        self.min_free_bytes = 100 * 1024 * 1024
 
     @property
     def settings(self):
         return {**self.entry.data, **self.entry.options}
+
+    @property
+    def policies(self):
+        return validate_policies(self.settings.get('retry_policies', DEFAULT_POLICIES))
+
+    async def storage_status(self):
+        try:
+            free = await asyncio.to_thread(free_disk_bytes, '/media/reliable_notify')
+        except OSError:
+            free = None
+        return {'free_bytes': free, 'minimum_free_bytes': self.min_free_bytes,
+                'healthy': free is not None and free >= self.min_free_bytes}
 
     async def reload_routes(self):
         # UI-defined routes override YAML names; invalid reload leaves previous mapping intact.
@@ -133,14 +149,29 @@ class ReliableNotifyManager:
             try:
                 # A queued photo must not depend on a rotating camera snapshot file.
                 async with self._enqueue_lock:
+                    free = await asyncio.to_thread(free_disk_bytes, self.store.path.parent)
+                    if free < self.min_free_bytes:
+                        raise OSError('Insufficient free disk space for reliable queue')
                     for job in jobs:
+                        media_paths = []
                         if job["action"] == "telegram_bot.send_photo" and job["payload"].get("file"):
                             local = job["payload"]["file"]
+                            if await asyncio.to_thread(free_disk_bytes, '/media/reliable_notify') < self.min_free_bytes + Path(local).stat().st_size:
+                                raise OSError('Insufficient free space for Telegram photo')
                             new_path = await asyncio.to_thread(snapshot_file, local,
                                 "/media/reliable_notify", 200 * 1024 * 1024)
                             snapshots.append(new_path)
+                            media_paths.append(new_path)
                             job["payload"]["file"] = new_path
                             job["media_path"] = new_path
+                        if job["action"] == "smtp.send_message":
+                            modified, attached = await asyncio.to_thread(
+                                snapshot_attachments, job['payload'], '/media/reliable_notify',
+                                min_free_bytes=self.min_free_bytes)
+                            job['payload'] = modified
+                            snapshots.extend(attached)
+                            media_paths.extend(attached)
+                        job['media_paths'] = media_paths
                     result = await self.store.enqueue_many(jobs, MAX_QUEUE)
             except Exception:
                 for path in snapshots:
@@ -183,13 +214,20 @@ class ReliableNotifyManager:
                     except asyncio.CancelledError:
                         raise
                     except Exception as err:
-                        self.last_error = f"{item['action']}: {str(err)[:300]}"
-                        # Network faults are retryable; invalid stored payloads are not.
-                        permanent = isinstance(err, (ValueError, TypeError))
-                        _LOGGER.warning("Reliable Notify #%s delivery failed: %s", item["id"], err)
-                        await self.store.failed(item["id"], item["attempts"]+1, str(err),
-                                                interval, max_attempts=None if item["priority"] == "critical" else 12,
-                                                permanent=permanent)
+                        self.last_error = f"{item['action']}: {classify_error(err).kind}"
+                        classification = classify_error(err)
+                        policy = self.policies[item['priority']]
+                        # Provider error messages may contain secrets; keep logs generic.
+                        _LOGGER.warning("Reliable Notify #%s %s failed (%s)",
+                                        item["id"], item['action'], classification.kind)
+                        await self.store.failed(item["id"], item["attempts"] + 1,
+                                                f"{type(err).__name__}: {classification.kind}",
+                                                policy['base_seconds'],
+                                                max_attempts=policy['max_attempts'] or None,
+                                                permanent=not classification.retryable,
+                                                max_delay=policy['max_delay'],
+                                                retry_after=classification.retry_after,
+                                                category=classification.kind)
                     else:
                         await self.store.succeeded(item["id"])
                     await asyncio.sleep(0)
@@ -210,6 +248,13 @@ class ReliableNotifyManager:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     manager = ReliableNotifyManager(hass, entry)
     await manager.start()
+    if not hass.data.get('reliable_notify_dashboard_registered'):
+        register_dashboard(hass)
+        await hass.http.async_register_static_paths([
+            StaticPathConfig('/reliable_notify/reliable-notify-card.js',
+                str(Path(__file__).parent / 'reliable-notify-card.js'), False)
+        ])
+        hass.data['reliable_notify_dashboard_registered'] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
 
     async def enqueue(call: ServiceCall):
@@ -253,6 +298,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.services.async_register(DOMAIN, name, fn, schema=schema)
     await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button"])
     entry.async_on_unload(entry.add_update_listener(_reload_entry))
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+    if not await hass.config_entries.async_unload_platforms(entry, ['sensor', 'button']):
+        return False
+    manager = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if manager is not None:
+        await manager.stop()
+    # Handlers and static assets are registered once per HA lifetime.
+    if not hass.data.get(DOMAIN):
+        for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
+                        'reload_routes', 'retry_one', 'delete_one'):
+            hass.services.async_remove(DOMAIN, service)
     return True
 
 
