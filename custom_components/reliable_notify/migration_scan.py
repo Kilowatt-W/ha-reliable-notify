@@ -69,6 +69,9 @@ async def scan_automation_files(config_dir, routes):
         asyncio.to_thread(_inspect_one,path,routes)
         for path in _candidate_paths(root)
     ])
+    for result in reports:
+        if result.get("sha256"):
+            result["relative_file"]=str(Path(result["file"]).relative_to(root))
     return {
         "mode":"read_only",
         "writes_performed":0,
