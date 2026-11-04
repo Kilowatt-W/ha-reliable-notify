@@ -183,6 +183,33 @@ class ReliableNotifyCard extends HTMLElement {
     });
     details.append(save);
     const recent=document.createElement('div');recent.textContent=(data.history||[]).slice(0,15).map(r=>`#${r.id} ${r.status} ${r.action} (${r.attempts})`).join('\n');recent.style.whiteSpace='pre-line';details.append(recent);card.append(details);
+    const smartBox=document.createElement('details');
+    const smartHeading=document.createElement('summary');
+    smartHeading.textContent='Smart notifications: quiet hours, rate limit, digest';
+    smartBox.append(smartHeading);
+    const current=data.smart||{};
+    const policyInput=document.createElement('textarea');
+    policyInput.rows=6;policyInput.style.width='100%';
+    policyInput.value=JSON.stringify(current.quiet_hours||{},null,2);
+    const settingsRow=document.createElement('div');
+    const maxRate=document.createElement('input');maxRate.type='number';maxRate.min='1';maxRate.max='1000';
+    maxRate.value=current.rate_limit_per_minute||10;maxRate.style.width='85px';
+    const digest=document.createElement('input');digest.type='number';digest.min='10';digest.max='3600';
+    digest.value=current.digest_window_seconds||300;digest.style.width='85px';
+    const rateLabel=document.createElement('label');rateLabel.textContent='Max sends/min/target ';rateLabel.append(maxRate);
+    const digestLabel=document.createElement('label');digestLabel.textContent=' Digest seconds ';digestLabel.append(digest);
+    settingsRow.append(rateLabel,digestLabel);
+    const saveSmart=document.createElement('button');saveSmart.textContent='Save smart settings';
+    saveSmart.addEventListener('click',async()=>{
+      try {
+        await this._hass.callWS({type:'reliable_notify/set_smart_settings',
+          quiet_hours:JSON.parse(policyInput.value),
+          rate_limit_per_minute:Number(maxRate.value),
+          digest_window_seconds:Number(digest.value)});
+        await this.refresh();
+      }catch(e){alert('Smart settings: '+e.message);}
+    });
+    smartBox.append(policyInput,settingsRow,saveSmart);card.append(smartBox);
     const retentionBox=document.createElement('details');
     const retentionHeading=document.createElement('summary');
     retentionHeading.textContent='Archive retention by type (days; 0 = purge on send)';
