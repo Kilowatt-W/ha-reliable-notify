@@ -37,7 +37,7 @@ jobs:
               ("logo.png",(512,160)),("logo@2x.png",(1024,320))
           ):
               payload=(folder/name).read_bytes()
-              assert payload[:8]==b"\\x89PNG\\r\\n\\x1a\\n"
+              assert payload[:8] == bytes.fromhex("89504e470d0a1a0a")
               assert struct.unpack(">II",payload[16:24])==expected
           PY
       - run: python -m unittest discover -s tests -v
