@@ -19,7 +19,8 @@ def validate_config(config):
         raise ValueError("routes file must contain a mapping")
     recipients = config.get("recipients", {})
     groups = config.get("groups", {})
-    if not isinstance(recipients, dict) or not isinstance(groups, dict):
+    persons = config.get("persons", {})
+    if not isinstance(recipients, dict) or not isinstance(groups, dict) or not isinstance(persons, dict):
         raise ValueError("recipients and groups must be mappings")
     for name, rec in recipients.items():
         if not isinstance(name, str) or not isinstance(rec, dict):
@@ -36,20 +37,49 @@ def validate_config(config):
     for group, members in groups.items():
         if not isinstance(group, str) or not isinstance(members, list) or any(not isinstance(x, str) for x in members):
             raise ValueError(f"invalid group: {group}")
+    for name, spec in persons.items():
+        if not isinstance(name,str) or not isinstance(spec,dict) or not isinstance(spec.get("channels"),dict):
+            raise ValueError("person must define channels")
+        if spec.get("entity") and not str(spec["entity"]).startswith("person."):
+            raise ValueError("person entity must start with person.")
+        if not spec["channels"] or any(not isinstance(k,str) or v not in recipients for k,v in spec["channels"].items()):
+            raise ValueError("person channels must refer to existing recipients")
+        prefs=spec.get("preferred",{})
+        if not isinstance(prefs,dict) or any(k not in ("info","warning","critical") or not isinstance(v,(str,list)) for k,v in prefs.items()):
+            raise ValueError("invalid preferred channels")
+        for pref in prefs.values():
+            selected=[pref] if isinstance(pref,str) else pref
+            if not selected or any(v not in spec["channels"] for v in selected):
+                raise ValueError("unknown preferred channel")
     for name in groups:
-        if name in recipients:
+        if name in recipients or name in persons:
             raise ValueError(f"ambiguous route name: {name}")
         resolve(config, [name])  # validate groups and detect cycles
+    for name in persons:
+        if name in recipients or name in groups:
+            raise ValueError("duplicate recipient/person name")
+        for prio in ("info","warning","critical"):
+            resolve(config,[name],priority=prio)
     return config
 
 
-def resolve(config, names):
+def resolve(config, names, priority="info"):
     recipients = config.get("recipients", {})
     groups = config.get("groups", {})
+    persons = config.get("persons", {})
     output = []
     seen = set()
 
     def expand(name, stack):
+        if name in persons:
+            if name in stack:
+                raise ValueError("cyclic person route")
+            spec=persons[name]
+            preference=spec.get("preferred",{}).get(priority)
+            choices=([preference] if isinstance(preference,str) else preference) if preference else list(spec["channels"])
+            for channel in choices:
+                expand(spec["channels"][channel],[*stack,name])
+            return
         if name in recipients:
             if name not in seen:
                 seen.add(name)

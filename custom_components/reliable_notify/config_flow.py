@@ -44,6 +44,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         return {
             'recipients': dict(routes.get('recipients', {})),
             'groups': dict(routes.get('groups', {})),
+            'persons': dict(routes.get('persons', {})),
         }
 
     def _save_routes(self, routes):
@@ -59,6 +60,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_retries()
             if operation == 'recipient':
                 return await self.async_step_recipient()
+            if operation == 'person':
+                return await self.async_step_person()
             if operation == 'group':
                 return await self.async_step_group()
             if operation == 'delete':
@@ -71,6 +74,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                 'retention': 'Archive retention by message type',
                 'recipient': 'Add/update recipient',
                 'group': 'Add/update group',
+                'person': 'Add/update person',
                 'delete': 'Delete UI-managed recipient/group',
             }),
         }))
@@ -188,5 +192,26 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         current = self.config_entry.options.get('archive_retention', DEFAULT_RETENTION)
         return self.async_show_form(step_id='retention', errors=errors, data_schema=vol.Schema({
             vol.Required('days_json', default=json.dumps(current, indent=2)):
+                selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+        }))
+
+    async def async_step_person(self, user_input=None):
+        errors={}
+        if user_input is not None:
+            try:
+                name=user_input["name"].strip()
+                if not name or not name.replace("_","").isalnum():
+                    raise ValueError("invalid name")
+                spec=json.loads(user_input["settings_json"])
+                if not isinstance(spec,dict):
+                    raise ValueError("invalid mapping")
+                routes=self._routes()
+                routes["persons"][name]=spec
+                return self._save_routes(routes)
+            except (ValueError,TypeError,KeyError):
+                errors["base"]="invalid_route"
+        return self.async_show_form(step_id="person",errors=errors,data_schema=vol.Schema({
+            vol.Required("name"):str,
+            vol.Required("settings_json",default='{"entity":"person.example","channels":{"mobile":"mobile_recipient"},"preferred":{"info":"mobile"}}'):
                 selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
         }))

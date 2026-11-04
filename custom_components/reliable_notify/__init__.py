@@ -57,7 +57,7 @@ CANCEL_SCHEMA = vol.Schema({vol.Required("dedup_key"): cv.string, vol.Optional("
 def _load_routes(path):
     file = Path(path)
     if not file.exists():
-        return {"recipients": {}, "groups": {}}
+        return {"recipients": {}, "groups": {}, "persons": {}}
     with file.open(encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
     return validate_config(raw)
@@ -68,7 +68,7 @@ class ReliableNotifyManager:
         self.hass, self.entry = hass, entry
         self.store = QueueStore(hass.config.path(".storage", "reliable_notify.db"))
         self.route_path = hass.config.path("reliable_notify_routes.yaml")
-        self.routes = {"recipients": {}, "groups": {}}
+        self.routes = {"recipients": {}, "groups": {}, "persons": {}}
         self.wakeup = asyncio.Event()
         self.tasks = []
         self.stopping = False
@@ -104,6 +104,7 @@ class ReliableNotifyManager:
         self.routes = validate_config({
             "recipients": {**file_routes["recipients"], **ui_routes.get("recipients", {})},
             "groups": {**file_routes["groups"], **ui_routes.get("groups", {})},
+            "persons": {**file_routes.get("persons",{}), **ui_routes.get("persons",{})},
         })
         _LOGGER.info("Reliable Notify: %s recipients and %s groups loaded",
                      len(self.routes["recipients"]), len(self.routes["groups"]))
@@ -135,7 +136,7 @@ class ReliableNotifyManager:
                 if data.get("action") or data.get("target_entity"):
                     raise ValueError("use either recipients or action/target_entity")
                 names = [recipients] if isinstance(recipients, str) else recipients
-                targets = resolve(self.routes, names)
+                targets = resolve(self.routes, names, priority=data.get("priority","info"))
             else:
                 # No default and no explicitly addressed recipient: persist for review,
                 # never guess a mobile/Telegram destination.
