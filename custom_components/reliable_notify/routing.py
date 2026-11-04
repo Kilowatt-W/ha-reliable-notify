@@ -8,10 +8,12 @@ import re
 
 ALLOWED = {"notify.send_message", "telegram_bot.send_message", "telegram_bot.send_photo", "smtp.send_message"}
 LEGACY_NOTIFY = re.compile(r"^notify\.[a-z][a-z0-9_]*$")
+REST_COMMAND = re.compile(r"^rest_command\.[a-z][a-z0-9_]*$")
 
 
 def valid_action(action):
-    return action in ALLOWED or (bool(LEGACY_NOTIFY.fullmatch(action)) and action not in {"notify.send_message"})
+    return (action in ALLOWED or bool(REST_COMMAND.fullmatch(action))
+            or (bool(LEGACY_NOTIFY.fullmatch(action)) and action != "notify.send_message"))
 
 
 def validate_config(config):
@@ -47,6 +49,15 @@ def validate_config(config):
         prefs=spec.get("preferred",{})
         if not isinstance(prefs,dict) or any(k not in ("info","warning","critical") or not isinstance(v,(str,list)) for k,v in prefs.items()):
             raise ValueError("invalid preferred channels")
+        zone_rules=spec.get("preferred_by_zone",{})
+        if not isinstance(zone_rules,dict):
+            raise ValueError("invalid preferred_by_zone")
+        for zone,zone_policy in zone_rules.items():
+            if not isinstance(zone,str) or not isinstance(zone_policy,dict):
+                raise ValueError("zone policy must be a mapping")
+            if set(zone_policy)-{"info","warning","critical"}:
+                raise ValueError("unsupported zone priority")
+            prefs={**prefs,**zone_policy}
         for pref in prefs.values():
             selected=[pref] if isinstance(pref,str) else pref
             if not selected or any(v not in spec["channels"] for v in selected):
@@ -63,7 +74,7 @@ def validate_config(config):
     return config
 
 
-def resolve(config, names, priority="info"):
+def resolve(config, names, priority="info", presence=None):
     recipients = config.get("recipients", {})
     groups = config.get("groups", {})
     persons = config.get("persons", {})
@@ -75,7 +86,10 @@ def resolve(config, names, priority="info"):
             if name in stack:
                 raise ValueError("cyclic person route")
             spec=persons[name]
-            preference=spec.get("preferred",{}).get(priority)
+            person_entity=spec.get("entity")
+            state=(presence or {}).get(person_entity,"unknown")
+            zone_policy=spec.get("preferred_by_zone",{}).get(state,{})
+            preference=zone_policy.get(priority,spec.get("preferred",{}).get(priority))
             choices=([preference] if isinstance(preference,str) else preference) if preference else list(spec["channels"])
             for channel in choices:
                 expand(spec["channels"][channel],[*stack,name])

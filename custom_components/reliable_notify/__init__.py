@@ -231,7 +231,14 @@ class ReliableNotifyManager:
                 if data.get("action") or data.get("target_entity"):
                     raise ValueError("use either recipients or action/target_entity")
                 names = [recipients] if isinstance(recipients, str) else recipients
-                targets = resolve(self.routes, names, priority=data.get("priority","info"))
+                presence={}
+                for spec in self.routes.get("persons",{}).values():
+                    entity=spec.get("entity")
+                    if entity:
+                        state=self.hass.states.get(entity)
+                        presence[entity]=state.state if state is not None else "unknown"
+                targets = resolve(self.routes, names, priority=data.get("priority","info"),
+                                  presence=presence)
             else:
                 # No default and no explicitly addressed recipient: persist for review,
                 # never guess a mobile/Telegram destination.
