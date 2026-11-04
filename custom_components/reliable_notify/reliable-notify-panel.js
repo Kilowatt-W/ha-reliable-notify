@@ -43,7 +43,7 @@ class ReliableNotifyPanel extends HTMLElement {
     container.replaceChildren();
     ({messages:()=>this.messages(container),routes:()=>this.routes(container),
       incidents:()=>this.incidents(container),simulation:()=>this.simulation(container),
-      analytics:()=>this.analytics(container),templates:()=>this.templates(container),migration:()=>this.migration(container),settings:()=>this.settings(container)
+      analytics:()=>this.analytics(container),templates:()=>this.templates(container),profiles:()=>this.profiles(container),migration:()=>this.migration(container),settings:()=>this.settings(container)
     }[this._section]||(()=>{}))();
   }
   render(){
@@ -80,7 +80,7 @@ class ReliableNotifyPanel extends HTMLElement {
     shell.append(this.element('p','Benachrichtigungen • Zustellung • Eskalation • Diagnose','muted'));
     const tabs=this.element('nav',null,'tabs');
     for(const [id,name] of [['messages','Nachrichten'],['routes','Empfänger & Personen'],
-       ['incidents','Eskalationen'],['simulation','Simulation'],['analytics','Statistik'],['templates','Vorlagen'],['migration','Automation-Migration'],['settings','Einstellungen']]){
+       ['incidents','Eskalationen'],['simulation','Simulation'],['analytics','Statistik'],['templates','Vorlagen'],['profiles','Profile & API'],['migration','Automation-Migration'],['settings','Einstellungen']]){
       const button=this.element('button',name);
       button.addEventListener('click',()=>{this._section=id;
         for(const sibling of tabs.children)sibling.classList.remove('active');
@@ -233,7 +233,35 @@ class ReliableNotifyPanel extends HTMLElement {
       link.href=url;link.download='reliable-notify-diagnostics.json';link.click();
       setTimeout(()=>URL.revokeObjectURL(url),250);
     });
+    const trend=this.element('div',null,'panel');
+    const title=this.element('h3','Tägliche Zustellungen (letzte 30 Tage)');
+    trend.append(title);
+    const bars=this.element('div');
+    bars.style.cssText='display:flex;align-items:flex-end;gap:3px;height:145px;overflow-x:auto;';
+    trend.append(bars);
+    const oldLoad=load;
+    const loadWithChart=async()=>{
+      await oldLoad();
+      bars.replaceChildren();
+      const daily={};
+      for(const row of (this._lastStats?.daily_trends||[])){
+        const day=row.day;daily[day]=(daily[day]||0)+Number(row.sent||0);
+      }
+      const points=Object.entries(daily).sort(([a],[b])=>a.localeCompare(b)).slice(-30);
+      const maximum=Math.max(1,...points.map(([,value])=>value));
+      for(const [day,value] of points){
+        const bar=this.element('div');
+        bar.title=day+': '+value+' versendet';
+        bar.style.cssText='flex:1 0 8px;min-width:8px;max-width:24px;background:var(--primary-color);border-radius:4px 4px 0 0;';
+        bar.style.height=Math.max(2,Math.round(value/maximum*130))+'px';
+        bars.append(bar);
+      }
+      if(!points.length)bars.append(this.element('p','Noch keine Tagesstatistiken','muted'));
+    };
+    refresh.onclick=()=>this.run(report,loadWithChart);
     wrapper.append(days,refresh,exportButton,report);box.append(wrapper);
+    box.append(trend);
+    await this.run(report,loadWithChart);
     await this.run(report,load);
   }
   async templates(box){
@@ -252,6 +280,41 @@ class ReliableNotifyPanel extends HTMLElement {
       json.value=JSON.stringify(result.templates||{},null,2);
     }catch(e){this.status(status,e.message,true);}
   }
+  async profiles(box){
+    const section=this.element('div',null,'panel');
+    section.append(this.element('h2','Benachrichtigungsprofile'));
+    section.append(this.element('p','Definiere zentrale Standardwerte für Priorität, Aufbewahrung, Ziele und Zustellstrategie. Angaben beim Versand überschreiben Profilwerte.','muted'));
+    const json=this.element('textarea');json.rows=13;
+    const note=this.element('p');
+    const save=this.element('button','Profile speichern');
+    save.addEventListener('click',()=>this.run(note,()=>this.call('set_profiles',{
+      profiles:JSON.parse(json.value)})));
+    section.append(json,save,note);box.append(section);
+    const api=this.element('div',null,'panel');
+    api.append(this.element('h2','Externe API (standardmäßig deaktiviert)'));
+    api.append(this.element('p','Authentifizierung durch Home Assistant, nur Admin-Bearer-Tokens. Keine eigenen API-Tokens. Erlaubte Ziele müssen ausdrücklich freigegeben werden.','muted'));
+    const enabled=this.element('input');enabled.type='checkbox';enabled.style.width='auto';
+    const targets=this.element('input');targets.placeholder='Erlaubte Empfänger (Komma-getrennt)';
+    const limit=this.element('input');limit.type='number';limit.min='1';limit.max='60';limit.value='30';
+    const result=this.element('p');
+    api.append(this.element('label','HTTP API aktivieren'),enabled,
+      this.element('label','Freigegebene Empfänger'),targets,
+      this.element('label','Max. Aufträge pro Minute und Benutzer'),limit);
+    const saveApi=this.element('button','API-Einstellungen speichern');
+    saveApi.addEventListener('click',()=>this.run(result,()=>this.call('set_external_api',{
+      enabled:enabled.checked,
+      recipients:targets.value.split(',').map(x=>x.trim()).filter(Boolean),
+      rate:Number(limit.value)})));
+    api.append(saveApi,result);box.append(api);
+    try{
+      const data=await this.call('profiles');
+      json.value=JSON.stringify(data.profiles,null,2);
+      enabled.checked=Boolean(data.external_api_enabled);
+      targets.value=(data.external_api_recipients||[]).join(',');
+      limit.value=Number(data.external_api_rate||30);
+    }catch(e){this.status(note,e.message,true);}
+  }
+
   async migration(box){
     const wrapper=this.element('div',null,'panel');
     wrapper.append(this.element('h2','Bestehende Automationen prüfen'));
