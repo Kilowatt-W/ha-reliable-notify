@@ -70,3 +70,7 @@ The retention policy is **captured when the message is enqueued**, so changes in
 **SQLite caveat:** Deleting records marks database pages for reuse but does not necessarily shrink the file on disk. For unusually large databases, plan SQLite maintenance/backup with Home Assistant stopped; do not vacuum a running WAL database from outside the integration.
 
 The Lovelace admin dashboard also allows editing the retention JSON and displays each archived item's type and configured days. SQLite storage remains subject to the existing free-disk guard.
+
+### CI correction
+
+Fixed a test-harness NameError in the archive byte-quota regression (`module` reference). No application logic was changed by this correction.
