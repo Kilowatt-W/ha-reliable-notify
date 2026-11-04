@@ -55,3 +55,7 @@ A newly designed shield-bell-check brand icon is stored at `custom_components/re
 
 ### Limitations
 Automated CI cannot run real Android/iOS, Telegram or SMTP tests against your installation. GitHub issue #3 remains open until a live HA OS acceptance run is completed. The integration's icon cannot force older standalone HACS frontends to read local brand assets.
+
+## Validation and publication
+
+The v3.0.0 GitHub release is published only after successful Python and JavaScript checks, HACS repository validation, hassfest, Home Assistant Core integration import checks, and local brand PNG format/dimension verification. Live device and HA OS seven-day acceptance remain tracked separately in GitHub issue #3.
