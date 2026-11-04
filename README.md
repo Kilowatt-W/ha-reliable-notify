@@ -9,7 +9,7 @@
 
 ## Installation
 
-Install from the public repository **Kilowatt-W/ha-reliable-notify** as a custom Integration repository in HACS/Home Assistant Marketplace. Choose the latest **published release**, restart Home Assistant Core, then add **Reliable Notify** under Settings → Devices & services. A new beta may be available on the development branch before being published as a stable release.
+Install from the public repository **Kilowatt-W/ha-reliable-notify** as a custom Integration repository in HACS/Home Assistant Marketplace. Choose the latest **published release**, restart Home Assistant Core, then add **Reliable Notify** under Settings → Devices & services. Development changes are validated on a branch before an official tagged release is published.
 
 The optional default notify entity can remain empty; unaddressed messages are stored in the **Staging** inbox instead of being delivered.
 
