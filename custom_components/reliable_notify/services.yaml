@@ -68,6 +68,10 @@ enqueue:
     dedup_key:
       selector:
         text:
+    acknowledgement:
+      description: Optional {required true, escalation list} with dedup_key; uses explicit acknowledge action.
+      selector:
+        object:
     strategy:
       selector:
         select:
@@ -123,3 +127,15 @@ delete_one:
       description: True to delete a dead-letter message.
       selector:
         boolean:
+acknowledge:
+  name: Acknowledge pending alert
+  description: Mark a deduplication key as acknowledged and stop further escalations.
+  fields:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    by:
+      description: Human or automation identifier.
+      selector:
+        text:
