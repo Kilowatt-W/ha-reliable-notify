@@ -216,6 +216,7 @@ class ReliableNotifyManager:
         except Exception as err:
             raise HomeAssistantError(f"Reliable Notify could not persist notification: {err}") from err
         self.wakeup.set()
+        self.hass.bus.async_fire("reliable_notify_updated", {"kind":"queued"})
         return result
 
     async def _deliver(self, item):
@@ -301,6 +302,7 @@ class ReliableNotifyManager:
                                                 category=classification.kind)
                     else:
                         await self.store.succeeded(item["id"])
+                    self.hass.bus.async_fire("reliable_notify_updated", {"kind":"delivery"})
                     await asyncio.sleep(0)
                     continue
                 # Avoid lost wake-up across multiple workers: bounded poll interval.
@@ -356,12 +358,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     async def dismiss(call: ServiceCall):
         key=call.data["dedup_key"]
-        await manager.store.cancel(key)
         names=call.data["recipients"]
         destinations=resolve(manager.routes,[names] if isinstance(names,str) else names,priority="info")
         mobile=[entry for _,entry in destinations if entry.get("action","").startswith("notify.mobile_app_")]
         if not mobile:
             raise HomeAssistantError("dismiss requires at least one Companion App recipient")
+        await manager.store.cancel(key)
         for destination in mobile:
             await manager.enqueue({
                 "message":"clear_notification",
