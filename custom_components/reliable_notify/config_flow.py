@@ -10,6 +10,7 @@ from homeassistant.helpers import selector
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN
 from .routing import validate_config
 from .retry import validate_policies, DEFAULT_POLICIES
+from .retention import validate_retention, DEFAULT_RETENTION
 
 
 class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -52,6 +53,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             operation = user_input.get('manage', 'settings')
+            if operation == 'retention':
+                return await self.async_step_retention()
             if operation == 'retries':
                 return await self.async_step_retries()
             if operation == 'recipient':
@@ -65,6 +68,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Required('manage', default='settings'): vol.In({
                 'settings': 'General settings',
                 'retries': 'Retry policies by priority',
+                'retention': 'Archive retention by message type',
                 'recipient': 'Add/update recipient',
                 'group': 'Add/update group',
                 'delete': 'Delete UI-managed recipient/group',
@@ -165,5 +169,21 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         current = self.config_entry.options.get('retry_policies', DEFAULT_POLICIES)
         return self.async_show_form(step_id='retries', errors=errors, data_schema=vol.Schema({
             vol.Required('policies_json', default=json.dumps(current, indent=2)):
+                selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
+        }))
+
+    async def async_step_retention(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            try:
+                result = validate_retention(json.loads(user_input['days_json']))
+                return self.async_create_entry(title='', data={
+                    **self.config_entry.options, 'archive_retention': result,
+                })
+            except (ValueError, TypeError, json.JSONDecodeError):
+                errors['base'] = 'invalid_route'
+        current = self.config_entry.options.get('archive_retention', DEFAULT_RETENTION)
+        return self.async_show_form(step_id='retention', errors=errors, data_schema=vol.Schema({
+            vol.Required('days_json', default=json.dumps(current, indent=2)):
                 selector.TextSelector(selector.TextSelectorConfig(multiline=True)),
         }))
