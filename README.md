@@ -1,3 +1,22 @@
+# Reliable Notify — Home Assistant
+
+**Current version: 1.1.0.** SQLite-backed, restart-safe multi-channel notifications with configurable retries, notification archiving, acknowledgements, escalating alarms, recipient groups, per-priority people, Companion App notification lifecycle and smart notification scheduling.
+
+> **Community integration.** At-least-once delivery is not end-device receipt; provider failures can create duplicates. Test your real providers before depending on it for critical alerts.
+
+## Installation and upgrades
+
+Add `Kilowatt-W/ha-reliable-notify` as a custom **Integration** repository in HACS / Home Assistant Marketplace, install the latest **published GitHub release**, restart Home Assistant Core and configure the integration under Settings → Devices & services. Configured recipients, queue and archive survive upgrades. Back up `/config/.storage/reliable_notify.db` with HA stopped.
+
+## Version 1.1 highlights
+
+- **0.9:** Daily DB maintenance, WAL checkpoint, dead-letter retention, manual acknowledgement with durable escalation.
+- **1.0:** `persons` priority routing, `reliable_notify.update` and `reliable_notify.dismiss` for Companion notifications, live Lovelace refresh.
+- **1.1:** DST-aware Quiet Hours, per-endpoint rate limits and digest coalescing.
+
+Read `RELEASE_NOTES_v0.9.0.md`, `RELEASE_NOTES_v1.0.0.md` and `RELEASE_NOTES_v1.1.0.md` for exact examples, limitations and migration notes.
+
+---
 # Reliable Notify for Home Assistant
 
 **Persistent, retryable notifications for Home Assistant — built for unreliable internet connections.**
@@ -290,7 +309,7 @@ Then send a message with a **tap destination**, using the Companion App's docume
 
 **Double `data` is intentional:** the outer map contains Reliable Notify transport parameters, while the nested map is passed through to the Companion App action. **Replace the example Lovelace path** with a view that really exists. When a notification is tapped, this opens the requested Home Assistant page instead of the app's default start view. On Android, swipe down to expand long notifications. The phone's operating system ultimately controls how much text is shown on the lock screen, and no custom integration can override those display/privacy settings.
 
-The push notification body is **not yet automatically stored as a permanent readable message archive after successful delivery**. For a durable in-HA copy of critical notices, use an additional `notify.persistent_notification` action or send to an HA dashboard entity/view containing the full details. The staging inbox is for **unaddressed test messages only**, not an archive of delivered push notifications.
+Archive retention for completed notification bodies is configurable since v0.7.0; see v0.8.0 retention policies. For a durable in-HA copy of critical notices, use an additional `notify.persistent_notification` action or send to an HA dashboard entity/view containing the full details. The staging inbox is for **unaddressed test messages only**, not an archive of delivered push notifications.
 
 **Privacy:** staged message bodies are readable to Home Assistant administrators through the dashboard. Avoid storing passwords, access tokens, or other secrets in notification messages.
 

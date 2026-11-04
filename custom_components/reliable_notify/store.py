@@ -53,6 +53,12 @@ class QueueStore:
                 acknowledged_at REAL, acknowledged_by TEXT
             )""")
             con.execute("CREATE INDEX IF NOT EXISTS idx_ack_active ON acknowledgements(acknowledged_at,created_at)")
+            con.execute("""CREATE TABLE IF NOT EXISTS send_rate_windows (
+                bucket TEXT PRIMARY KEY, window_start REAL NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0)""")
+            message_cols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
+            if "occurrences" not in message_cols:
+                con.execute("ALTER TABLE messages ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1")
             con.execute("CREATE INDEX IF NOT EXISTS idx_due ON messages(next_attempt)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON messages(dedup_key,target,action)")
             con.execute("CREATE TABLE IF NOT EXISTS metrics (key TEXT PRIMARY KEY,value INTEGER NOT NULL DEFAULT 0)")
@@ -67,6 +73,8 @@ class QueueStore:
                 con.execute("ALTER TABLE dead_letters ADD COLUMN media_path TEXT")
             if "media_paths_json" not in dead_cols:
                 con.execute("ALTER TABLE dead_letters ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
+            if "occurrences" not in dead_cols:
+                con.execute("ALTER TABLE dead_letters ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1")
             con.execute("""CREATE TABLE IF NOT EXISTS delivery_history (
                 history_id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER,
                 target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
@@ -146,12 +154,31 @@ class QueueStore:
                 if item.get("dedup_key") and item["action"].startswith("notify.mobile_app_"):
                     transport_payload=_ensure_companion_tag(transport_payload,item["dedup_key"])
                 payload = json.dumps(transport_payload, ensure_ascii=False, allow_nan=False)
+                if item.get("strategy")=="digest":
+                    if not item.get("dedup_key"):
+                        raise ValueError("digest requires dedup_key")
+                    existing=con.execute("""SELECT id,occurrences FROM messages WHERE
+                        dedup_key=? AND action=? AND target=? AND priority=?
+                        AND next_attempt>? AND (lease_until IS NULL OR lease_until<=?)
+                        ORDER BY id DESC LIMIT 1""",
+                        (item["dedup_key"],item["action"],item["target"],item["priority"],now,now)).fetchone()
+                    if existing:
+                        count=existing[1]+1
+                        summary=f"{count} events (latest): {item['message']}"
+                        con.execute("""UPDATE messages SET message=?,occurrences=?,payload_json=?
+                            WHERE id=?""",(summary,count,payload,existing[0]))
+                        con.execute("UPDATE message_archive SET message=?,updated_at=? WHERE id=?",
+                                    (summary,now,existing[0]))
+                        ids.append(existing[0])
+                        continue
                 cur = con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
                     expires_at,next_attempt,created_at,action,payload_json,media_path,media_paths_json)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (item["message"], item.get("title"), item["target"], item["priority"],
                      item.get("dedup_key"), now + item["ttl"] if item.get("ttl") else None,
-                     now, now, item["action"], payload, item.get("media_path"),
+                     max(now,item.get("not_before",now),
+                         now+item.get("digest_window_seconds",0) if item.get("strategy")=="digest" else now),
+                     now, item["action"], payload, item.get("media_path"),
                      json.dumps(item.get("media_paths", []))))
                 ident = cur.lastrowid
                 ids.append(ident)
@@ -202,22 +229,41 @@ class QueueStore:
             action=action, payload=payload)], limit)
         return result[0]
 
-    async def claim_due(self, lease_seconds=90, lane=None):
+    async def claim_due(self, lease_seconds=90, lane=None, rate_limit_per_minute=10):
+        """Claim one due job, atomically reserving noncritical send-rate budget."""
+        if type(rate_limit_per_minute) is not int or not 1<=rate_limit_per_minute<=1000:
+            raise ValueError("rate_limit_per_minute must be 1..1000")
         now = time.time()
         def op(con):
             con.execute("""UPDATE message_archive SET status='expired',updated_at=?
                 WHERE id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)""",(now,now))
             con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
-            con.row_factory = sqlite3.Row
+            con.row_factory=sqlite3.Row
             lane_clause = ("AND action LIKE 'telegram_bot.%'" if lane == "telegram" else
                            "AND action NOT LIKE 'telegram_bot.%' AND action != 'smtp.send_message' AND action != 'reliable_notify.staged'" if lane == "notify" else
                            "AND action = 'smtp.send_message'" if lane == "smtp" else "AND action != 'reliable_notify.staged'")
-            item = con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
-                AND (lease_until IS NULL OR lease_until<=?) {lane_clause}
-                ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 1""", (now, now)).fetchone()
-            if item:
-                con.execute("UPDATE messages SET lease_until=? WHERE id=?", (now+lease_seconds,item["id"]))
-            return dict(item) if item else None
+            candidates=con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
+                AND (lease_until IS NULL OR lease_until<=?)
+                AND (expires_at IS NULL OR expires_at>?) {lane_clause}
+                ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 500""",(now,now,now)).fetchall()
+            for item in candidates:
+                if item["priority"]!="critical":
+                    bucket=item["action"]+":"+item["target"]
+                    row=con.execute("SELECT window_start,attempts FROM send_rate_windows WHERE bucket=?",
+                                    (bucket,)).fetchone()
+                    if row and now-row["window_start"]<60 and row["attempts"]>=rate_limit_per_minute:
+                        until=max(now+1,row["window_start"]+60)
+                        con.execute("UPDATE messages SET next_attempt=? WHERE id=?",(until,item["id"]))
+                        continue
+                    if row and now-row["window_start"]<60:
+                        con.execute("UPDATE send_rate_windows SET attempts=attempts+1 WHERE bucket=?",(bucket,))
+                    else:
+                        con.execute("""INSERT INTO send_rate_windows(bucket,window_start,attempts)
+                            VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE
+                            SET window_start=excluded.window_start,attempts=1""",(bucket,now))
+                con.execute("UPDATE messages SET lease_until=? WHERE id=?",(now+lease_seconds,item["id"]))
+                return dict(item)
+            return None
         return await self._run(op)
 
     async def next_due(self):
@@ -327,6 +373,7 @@ class QueueStore:
                 con.execute("DELETE FROM dead_letters WHERE id=?",(ident,))
                 con.execute("UPDATE message_archive SET status='dead_expired',updated_at=? WHERE id=?",
                             (now,ident))
+            con.execute("DELETE FROM send_rate_windows WHERE window_start<?",(now-300,))
             con.execute("""DELETE FROM acknowledgements
                 WHERE acknowledged_at IS NOT NULL AND acknowledged_at<?""",
                 (now-30*86400,))

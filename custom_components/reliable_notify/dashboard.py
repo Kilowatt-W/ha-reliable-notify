@@ -10,6 +10,7 @@ from homeassistant.components import websocket_api
 from .const import DOMAIN
 from .retry import validate_policies
 from .retention import validate_retention
+from .smart import validate_quiet_hours
 
 
 def register_dashboard(hass):
@@ -37,6 +38,9 @@ def register_dashboard(hass):
             'persons': sorted(manager.routes.get('persons', {})),
             'policies': manager.policies, 'retention': manager.archive_retention, 'storage': await manager.storage_status(),
             'acknowledgements': await manager.store.active_acknowledgements(), 'maintenance': manager.maintenance_info,
+            'smart': {'quiet_hours':manager.quiet_hours,
+                      'rate_limit_per_minute':int(manager.settings.get('rate_limit_per_minute',10)),
+                      'digest_window_seconds':int(manager.settings.get('digest_window_seconds',300))},
         })
 
     @websocket_api.websocket_command({
@@ -167,7 +171,36 @@ def register_dashboard(hass):
         changed=await manager.store.acknowledgement(msg['key'], connection.user.name or 'admin')
         connection.send_result(msg['id'], {'acknowledged':bool(changed)})
 
+    @websocket_api.websocket_command({
+        vol.Required('type'): 'reliable_notify/set_smart_settings',
+        vol.Required('quiet_hours'): dict,
+        vol.Required('rate_limit_per_minute'): vol.All(vol.Coerce(int),vol.Range(min=1,max=1000)),
+        vol.Required('digest_window_seconds'): vol.All(vol.Coerce(int),vol.Range(min=10,max=3600)),
+    })
+    @websocket_api.async_response
+    async def set_smart(hass,connection,msg):
+        if not connection.user.is_admin:
+            connection.send_error(msg['id'],'unauthorized','Administrator required')
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg['id'],'not_loaded','Reliable Notify not loaded')
+            return
+        try:
+            policy=validate_quiet_hours(msg['quiet_hours'])
+        except ValueError as err:
+            connection.send_error(msg['id'],'invalid_policy',str(err))
+            return
+        hass.config_entries.async_update_entry(manager.entry,options={
+            **manager.entry.options,
+            'quiet_hours':policy,
+            'rate_limit_per_minute':msg['rate_limit_per_minute'],
+            'digest_window_seconds':msg['digest_window_seconds'],
+        })
+        connection.send_result(msg['id'],{'saved':True})
+
     websocket_api.async_register_command(hass, get_dashboard)
+    websocket_api.async_register_command(hass, set_smart)
     websocket_api.async_register_command(hass, acknowledge_command)
     websocket_api.async_register_command(hass, set_retention)
     websocket_api.async_register_command(hass, archive_search)
