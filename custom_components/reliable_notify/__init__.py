@@ -145,6 +145,7 @@ class ReliableNotifyManager:
         self.callback_secret = await asyncio.to_thread(self._load_callback_secret)
         self._event_unsubscribers = [
             self.hass.bus.async_listen('telegram_callback', self._on_telegram_action),
+            self.hass.bus.async_listen('telegram_sent', self._on_telegram_sent),
             self.hass.bus.async_listen('mobile_app_notification_action', self._on_mobile_action),
         ]
         # Dedicated Telegram worker; two independently operating general notify workers.
@@ -211,6 +212,24 @@ class ReliableNotifyManager:
                 "telegram_bot","answer_callback_query",payload,blocking=True)
         except Exception:
             _LOGGER.warning("Reliable Notify: unable to process Telegram action feedback")
+
+    def _on_telegram_sent(self,event):
+        # Only record messages carrying our own outgoing queue tag.
+        # Telegram integration emits telegram_sent with chat/message IDs.
+        tag=event.data.get("message_tag")
+        if not isinstance(tag,str) or not tag.startswith("rn_"):
+            return
+        identifier=tag[3:]
+        if not identifier.isdecimal():
+            return
+        async def save():
+            try:
+                await self.store.record_telegram_receipt(
+                    int(identifier),event.data.get("chat_id"),
+                    event.data.get("message_id"))
+            except Exception:
+                _LOGGER.warning("Reliable Notify could not save Telegram receipt")
+        self.hass.async_create_task(save())
 
     def _on_telegram_action(self,event):
         raw=event.data.get("data") or event.data.get("command")
@@ -401,6 +420,8 @@ class ReliableNotifyManager:
             await async_deliver_native(self.hass,item["action"],record,item)
             return True
         (domain, service), payload = create_payload(item)
+        if item["action"]=="telegram_bot.send_message":
+            payload.setdefault("message_tag",f"rn_{item['id']}")
         if not self.hass.services.has_service(domain, service):
             raise HomeAssistantError(f"Service unavailable: {domain}.{service}")
         target = {"entity_id": item["target"]} if item["action"] in ("notify.send_message", "smtp.send_message") else None
@@ -578,6 +599,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async def enqueue(call: ServiceCall):
         await manager.enqueue(call.data)
 
+    async def telegram_lifecycle(call: ServiceCall):
+        """Edit/delete an already-sent Telegram message at a configured route.
+
+        This is an explicit provider operation; it does not claim queued retries.
+        """
+        route_name=call.data["recipient"]
+        route=manager.routes.get("recipients",{}).get(route_name)
+        if not route or route.get("action")!="telegram_bot.send_message":
+            raise HomeAssistantError("Telegram recipient is not configured")
+        allowed=route.get("data",{}).get("chat_id")
+        if isinstance(allowed,list):
+            allowed={int(item) for item in allowed}
+        elif allowed is not None:
+            allowed={int(allowed)}
+        else:
+            raise HomeAssistantError("Recipient requires explicit Telegram chat ID")
+        receipts=await manager.store.telegram_receipts(call.data["dedup_key"])
+        matches=[r for r in receipts if r["chat_id"] in allowed]
+        if not matches:
+            raise HomeAssistantError("No matching sent Telegram message found")
+        operation=call.data["operation"]
+        payload_data={"message_id":matches[0]["message_id"],
+                      "chat_id":matches[0]["chat_id"]}
+        configured_id=route.get("data",{}).get("config_entry_id")
+        if configured_id:
+            payload_data["config_entry_id"]=configured_id
+        if operation=="edit":
+            payload_data["message"]=call.data["message"]
+        action="edit_message" if operation=="edit" else "delete_message"
+        await hass.services.async_call("telegram_bot",action,payload_data,blocking=True)
+        if operation=="delete":
+            await manager.store.telegram_receipt_deleted(
+                payload_data["chat_id"],payload_data["message_id"])
+
     async def send_template(call: ServiceCall):
         from homeassistant.helpers.template import Template
         templates=validate_templates(manager.settings.get("notification_templates",{}))
@@ -660,6 +715,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         except Exception as err:
             raise HomeAssistantError(f"Invalid routing configuration: {err}") from err
 
+    TELEGRAM_LIFECYCLE_SCHEMA = vol.Schema({
+        vol.Required("recipient"): cv.string,
+        vol.Required("dedup_key"): cv.string,
+        vol.Required("operation"): vol.In(("edit","delete")),
+        vol.Optional("message"): cv.string,
+    })
     TEMPLATE_SEND_SCHEMA = vol.Schema({
         vol.Required("template"): cv.string,
         vol.Optional("variables",default={}): dict,
@@ -674,7 +735,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     })
     for name, fn, schema in (
         ("enqueue", enqueue, ENQUEUE_SCHEMA),
-        ("send_template", send_template, TEMPLATE_SEND_SCHEMA), ("retry_all", retry, None),
+        ("send_template", send_template, TEMPLATE_SEND_SCHEMA),
+        ("telegram_lifecycle", telegram_lifecycle, TELEGRAM_LIFECYCLE_SCHEMA),
+        ("retry_all", retry, None),
         ("retry_dead", retry_dead, None), ("clear_queue", clear, None),
         ("cancel", cancel, CANCEL_SCHEMA), ("acknowledge", acknowledge, ACK_SCHEMA),
         ("update", update_message, UPDATE_SCHEMA), ("dismiss", dismiss, DISMISS_SCHEMA),
@@ -707,7 +770,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
         hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup', 'send_template'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup', 'send_template', 'telegram_lifecycle'):
             hass.services.async_remove(DOMAIN, service)
     return True
 
