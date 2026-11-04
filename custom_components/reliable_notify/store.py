@@ -36,6 +36,14 @@ class QueueStore:
                                      ("media_paths_json", "TEXT NOT NULL DEFAULT '[]'")):
                 if name not in cols:
                     con.execute(f"ALTER TABLE messages ADD COLUMN {name} {definition}")
+            con.execute("""CREATE TABLE IF NOT EXISTS acknowledgements (
+                ack_key TEXT PRIMARY KEY, message_id INTEGER NOT NULL,
+                title TEXT, message TEXT NOT NULL, priority TEXT NOT NULL,
+                created_at REAL NOT NULL, steps_json TEXT NOT NULL,
+                next_step INTEGER NOT NULL DEFAULT 0,
+                acknowledged_at REAL, acknowledged_by TEXT
+            )""")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_ack_active ON acknowledgements(acknowledged_at,created_at)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_due ON messages(next_attempt)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON messages(dedup_key,target,action)")
             con.execute("CREATE TABLE IF NOT EXISTS metrics (key TEXT PRIMARY KEY,value INTEGER NOT NULL DEFAULT 0)")
@@ -158,6 +166,20 @@ class QueueStore:
                         notification['data'] = phone_data
                         con.execute("UPDATE messages SET payload_json=? WHERE id=?",
                                     (json.dumps(notification,ensure_ascii=False),ident))
+            # Register acknowledgement plan in the same transaction as enqueue.
+            if items and items[0].get("ack_plan"):
+                ack=items[0]["ack_plan"]
+                con.execute("""INSERT INTO acknowledgements(
+                    ack_key,message_id,title,message,priority,created_at,steps_json,
+                    next_step,acknowledged_at,acknowledged_by)
+                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL)
+                    ON CONFLICT(ack_key) DO UPDATE SET
+                    message_id=excluded.message_id,title=excluded.title,
+                    message=excluded.message,priority=excluded.priority,
+                    created_at=excluded.created_at,steps_json=excluded.steps_json,
+                    next_step=0,acknowledged_at=NULL,acknowledged_by=NULL""",
+                    (ack["key"],ids[0],items[0].get("title"),items[0]["message"],
+                     items[0]["priority"],now,json.dumps(ack["steps"])))
             return ids
         return await self._run(op)
 
@@ -315,6 +337,47 @@ class QueueStore:
                     "database_bytes":size,"dead_letters":dead,"critical_dead_letters":critical}
         finally:
             con.close()
+
+    async def acknowledgement(self, key, by="manual"):
+        now=time.time()
+        def op(con):
+            return con.execute("""UPDATE acknowledgements SET acknowledged_at=?,acknowledged_by=?
+                WHERE ack_key=? AND acknowledged_at IS NULL""",(now,by[:100],key)).rowcount
+        return await self._run(op)
+
+    async def active_acknowledgements(self, limit=50):
+        def op(con):
+            con.row_factory=sqlite3.Row
+            records=[dict(row) for row in con.execute("""SELECT ack_key,message_id,title,priority,
+                created_at,steps_json,next_step FROM acknowledgements
+                WHERE acknowledged_at IS NULL ORDER BY created_at DESC LIMIT ?""",(limit,))]
+            for record in records:
+                record["steps"]=json.loads(record.pop("steps_json"))
+            return records
+        return await self._run(op)
+
+    async def due_escalations(self, now=None):
+        now=now or time.time()
+        def op(con):
+            con.row_factory=sqlite3.Row
+            rows=con.execute("""SELECT ack_key,title,message,priority,created_at,
+                steps_json,next_step FROM acknowledgements
+                WHERE acknowledged_at IS NULL AND next_step<8""").fetchall()
+            due=[]
+            for row in rows:
+                steps=json.loads(row["steps_json"])
+                index=row["next_step"]
+                if index < len(steps) and row["created_at"]+steps[index]["after"] <= now:
+                    due.append({**dict(row),"step_index":index,"step":steps[index]})
+            return due
+        return await self._run(op)
+
+    async def escalation_completed(self, key, index):
+        def op(con):
+            return con.execute("""UPDATE acknowledgements SET next_step=next_step+1
+                WHERE ack_key=? AND next_step=? AND acknowledged_at IS NULL""",
+                (key,index)).rowcount
+        return await self._run(op)
 
     async def archive_list(self, limit=40, search=""):
         """Admin-only searchable index; intentionally no message bodies."""
