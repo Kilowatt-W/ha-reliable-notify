@@ -24,7 +24,6 @@ class MetricTests(unittest.IsolatedAsyncioTestCase):
             recent=await q.long_term_statistics()
             self.assertTrue(recent)
             self.assertEqual(recent[0]["sent"],1)
-            await q.count()  # Initialize SQLite schema before inspecting indexes.
             with sqlite3.connect(q.path) as db:
                 db.execute("DELETE FROM delivery_history")
             q=module.QueueStore(q.path)
@@ -35,6 +34,7 @@ class MetricTests(unittest.IsolatedAsyncioTestCase):
     async def test_indices_and_date_validation(self):
         with tempfile.TemporaryDirectory() as td:
             q=module.QueueStore(Path(td)/"q.db")
+            await q.count()  # Database schema/indexes are created lazily.
             with sqlite3.connect(q.path) as db:
                 names={row[1] for row in db.execute("PRAGMA index_list(messages)")}
                 self.assertIn("idx_queue_dedup_route",names)
