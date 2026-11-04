@@ -16,86 +16,95 @@
   "options": {
     "step": {
       "init": {
-        "title": "Reliable Notify verwalten",
+        "title": "Einstellungen",
+        "description": "Alle Bereiche sind aufgeklappt. Empfänger, Gruppen, Personen, Profile und Vorlagen verwaltest du im Reliable-Notify-Seitenmenü. Die optionale YAML-Vorschau erscheint vor dem Speichern.",
         "data": {
-          "manage": "Konfigurationsbereich"
+          "show_yaml": "YAML vor dem Speichern anzeigen"
+        },
+        "sections": {
+          "general": {
+            "name": "Allgemein",
+            "data": {
+              "target_entity": "Optionaler Standardempfänger",
+              "retry_interval": "Basisintervall (Sekunden)",
+              "archive_url": "URL der Archivansicht",
+              "dead_letter_days": "Aufbewahrung nichtkritischer Fehler (Tage)",
+              "legacy_notify_services": "Klassische notify.reliable_* Dienste aktivieren"
+            }
+          },
+          "smart": {
+            "name": "Ruhezeiten, Limits und Digest",
+            "data": {
+              "enabled": "Ruhezeiten aktivieren",
+              "start": "Beginn (HH:MM)",
+              "end": "Ende (HH:MM)",
+              "allow_priorities": "Während Ruhezeit erlaubte Prioritäten",
+              "rate_limit_per_minute": "Versuche pro Minute und Ziel",
+              "digest_window_seconds": "Digest-Zeitfenster (Sekunden)"
+            }
+          },
+          "retry_info": {
+            "name": "Wiederholungen: Information",
+            "data": {
+              "max_attempts": "Maximale Versuche (0 = unbegrenzt)",
+              "base_seconds": "Basisabstand (Sekunden)",
+              "max_delay": "Maximaler Abstand (Sekunden)"
+            }
+          },
+          "retry_warning": {
+            "name": "Wiederholungen: Warnung",
+            "data": {
+              "max_attempts": "Maximale Versuche (0 = unbegrenzt)",
+              "base_seconds": "Basisabstand (Sekunden)",
+              "max_delay": "Maximaler Abstand (Sekunden)"
+            }
+          },
+          "retry_critical": {
+            "name": "Wiederholungen: Kritisch",
+            "data": {
+              "max_attempts": "Maximale Versuche (0 = unbegrenzt)",
+              "base_seconds": "Basisabstand (Sekunden)",
+              "max_delay": "Maximaler Abstand (Sekunden)"
+            }
+          },
+          "retention": {
+            "name": "Archiv-Aufbewahrung (Tage)",
+            "data": {
+              "info": "Information",
+              "warning": "Warnung",
+              "critical": "Kritisch"
+            }
+          },
+          "testing": {
+            "name": "Testmodus und Backups",
+            "data": {
+              "test_mode": "Testmodus",
+              "test_recipients": "Betroffene Empfänger (Komma-getrennt; leer = alle)",
+              "backup_enabled": "Wöchentliche SQLite-Backups aktivieren",
+              "backup_keep": "Anzahl aufzubewahrender Backups"
+            }
+          },
+          "logging": {
+            "name": "Transport-Logging",
+            "data": {
+              "telegram": "Telegram",
+              "smtp": "SMTP",
+              "companion": "Companion-App",
+              "notify": "HA Notify",
+              "webhook": "Webhook",
+              "ntfy": "ntfy",
+              "gotify": "Gotify"
+            }
+          }
         }
       },
-      "settings": {
-        "title": "Allgemeine Einstellungen",
-        "data": {
-          "target_entity": "Optionaler Standardempfänger",
-          "retry_interval": "Basis-Wiederholungsintervall",
-          "archive_url": "URL der Archivansicht",
-          "dead_letter_days": "Aufbewahrung nichtkritischer Fehler (Tage)",
-          "legacy_notify_services": "Klassische notify.reliable_* Dienste bereitstellen"
-        }
-      },
-      "recipient": {
-        "title": "Empfänger hinzufügen oder bearbeiten",
-        "data": {
-          "name": "Empfängername",
-          "action": "Home Assistant Aktion",
-          "target_entity": "Notify-Zielentität",
-          "data_json": "Transportparameter (JSON)"
-        }
-      },
-      "person": {
-        "title": "Person hinzufügen oder bearbeiten",
-        "data": {
-          "name": "Personenname",
-          "settings_json": "Kanäle und Zonenregeln (JSON)"
-        }
-      },
-      "group": {
-        "title": "Gruppe hinzufügen oder bearbeiten",
-        "data": {
-          "name": "Gruppenname",
-          "members": "Mitglieder, durch Kommas getrennt"
-        }
-      },
-      "delete": {
-        "title": "UI-Eintrag löschen",
-        "data": {
-          "route": "Eintrag"
-        }
-      },
-      "retries": {
-        "title": "Wiederholungsstrategien",
-        "data": {
-          "policies_json": "Wiederholungsregeln (JSON)"
-        }
-      },
-      "retention": {
-        "title": "Archiv-Aufbewahrung",
-        "data": {
-          "days_json": "Aufbewahrungsregeln (JSON)"
-        }
-      },
-      "smart": {
-        "title": "Ruhezeiten und Digest",
-        "data": {
-          "quiet_hours_json": "Ruhezeiten (JSON)",
-          "rate_limit_per_minute": "Versuche pro Minute und Ziel",
-          "digest_window_seconds": "Digest-Zeitfenster (Sekunden)"
-        }
-      },
-      "testing": {
-        "title": "Testmodus, Logging und Backups",
-        "data": {
-          "test_mode": "Testmodus",
-          "test_recipients": "Betroffene Empfänger (Komma-getrennt)",
-          "transport_logging_json": "Loglevel je Transport (JSON)",
-          "backup_enabled": "Wöchentliche SQLite-Backups aktivieren",
-          "backup_keep": "Anzahl aufzubewahrender Backups"
-        }
+      "yaml": {
+        "title": "YAML-Vorschau",
+        "description": "Nur Ansicht. Mit Bestätigen werden die Formulareingaben gespeichert. Enthält gegebenenfalls vertrauliche Transportparameter.\n\n```yaml\n{yaml}\n```"
       }
     },
     "error": {
-      "invalid_route": "Ungültige Konfiguration: JSON, Empfänger und Parameter prüfen."
-    },
-    "abort": {
-      "no_routes": "Keine über die Oberfläche verwalteten Einträge vorhanden."
+      "invalid_options": "Ungültige Eingaben: Zahlenbereiche, Zeiten und Wiederholungsabstände prüfen."
     }
   }
 }

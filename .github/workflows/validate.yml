@@ -11,11 +11,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: python -m pip install "PyYAML>=6.0,<7"
+      - run: python -m pip install "PyYAML>=6.0,<7" "voluptuous>=0.15,<1"
       - run: python -m compileall -q custom_components/reliable_notify
       - run: node --check custom_components/reliable_notify/reliable-notify-card.js
       - run: node --input-type=module --check < custom_components/reliable_notify/reliable-notify-panel.js
       - run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci --ignore-scripts
+      - run: npm test
   hacs:
     runs-on: ubuntu-latest
     steps:

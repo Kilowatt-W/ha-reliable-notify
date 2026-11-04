@@ -2,17 +2,25 @@
 
 Profiles are named defaults for common categories of messages. The caller's explicit fields always take precedence.
 
-Edit the JSON map through **Reliable Notify → Profile & API**.
+Use the form fields in **Reliable Notify → Profile & API**. Add named profiles and optional fields individually; existing guards and escalation settings remain editable. Expand **YAML preview** when you want to inspect the resulting configuration.
 
-```json
-{
-  "standard": {"priority":"info"},
-  "important": {"priority":"warning"},
-  "critical": {"priority":"critical"},
-  "temporary": {"priority":"info","archive":"delete_after_send"},
-  "digest": {"priority":"info","strategy":"digest"},
-  "window_warning": {"priority":"warning","message_type":"windows","archive_days":7}
-}
+```yaml
+standard:
+  priority: info
+important:
+  priority: warning
+critical:
+  priority: critical
+temporary:
+  priority: info
+  archive: delete_after_send
+digest:
+  priority: info
+  strategy: digest
+window_warning:
+  priority: warning
+  message_type: windows
+  archive_days: 7
 ```
 
 Use in HA:

@@ -62,10 +62,13 @@ For a special message use `archive_days: 0..365`. A value of zero removes the **
 
 ## Quiet hours and digest
 
-In the integration options choose **Quiet hours and digests** or use the admin panel.
+In the integration options, all sections are expanded on the same page. Edit the **Quiet hours, limits and digest** fields there, or use the admin panel.
 
-```json
-{"enabled":true,"start":"22:00","end":"07:00","allow_priorities":["critical"]}
+```yaml
+enabled: true
+start: "22:00"
+end: "07:00"
+allow_priorities: [critical]
 ```
 
 `strategy: digest` needs `dedup_key`, is available only for text notifications without attachments, and groups waiting occurrences into a single message. Default digest window: 300 seconds. Noncritical attempts are rate-limited by recipient/action (default 10 per minute); critical alerts bypass the limit.
@@ -130,3 +133,11 @@ For each safely named route, Reliable Notify creates `notify.reliable_<route>` w
 In the admin panel **Vorlagen**, store named JSON template specifications containing a Jinja `message` and optional `title`, `recipients`, `priority` and archive policy. Then invoke `reliable_notify.send_template` with a template name and simple variables. Template editing is administrator-only. Rendered message bodies have a size limit.
 
 For conversion from existing automations, see [Notify migration](NOTIFY_MIGRATION.md). The automatic scan is deliberately read-only.
+
+## Settings interface (v3.1)
+
+The HA options dialog displays General, Quiet hours, three retry priorities, Archive retention, Test/backup and Transport logging simultaneously, with no area dropdown. All values use form fields. Existing custom retention types remain visible as numeric fields. Routes, profiles, external API settings and templates are edited in the admin panel.
+
+The panel displays recipients, groups and persons in separate open cards. Select an existing name to load its complete definition before editing; adding a new item does not alter existing ones. Parameters can be added as text, numbers, switches, lists or nested fields. Secret fields are masked. Saving a file-backed route creates a UI override; only UI-managed entries can be deleted.
+
+YAML previews are optional and read-only. In the options dialog, enable **Show YAML before saving** and submit; confirm on the preview page to save. In the panel, expand **YAML preview** to inspect live form values. Previews can contain configured transport credentials, so do not share them. No JSON editing is needed.

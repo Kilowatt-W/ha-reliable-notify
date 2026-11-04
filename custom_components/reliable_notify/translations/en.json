@@ -16,86 +16,95 @@
   "options": {
     "step": {
       "init": {
-        "title": "Manage Reliable Notify",
+        "title": "Settings",
+        "description": "All sections are expanded. Manage recipients, groups, people, profiles and templates in the Reliable Notify sidebar panel. The optional YAML preview appears before saving.",
         "data": {
-          "manage": "Configuration area"
+          "show_yaml": "Show YAML before saving"
+        },
+        "sections": {
+          "general": {
+            "name": "General",
+            "data": {
+              "target_entity": "Optional default recipient",
+              "retry_interval": "Base interval (seconds)",
+              "archive_url": "Archive URL",
+              "dead_letter_days": "Noncritical dead-letter retention (days)",
+              "legacy_notify_services": "Enable legacy notify.reliable_* services"
+            }
+          },
+          "smart": {
+            "name": "Quiet hours, limits and digest",
+            "data": {
+              "enabled": "Enable quiet hours",
+              "start": "Start (HH:MM)",
+              "end": "End (HH:MM)",
+              "allow_priorities": "Priorities allowed during quiet hours",
+              "rate_limit_per_minute": "Attempts per minute and target",
+              "digest_window_seconds": "Digest window (seconds)"
+            }
+          },
+          "retry_info": {
+            "name": "Retries: information",
+            "data": {
+              "max_attempts": "Maximum attempts (0 = unlimited)",
+              "base_seconds": "Base delay (seconds)",
+              "max_delay": "Maximum delay (seconds)"
+            }
+          },
+          "retry_warning": {
+            "name": "Retries: warning",
+            "data": {
+              "max_attempts": "Maximum attempts (0 = unlimited)",
+              "base_seconds": "Base delay (seconds)",
+              "max_delay": "Maximum delay (seconds)"
+            }
+          },
+          "retry_critical": {
+            "name": "Retries: critical",
+            "data": {
+              "max_attempts": "Maximum attempts (0 = unlimited)",
+              "base_seconds": "Base delay (seconds)",
+              "max_delay": "Maximum delay (seconds)"
+            }
+          },
+          "retention": {
+            "name": "Archive retention (days)",
+            "data": {
+              "info": "Information",
+              "warning": "Warning",
+              "critical": "Critical"
+            }
+          },
+          "testing": {
+            "name": "Test mode and backups",
+            "data": {
+              "test_mode": "Test mode",
+              "test_recipients": "Affected recipients (comma separated; empty = all)",
+              "backup_enabled": "Enable weekly SQLite backups",
+              "backup_keep": "Backups to keep"
+            }
+          },
+          "logging": {
+            "name": "Transport logging",
+            "data": {
+              "telegram": "Telegram",
+              "smtp": "SMTP",
+              "companion": "Companion app",
+              "notify": "HA Notify",
+              "webhook": "Webhook",
+              "ntfy": "ntfy",
+              "gotify": "Gotify"
+            }
+          }
         }
       },
-      "settings": {
-        "title": "General settings",
-        "data": {
-          "target_entity": "Optional default notify entity",
-          "retry_interval": "Base retry interval (seconds)",
-          "archive_url": "Notification archive view URL",
-          "dead_letter_days": "Noncritical dead-letter retention (days)",
-          "legacy_notify_services": "Register legacy notify.reliable_* services"
-        }
-      },
-      "recipient": {
-        "title": "Add or update recipient",
-        "data": {
-          "name": "Recipient alias",
-          "action": "Home Assistant action",
-          "target_entity": "Notify target entity",
-          "data_json": "Transport parameters (JSON)"
-        }
-      },
-      "person": {
-        "title": "Add or update person",
-        "data": {
-          "name": "Person alias",
-          "settings_json": "Channels and presence rules (JSON)"
-        }
-      },
-      "group": {
-        "title": "Add or update group",
-        "data": {
-          "name": "Group alias",
-          "members": "Members separated by commas"
-        }
-      },
-      "delete": {
-        "title": "Delete UI-managed route",
-        "data": {
-          "route": "Route"
-        }
-      },
-      "retries": {
-        "title": "Central retry policies",
-        "data": {
-          "policies_json": "Retry policy JSON"
-        }
-      },
-      "retention": {
-        "title": "Archive retention by message type",
-        "data": {
-          "days_json": "Retention policy JSON"
-        }
-      },
-      "smart": {
-        "title": "Quiet hours and digest",
-        "data": {
-          "quiet_hours_json": "Quiet hours JSON",
-          "rate_limit_per_minute": "Attempts/minute per endpoint",
-          "digest_window_seconds": "Digest window (seconds)"
-        }
-      },
-      "testing": {
-        "title": "Test mode, logging and backups",
-        "data": {
-          "test_mode": "Test mode",
-          "test_recipients": "Affected recipient aliases (comma-separated)",
-          "transport_logging_json": "Transport logging levels (JSON)",
-          "backup_enabled": "Enable weekly SQLite backups",
-          "backup_keep": "Backups to retain"
-        }
+      "yaml": {
+        "title": "YAML preview",
+        "description": "Read-only. Submit to save the form values. May contain sensitive transport settings.\n\n```yaml\n{yaml}\n```"
       }
     },
     "error": {
-      "invalid_route": "Invalid configuration, verify JSON, routes and parameters."
-    },
-    "abort": {
-      "no_routes": "No UI-managed routes available"
+      "invalid_options": "Invalid settings: check numeric ranges, times and retry delays."
     }
   }
 }

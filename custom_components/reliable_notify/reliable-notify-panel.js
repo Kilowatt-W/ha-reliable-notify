@@ -1,4 +1,4 @@
-/* Reliable Notify Admin Panel 2.0 — no external CDN/dependencies. */
+/* Reliable Notify Admin Panel 3.1 — no external CDN/dependencies. */
 import './reliable-notify-card.js';
 
 class ReliableNotifyPanel extends HTMLElement {
@@ -37,6 +37,136 @@ class ReliableNotifyPanel extends HTMLElement {
       if(node.textContent===oldText)this.status(node,'Erfolgreich');
     }catch(e){this.status(node,e.message||String(e),true);}
   }
+  fieldLabel(key){
+    return ({action:'HA-Aktion',target_entity:'Notify-Zielentität',data:'Transportparameter',
+      entity:'Person-Entität',channels:'Kanäle und Empfänger',preferred:'Bevorzugte Kanäle nach Priorität',
+      preferred_by_zone:'Kanäle nach Zone und Priorität',priority:'Priorität',recipients:'Empfänger',
+      message:'Nachricht',title:'Titel',message_type:'Nachrichtentyp',archive:'Archivierung',
+      archive_days:'Aufbewahrung (Tage)',ttl:'Gültigkeit (Sekunden)',strategy:'Zustellstrategie',
+      only_if:'Nur senden, wenn',entity_id:'Entität',state:'Zustand',test_mode:'Testmodus',
+      quiet_hours:'Ruhezeiten',transport_logging:'Loglevel je Transport',test_recipients:'Betroffene Testempfänger (leer = alle)',rate:'Aufträge pro Minute und Benutzer',acknowledgement:'Bestätigung und Eskalation',required:'Bestätigung erforderlich',
+      escalation:'Eskalationsstufen',after:'Nach Sekunden',enabled:'Aktiviert',start:'Beginn (HH:MM)',
+      end:'Ende (HH:MM)',allow_priorities:'Während Ruhezeit erlaubte Prioritäten',
+      rate_limit_per_minute:'Versuche pro Minute und Ziel',digest_window_seconds:'Digest-Zeitfenster (Sekunden)',
+      max_attempts:'Maximale Versuche (0 = unbegrenzt)',base_seconds:'Basisabstand (Sekunden)',
+      max_delay:'Maximaler Abstand (Sekunden)',info:'Information',warning:'Warnung',critical:'Kritisch',
+      chat_id:'Telegram-Chat-ID',config_entry_id:'Telegram-Konfiguration',url:'URL',topic:'Thema',
+      token:'Token',base_url:'HTTPS-Basis-URL',allow_private:'Private Zieladressen erlauben',headers:'HTTP-Header',method:'HTTP-Methode',parse_mode:'Telegram-Textformat',
+      disable_notification:'Lautlos senden',mobile:'Mobilgerät',email:'E-Mail',telegram:'Telegram',
+      smtp:'SMTP',companion:'Companion-App',notify:'HA Notify',webhook:'Webhook',ntfy:'ntfy',gotify:'Gotify'
+    })[key]||key;
+  }
+  fieldDefaults(kind){
+    const common={priority:'info',recipients:[],message_type:'',archive:'keep',archive_days:7};
+    if(kind==='profile')return {...common,ttl:3600,strategy:'always',
+      only_if:{entity_id:'',state:'on'},test_mode:'off',acknowledgement:{required:true,escalation:[]}};
+    if(kind==='template')return {title:'',message:'',...common};
+    if(kind==='recipient')return {action:'notify.send_message',target_entity:'',data:{}};
+    if(kind==='person')return {entity:'',channels:{},preferred:{},preferred_by_zone:{}};
+    return {};
+  }
+  // Scalar values are quoted, so Jinja, colons, newlines and YAML-looking strings round-trip.
+  yaml(value,indent=0){
+    const pad=' '.repeat(indent);
+    if(value===null||typeof value!=='object')return JSON.stringify(value);
+    if(Array.isArray(value))return value.length?value.map(v=>pad+'- '+
+      (v!==null&&typeof v==='object'&&Object.keys(v).length?'\n'+this.yaml(v,indent+2):v!==null&&typeof v==='object'?(Array.isArray(v)?'[]':'{}'):this.yaml(v))).join('\n'):'[]';
+    const entries=Object.entries(value);
+    return entries.length?entries.map(([key,v])=>pad+JSON.stringify(key)+': '+
+      (v!==null&&typeof v==='object'&&Object.keys(v).length?'\n'+this.yaml(v,indent+2):
+        v!==null&&typeof v==='object'?(Array.isArray(v)?'[]':'{}'):this.yaml(v))).join('\n'):'{}';
+  }
+  yamlView(parent,read){
+    const details=this.element('details',null,'yaml-view');
+    details.append(this.element('summary','YAML-Ansicht einblenden (nur Vorschau, ggf. mit Zugangsdaten)'));
+    const preview=this.element('pre');details.append(preview);parent.append(details);
+    const refresh=()=>{if(details.open){try{preview.textContent=this.yaml(read());}
+      catch(e){preview.textContent=e.message;}}};
+    details.addEventListener('toggle',refresh);
+    parent.addEventListener('input',refresh);parent.addEventListener('change',refresh);
+    return refresh;
+  }
+  fieldEditor(initial,{defaults={},fixed=false,key='',choices=null}={}){
+    const host=this.element('div',null,'field-editor');
+    if(initial===null||typeof initial!=='object'){
+      const enums={priority:['info','warning','critical'],archive:['keep','delete_after_send'],
+        strategy:['always','replace','digest'],test_mode:['off','stage']};
+      const options=choices||enums[key];
+      const input=this.element(options?'select':key==='message'||(typeof initial==='string'&&initial.includes('\n'))?'textarea':'input');
+      if(options){for(const value of new Set([...options,initial])){
+        const opt=this.element('option',String(value));opt.value=value;input.append(opt);}}
+      const type=initial===null?'null':typeof initial;
+      if(!options&&input.tagName==='INPUT')input.type=type==='boolean'?'checkbox':type==='number'?'number':
+        /token|password|secret|authorization/i.test(key)?'password':'text';
+      if(type==='number')input.step='any';
+      if(type==='boolean')input.checked=initial;else input.value=initial===null?'':initial;
+      if(type==='null'){input.disabled=true;input.placeholder='null';}
+      const numeric={rate:[1,60],rate_limit_per_minute:[1,1000],digest_window_seconds:[10,3600],archive_days:[0,365],ttl:[0,2678400],max_attempts:[0,10000],
+        base_seconds:[1,3600],max_delay:[1,86400]};
+      if(numeric[key]){[input.min,input.max]=numeric[key];input.step='1';}
+      host.append(input);
+      return {node:host,read:()=>{
+        if(!input.checkValidity())throw Error(this.fieldLabel(key)+': '+input.validationMessage);
+        if(type==='null')return null;
+        if(type==='boolean')return input.checked;
+        if(type==='number'){
+          if(input.value.trim()===''||!Number.isFinite(Number(input.value)))throw Error(this.fieldLabel(key)+': Zahl erforderlich');
+          return Number(input.value);
+        }
+        return input.value;
+      }};
+    }
+    const array=Array.isArray(initial),rows=[];
+    const fields=this.element('div',null,array?'list-fields':'grid');host.append(fields);
+    const add=(name,value)=>{
+      if(!array&&rows.some(r=>r.name===name))throw Error('Feld existiert bereits');
+      const row=this.element('div',null,'field-row');
+      const label=this.element('label',array?'Eintrag':this.fieldLabel(name));
+      const child=this.fieldEditor(value,{key:array?'':name,fixed:fixed&&value!==null&&typeof value==='object'&&!Array.isArray(value),choices:key==='transport_logging'?['off','error','warning','info','debug']:key==='allow_priorities'?['info','warning','critical']:null,defaults:!array&&name==='preferred'
+        ?{info:[],warning:[],critical:[]}:!array&&name==='data'
+        ?{chat_id:0,config_entry_id:'',entity_id:'',base_url:'',allow_private:false,url:'',topic:'',token:'',headers:{},method:'POST',parse_mode:'HTML',disable_notification:false}
+        :!array&&name==='only_if'?{entity_id:'',state:''}:{}});
+      const control=child.node.querySelector('input,textarea,select');
+      if(control){if(!control.id){this._fieldId=(this._fieldId||0)+1;control.id='rn-field-'+this._fieldId;}label.htmlFor=control.id;}
+      row.append(label,child.node);const record={name,child,row};rows.push(record);
+      if(!fixed){const remove=this.element('button','Entfernen');remove.type='button';
+        remove.addEventListener('click',()=>{rows.splice(rows.indexOf(record),1);row.remove();host.dispatchEvent(new Event('input',{bubbles:true}));});row.append(remove);}
+      fields.append(row);
+    };
+    if(array)initial.forEach((v,i)=>add(String(i),v));else Object.entries(initial).forEach(([k,v])=>add(k,v));
+    if(!fixed){
+      const controls=this.element('div',null,'add-field');
+      const name=this.element(Object.keys(defaults).length?'select':'input');
+      if(name.tagName==='SELECT')for(const k of Object.keys(defaults)){
+        const opt=this.element('option',this.fieldLabel(k));opt.value=k;name.append(opt);
+      }
+      else name.placeholder='Name des Feldes / Kanals / der Zone';
+      const custom=this.element('input');custom.placeholder='Eigenes Transportfeld';custom.hidden=true;
+      if(key==='data'){const opt=this.element('option','Eigenes Transportfeld …');opt.value='__custom';name.append(opt);
+        name.addEventListener('change',()=>{custom.hidden=name.value!=='__custom';});}
+      const type=this.element('select');
+      for(const [value,label] of [['text','Text'],['number','Zahl'],['boolean','Schalter'],['list','Liste'],['object','Felder']]){
+        const opt=this.element('option',label);opt.value=value;type.append(opt);}
+      const button=this.element('button',array?'Eintrag hinzufügen':'Feld hinzufügen');button.type='button';
+      const error=this.element('p',null,'error');
+      button.addEventListener('click',()=>{
+        try{
+          const k=array?String(rows.length):(name.value==='__custom'?custom.value:name.value).trim();
+          if(!k)throw Error('Name erforderlich');
+          if(['__proto__','constructor','prototype'].includes(k))throw Error('Ungültiger Name');
+          let value=({text:'',number:0,boolean:false,list:[],object:{}})[type.value];
+          if(!array&&Object.hasOwn(defaults,k))value=structuredClone(defaults[k]);
+          if(array&&key==='escalation')value={after:300,recipients:[]};
+          add(k,value);error.textContent='';host.dispatchEvent(new Event('input',{bubbles:true}));
+        }catch(e){error.textContent=e.message;}
+      });
+      if(!array)controls.append(name);
+      if(key==='data')controls.append(custom);
+      if((!Object.keys(defaults).length||key==='data')&&key!=='escalation')controls.append(type);
+      controls.append(button,error);host.append(controls);
+    }
+    return {node:host,read:()=>array?rows.map(r=>r.child.read()):Object.fromEntries(rows.map(r=>[r.name,r.child.read()]))};
+  }
   refreshSection(){
     const container=this.shadowRoot.querySelector('#content');
     if(!container)return;
@@ -65,7 +195,7 @@ class ReliableNotifyPanel extends HTMLElement {
         margin:5px 0 12px;border-radius:7px;border:1px solid var(--divider-color);
         background:var(--primary-background-color);color:var(--primary-text-color)}
       textarea{font-family:monospace;min-height:115px}
-      label{display:block;font-weight:600;font-size:13px;margin-top:6px}
+      input[type=checkbox]{width:auto;min-width:22px;min-height:22px}fieldset{min-width:0}\n      .field-row{min-width:0;border:1px solid var(--divider-color);border-radius:8px;padding:10px}\n      .field-editor .grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr))}\n      .add-field{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}\n      .add-field input,.add-field select{width:auto;flex:1;min-width:120px}\n      .yaml-view{margin:18px 0}summary{cursor:pointer;font-weight:600;padding:8px 0}\n      label{display:block;font-weight:600;font-size:13px;margin-top:6px}
       .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(275px,1fr));gap:14px}
       .chip{display:inline-block;padding:5px 9px;margin:4px;border-radius:6px;background:var(--secondary-background-color)}
       .muted{color:var(--secondary-text-color)}
@@ -100,58 +230,39 @@ class ReliableNotifyPanel extends HTMLElement {
     box.append(card);
   }
   async routes(box){
-    const inventoryCard=this.element('div',null,'panel');
-    inventoryCard.append(this.element('h2','Verfügbare Geräte und Empfänger'));
-    const list=this.element('div','Lade Geräteliste ...');
-    inventoryCard.append(list);box.append(inventoryCard);
-    const editor=this.element('div',null,'panel');
-    editor.append(this.element('h2','Empfänger, Gruppen und Personen verwalten'));
-    const kind=this.element('select');for(const value of ['recipients','groups','persons']){
-      const opt=this.element('option',value);opt.value=value;kind.append(opt);
-    }
-    const name=this.element('input');name.placeholder='Eindeutiger Name, z. B. wolfgang';
-    const json=this.element('textarea');json.value=JSON.stringify({action:'notify.mobile_app_dein_handy'},null,2);
-    const names=this.element('div',null,'muted');
-    const status=this.element('p');
-    for(const [label,node] of [['Kategorie',kind],['Name',name],['Definition (JSON; Gruppen als Liste)',json]]){
-      editor.append(this.element('label',label),node);
-    }
-    const save=this.element('button','Speichern');
-    save.addEventListener('click',()=>this.run(status,async()=>{
-      await this.call('set_route',{category:kind.value,name:name.value,definition:JSON.parse(json.value)});
-      await this.routesRefresh(list,names);
-    }));
-    const deleteButton=this.element('button','Eintrag löschen');
-    deleteButton.addEventListener('click',()=>this.run(status,async()=>{
-      if(!confirm('UI-Eintrag '+name.value+' löschen?'))return;
-      await this.call('set_route',{category:kind.value,name:name.value,delete:true});
-      await this.routesRefresh(list,names);
-    }));
-    editor.append(save,deleteButton,status,names);box.append(editor);
-    kind.addEventListener('change',()=>{json.value=kind.value==='groups'
-      ?'["empfaenger1"]':kind.value==='persons'
-      ?JSON.stringify({entity:'person.wolfgang',channels:{mobile:'wolfgang_phone'},
-                     preferred:{info:'mobile',warning:'mobile',critical:['mobile']}},null,2)
-      :JSON.stringify({action:'notify.mobile_app_dein_handy'},null,2)});
-    await this.routesRefresh(list,names);
-  }
-  async routesRefresh(list,names){
+    const status=this.element('p','Empfänger werden geladen …');box.append(status);
     try{
-      const data=await this.call('admin_inventory');
-      list.replaceChildren();
-      for(const action of data.companion_actions||[]){
-        const button=this.element('button','+ '+action);
-        button.addEventListener('click',()=>this.run(names,async()=>{
-          const key=action.replace('notify.mobile_app_','phone_');
-          await this.call('set_route',{category:'recipients',name:key,definition:{action}});
-          await this.routesRefresh(list,names);
+      const data=await this.call('admin_inventory');status.remove();
+      for(const [category,label,kind] of [['recipients','Empfänger','recipient'],['groups','Gruppen','group'],['persons','Personen','person']]){
+        const section=this.element('section',null,'panel');section.append(this.element('h2',label));
+        const inventory=this.element('div',null,'tabs');section.append(inventory);
+        const name=this.element('input');name.placeholder='Eindeutiger Name';
+        const editorBox=this.element('div');let editor;
+        let loaded=null;
+        const draw=value=>{editor=this.fieldEditor(value,{defaults:this.fieldDefaults(kind)});editorBox.replaceChildren(editor.node);section.dispatchEvent(new Event('input',{bubbles:true}));};
+        const reset=()=>{loaded=null;name.value='';draw(category==='groups'?[]:category==='persons'
+          ?{entity:'',channels:{},preferred:{}}:{action:'notify.send_message',target_entity:'',data:{}});};
+        reset();
+        const result=this.element('p');
+        for(const id of Object.keys(data.routes[category]||{})){
+          const button=this.element('button',id);button.addEventListener('click',()=>this.run(result,async()=>{
+            const response=await this.call('route_definition',{category,name:id});
+            name.value=id;loaded=id;draw(response.definition);
+          }));inventory.append(button);
+        }
+        const fresh=this.element('button','Neu anlegen');fresh.addEventListener('click',reset);inventory.append(fresh);
+        section.append(this.element('label','Name'),name,editorBox);
+        const save=this.element('button','Speichern');save.addEventListener('click',()=>this.run(result,async()=>{
+          if(loaded&&name.value!==loaded)throw Error('Zum Umbenennen neuen Eintrag anlegen und den alten gezielt löschen.');
+          await this.call('set_route',{category,name:name.value,definition:editor.read()});
+          this.status(result,'Gespeichert. Zum Aktualisieren der Liste diesen Bereich erneut öffnen.');
         }));
-        list.append(button);
+        const remove=this.element('button','Eintrag löschen');remove.addEventListener('click',()=>this.run(result,async()=>{
+          if(!confirm('UI-Eintrag '+name.value+' löschen?'))return;
+          await this.call('set_route',{category,name:name.value,delete:true});reset();
+        }));section.append(save,remove,result);this.yamlView(section,()=>({[category]:{[name.value||'neuer_eintrag']:editor.read()}}));box.append(section);
       }
-      for(const person of data.people||[])list.append(this.element('span',person,'chip'));
-      names.textContent='Konfigurierte Gruppen: '+Object.keys(data.routes.groups||{}).join(', ')
-        +' • Personen: '+Object.keys(data.routes.persons||{}).join(', ');
-    }catch(e){list.textContent='Routing-Fehler: '+e.message;}
+    }catch(e){this.status(status,e.message,true);if(!status.parentNode)box.append(status);}
   }
   async incidents(box){
     const incidents=this.element('div',null,'panel');incidents.append(this.element('h2','Unbestätigte Alarme'));
@@ -225,16 +336,15 @@ class ReliableNotifyPanel extends HTMLElement {
   async simulation(box){
     const wrapper=this.element('div',null,'panel');wrapper.append(this.element('h2','Simulation ohne Versand'));
     wrapper.append(this.element('p','Zeigt Routing, Aufbewahrung und Ruhezeiten an. Keine Queue-Einträge oder Push-Nachrichten.','muted'));
-    const input=this.element('textarea');input.value=JSON.stringify({
-      recipients:['wolfgang_phone'],priority:'warning',message_type:'windows',
-      message:'Fenster seit 90 Minuten offen'},null,2);
+    const editor=this.fieldEditor({recipients:['wolfgang_phone'],priority:'warning',
+      message_type:'windows',message:'Fenster seit 90 Minuten offen'},{defaults:this.fieldDefaults('template')});
     const result=this.element('pre');
     const run=this.element('button','Versand simulieren');
     run.addEventListener('click',()=>this.run(result,async()=>{
-      const answer=await this.call('simulate',{notification:JSON.parse(input.value)});
+      const answer=await this.call('simulate',{notification:editor.read()});
       result.textContent=JSON.stringify(answer,null,2);
     }));
-    wrapper.append(input,run,result);box.append(wrapper);
+    wrapper.append(editor.node,run,result);this.yamlView(wrapper,editor.read);box.append(wrapper);
   }
   async analytics(box){
     const wrapper=this.element('div',null,'panel');wrapper.append(this.element('h2','Transportstatistik & Systemzustand'));
@@ -286,55 +396,51 @@ class ReliableNotifyPanel extends HTMLElement {
     await this.run(report,loadWithChart);
     await this.run(report,load);
   }
-  async templates(box){
-    const section=this.element('div',null,'panel');
-    section.append(this.element('h2','Wiederverwendbare Vorlagen'));
-    section.append(this.element('p','Vorlagen können mit reliable_notify.send_template verwendet werden. Jinja-Variablen werden beim Versand ausgewertet.','muted'));
-    const json=this.element('textarea');json.rows=14;
-    const status=this.element('pre');
-    const save=this.element('button','Vorlagen speichern');
-    save.addEventListener('click',()=>this.run(status,async()=>{
-      await this.call('set_templates',{templates:JSON.parse(json.value)});
-    }));
-    section.append(json,save,status);box.append(section);
+  async namedSettings(box,{title,kind,load,save,property}){
+    const section=this.element('section',null,'panel');section.append(this.element('h2',title));box.append(section);
+    const status=this.element('p','Lade …');section.append(status);
     try{
-      const result=await this.call('templates');
-      json.value=JSON.stringify(result.templates||{},null,2);
-    }catch(e){this.status(status,e.message,true);}
+      const data=await this.call(load);
+      const defaults=this.fieldDefaults(kind);
+      const rows=[];const body=this.element('div');section.append(body);
+      const add=(name,value)=>{
+        const row=this.element('div',null,'panel');const input=this.element('input');input.value=name;input.placeholder='Name';
+        const fields=this.fieldEditor(value,{defaults});
+        row.append(this.element('label','Name'),input,fields.node);
+        const record={input,fields};rows.push(record);
+        const remove=this.element('button','Entfernen');remove.addEventListener('click',()=>{
+          rows.splice(rows.indexOf(record),1);row.remove();section.dispatchEvent(new Event('input',{bubbles:true}));});
+        row.append(remove);body.append(row);
+      };
+      Object.entries(data[property]||{}).forEach(([name,value])=>add(name,value));
+      const read=()=>{
+        const result={};for(const row of rows){const name=row.input.value.trim();
+          if(!/^[a-z][a-z0-9_]{0,63}$/.test(name))throw Error('Name: Kleinbuchstaben, Ziffern und Unterstriche; mit Buchstaben beginnen.');
+          if(Object.hasOwn(result,name))throw Error('Doppelter Name: '+name);
+          Object.defineProperty(result,name,{value:row.fields.read(),enumerable:true});
+        }return result;
+      };
+      const newButton=this.element('button','Neu anlegen');newButton.addEventListener('click',()=>{
+        add('',kind==='template'?{message:'',priority:'info'}:{priority:'info'});
+        section.dispatchEvent(new Event('input',{bubbles:true}));});
+      const submit=this.element('button','Speichern');submit.addEventListener('click',()=>this.run(status,()=>this.call(save,{[property]:read()})));
+      section.append(newButton,submit);this.yamlView(section,read);this.status(status,'');
+      return data;
+    }catch(e){this.status(status,e.message,true);return null;}
+  }
+  async templates(box){
+    await this.namedSettings(box,{title:'Wiederverwendbare Vorlagen',kind:'template',load:'templates',save:'set_templates',property:'templates'});
   }
   async profiles(box){
-    const section=this.element('div',null,'panel');
-    section.append(this.element('h2','Benachrichtigungsprofile'));
-    section.append(this.element('p','Definiere zentrale Standardwerte für Priorität, Aufbewahrung, Ziele und Zustellstrategie. Angaben beim Versand überschreiben Profilwerte.','muted'));
-    const json=this.element('textarea');json.rows=13;
-    const note=this.element('p');
-    const save=this.element('button','Profile speichern');
-    save.addEventListener('click',()=>this.run(note,()=>this.call('set_profiles',{
-      profiles:JSON.parse(json.value)})));
-    section.append(json,save,note);box.append(section);
-    const api=this.element('div',null,'panel');
-    api.append(this.element('h2','Externe API (standardmäßig deaktiviert)'));
-    api.append(this.element('p','Authentifizierung durch Home Assistant, nur Admin-Bearer-Tokens. Keine eigenen API-Tokens. Erlaubte Ziele müssen ausdrücklich freigegeben werden.','muted'));
-    const enabled=this.element('input');enabled.type='checkbox';enabled.style.width='auto';
-    const targets=this.element('input');targets.placeholder='Erlaubte Empfänger (Komma-getrennt)';
-    const limit=this.element('input');limit.type='number';limit.min='1';limit.max='60';limit.value='30';
-    const result=this.element('p');
-    api.append(this.element('label','HTTP API aktivieren'),enabled,
-      this.element('label','Freigegebene Empfänger'),targets,
-      this.element('label','Max. Aufträge pro Minute und Benutzer'),limit);
-    const saveApi=this.element('button','API-Einstellungen speichern');
-    saveApi.addEventListener('click',()=>this.run(result,()=>this.call('set_external_api',{
-      enabled:enabled.checked,
-      recipients:targets.value.split(',').map(x=>x.trim()).filter(Boolean),
-      rate:Number(limit.value)})));
-    api.append(saveApi,result);box.append(api);
-    try{
-      const data=await this.call('profiles');
-      json.value=JSON.stringify(data.profiles,null,2);
-      enabled.checked=Boolean(data.external_api_enabled);
-      targets.value=(data.external_api_recipients||[]).join(',');
-      limit.value=Number(data.external_api_rate||30);
-    }catch(e){this.status(note,e.message,true);}
+    const data=await this.namedSettings(box,{title:'Benachrichtigungsprofile',kind:'profile',load:'profiles',save:'set_profiles',property:'profiles'});
+    if(!data)return;
+    const api=this.element('section',null,'panel');api.append(this.element('h2','Externe API'));
+    api.append(this.element('p','Nur HA-Administratoren mit Bearer-Token und ausdrücklich freigegebene Empfänger.','muted'));
+    const editor=this.fieldEditor({enabled:Boolean(data.external_api_enabled),
+      recipients:data.external_api_recipients||[],rate:data.external_api_rate||30},{fixed:true});
+    const status=this.element('p'),save=this.element('button','API-Einstellungen speichern');
+    save.addEventListener('click',()=>this.run(status,()=>this.call('set_external_api',editor.read())));
+    api.append(editor.node,save,status);this.yamlView(api,editor.read);box.append(api);
   }
 
   async migration(box){
@@ -396,27 +502,29 @@ class ReliableNotifyPanel extends HTMLElement {
     wrapper.append(button,download,result);box.append(wrapper);
   }
   async settings(box){
-    const wrapper=this.element('div',null,'panel');wrapper.append(this.element('h2','Testmodus & Debug'));
-    wrapper.append(this.element('p','Testmodus STAGE: Nachrichten werden nur gespeichert und niemals ausgeliefert.','muted'));
-    const mode=this.element('select');
-    for(const item of ['off','stage']){const opt=this.element('option',item);opt.value=item;mode.append(opt);}
-    const recipients=this.element('input');recipients.placeholder='Empfängerfilter (Komma); leer = alle';
-    const json=this.element('textarea');json.value=JSON.stringify({telegram:'warning',smtp:'warning',
-      companion:'warning',notify:'warning',webhook:'warning'},null,2);
-    const status=this.element('p');
-    wrapper.append(this.element('label','Testmodus'),mode,
-      this.element('label','Betroffene Empfänger'),recipients,
-      this.element('label','Transport-Loglevel (JSON, keine Inhalte oder Tokens)'),json);
-    const save=this.element('button','Einstellungen speichern');
-    save.addEventListener('click',()=>this.run(status,()=>this.call('settings_v2',{
-      test_mode:mode.value,test_recipients:recipients.value.split(',').map(x=>x.trim()).filter(Boolean),
-      transport_logging:JSON.parse(json.value)})));
-    wrapper.append(save,status);box.append(wrapper);
+    const intro=this.element('div',null,'panel');intro.append(this.element('h2','Einstellungen'),
+      this.element('p','Alle Betriebsoptionen stehen gemeinsam im HA-Konfigurationsdialog. Empfänger, Personen, Profile und Vorlagen lassen sich in den gleichnamigen Bereichen bearbeiten.','muted'));
+    const open=this.element('a','Alle Integrationsoptionen öffnen');open.href='/config/integrations/integration/reliable_notify';intro.append(open);box.append(intro);
+    const status=this.element('p','Lade …');box.append(status);
     try{
-      const d=await this.call('statistics');
-      mode.value=d.test_mode||'off';recipients.value=(d.test_recipients||[]).join(',');
-      json.value=JSON.stringify(d.transport_logging||{},null,2);
+      const [d,stats]=await Promise.all([this.call('dashboard'),this.call('statistics')]);
+      const specs=[
+        ['Wiederholungen',d.policies,'set_retry_policies','policies'],
+        ['Archiv-Aufbewahrung (Tage)',d.retention,'set_archive_retention','retention'],
+        ['Ruhezeiten, Limits und Digest',d.smart,'set_smart_settings',null],
+        ['Testmodus und Transport-Logging',{test_mode:stats.test_mode||'off',
+          test_recipients:stats.test_recipients||[],transport_logging:Object.fromEntries(
+            ['telegram','smtp','companion','notify','webhook','ntfy','gotify'].map(k=>[k,stats.transport_logging?.[k]||'warning']))},'settings_v2',null]
+      ];
+      for(const [title,initial,method,property] of specs){
+        const section=this.element('section',null,'panel');section.append(this.element('h2',title));
+        const editor=this.fieldEditor(initial,{fixed:true});
+        const result=this.element('p'),button=this.element('button','Speichern');
+        button.addEventListener('click',()=>this.run(result,()=>this.call(method,property?{[property]:editor.read()}:editor.read())));
+        section.append(editor.node,button,result);this.yamlView(section,editor.read);box.append(section);
+      }this.status(status,'');
     }catch(e){this.status(status,e.message,true);}
   }
+
 }
 customElements.define('reliable-notify-panel',ReliableNotifyPanel);

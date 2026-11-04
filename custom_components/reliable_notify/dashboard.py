@@ -251,6 +251,28 @@ def register_dashboard(hass):
         })
 
     @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/route_definition",
+        vol.Required("category"): vol.In(("recipients", "groups", "persons")),
+        vol.Required("name"): str,
+    })
+    @websocket_api.async_response
+    async def route_definition(hass, connection, msg):
+        # Full transport settings are fetched only for an explicit admin edit.
+        # The inventory and diagnostics remain redacted.
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"], "unauthorized", "Administrator required")
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
+            return
+        definition = manager.routes.get(msg["category"], {}).get(msg["name"])
+        if definition is None:
+            connection.send_error(msg["id"], "not_found", "Route unavailable")
+            return
+        connection.send_result(msg["id"], {"definition": definition})
+
+    @websocket_api.websocket_command({
         vol.Required("type"): "reliable_notify/set_route",
         vol.Required("category"): vol.In(("recipients","groups","persons")),
         vol.Required("name"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$"),
@@ -366,7 +388,7 @@ def register_dashboard(hass):
             "test_mode":manager.settings.get("test_mode","off"),
             "test_recipients":manager.settings.get("test_recipients",[]),
             "transport_logging":manager.settings.get("transport_logging",{}),
-            "version":"2.5.0",
+            "version":"3.1.0",
             "daily_trends":await manager.store.long_term_statistics(365),
         })
 
@@ -531,6 +553,7 @@ def register_dashboard(hass):
     websocket_api.async_register_command(hass, dry_run)
     websocket_api.async_register_command(hass, admin_inventory)
     websocket_api.async_register_command(hass, set_route)
+    websocket_api.async_register_command(hass, route_definition)
     websocket_api.async_register_command(hass, settings_v2)
     websocket_api.async_register_command(hass, incident_action)
     websocket_api.async_register_command(hass, statistics)

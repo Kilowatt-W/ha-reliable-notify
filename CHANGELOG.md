@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.0
+- Replace the settings-area dropdown with eight expanded settings sections.
+- Replace admin-panel JSON editors with typed, nested form fields for routes, profiles, templates and simulation.
+- Add optional read-only YAML previews and preserve existing options and transport parameters.
+- Add admin-only single-route loading for editing; inventories and diagnostics remain redacted.
+- Add functional DOM tests and options-save regression coverage.
+
 ## 3.0.0 — 2026-11-04
 - New locally shipped and versioned shield-bell-check brand icons/logos, SVG sources and PNG generation workflow.
 - Optional Home Assistant authenticated external API for applications, with administrator-only token access, rate limits and recipient allowlist.
