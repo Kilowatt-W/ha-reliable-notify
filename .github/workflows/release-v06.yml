@@ -54,6 +54,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          CURRENT_HEAD=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
+          if [ "$CURRENT_HEAD" != "${GITHUB_SHA}" ]; then
+            echo "Skipping outdated commit; a newer build must be validated."
+            exit 0
+          fi
           if gh release view v0.6.0 >/dev/null 2>&1; then
             echo "v0.6.0 already exists"
             exit 0
