@@ -185,3 +185,66 @@ Open an issue in this repository for reproducible bugs and feature requests:
 https://github.com/Kilowatt-W/ha-reliable-notify/issues
 
 **Compatibility note:** HACS is being replaced by the built-in **Home Assistant Marketplace** starting with Home Assistant **2026.11**. The metadata file retains its historical name `hacs.json` because **both HACS and Marketplace use it**.
+
+
+---
+
+## Reliable Notify v0.6.0 — dashboard and delivery controls
+
+**Development status:** v0.6.0 includes 31 passing local unit tests, but has **not** been end-to-end tested with Home Assistant OS, Telegram or SMTP. Do not treat this version as a verified alarm delivery system.
+
+### Interactive Lovelace dashboard
+
+Version 0.6 includes an interactive card with **Queue**, **Dead letters**, **Retry** and **Delete** actions, delivery history, retry policies and remaining disk space. The dashboard uses an **admin-only** Home Assistant WebSocket API and does not expose message bodies or transport credentials.
+
+Add a JavaScript module resource in the Home Assistant dashboard resources settings:
+
+`/reliable_notify/reliable-notify-card.js`
+
+Then add the card to a dashboard:
+
+```yaml
+- type: custom:reliable-notify-card
+  title: Reliable Notify
+```
+
+Or use the supplied `dashboard.example.yaml`. The card is bundled with the integration: no additional frontend repository is required. **Restart Home Assistant Core after upgrading the Python integration.**
+
+### Central retry policies
+
+In **Settings → Devices & services → Reliable Notify → Configure → Retry policies by priority**, edit the JSON policies for info, warning and critical messages. Defaults:
+
+| Priority | Attempts | Initial delay | Maximum delay |
+| --- | ---: | ---: | ---: |
+| Info | 8 | 30 seconds | 30 minutes |
+| Warning | 20 | 30 seconds | 60 minutes |
+| Critical | Unlimited on transient errors (0) | 15 seconds | 60 minutes |
+
+Temporary network faults, rate limits and HTTP 5xx provider errors are retried; common payload and authentication errors go directly to dead letters. A TTL still takes precedence over retries. Unknown failures are treated as retryable, to avoid silently losing messages.
+
+### Durable local SMTP attachments
+
+For SMTP recipients, attachments whose source is a local `/media` path (or a local Home Assistant media-source URL) are copied to the persistent media spool *when queued*. This prevents changing camera images or reports from changing the contents during offline recovery.
+
+```yaml
+- action: reliable_notify.enqueue
+  data:
+    recipients: [it_email]
+    title: System report
+    message: Attached report
+    priority: warning
+    data:
+      attachments:
+        - path: /media/reports/report.pdf
+          filename: report.pdf
+```
+
+The configured SMTP integration must support attachments. Attachments from non-local or third-party media sources are **not** snapshotted. Individual files are capped at 20 MiB; photos and attachments share a 200 MiB spool quota. Files are accessible to Home Assistant in `/media/reliable_notify`; protect backups accordingly.
+
+### Automatic disk capacity checks
+
+Queue insertion refuses new messages if the queue filesystem has less than **100 MiB free**. Media snapshots require the same safety margin on the media filesystem. Existing queued messages are not deleted to reclaim space. If you need later automation actions to run even after a local disk failure, add `continue_on_error: true` to `reliable_notify.enqueue`.
+
+### Home Assistant Marketplace / HACS
+
+This repository retains `hacs.json` for compatibility with both legacy HACS and the new Home Assistant Marketplace. Add this repository as a **custom Integration repository** until accepted into a public catalog. A GitHub release tag provides the versioned update channel. A Home Assistant Core restart is required after updating Python code.
