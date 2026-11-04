@@ -73,6 +73,8 @@ class QueueStore:
                 con.execute("ALTER TABLE dead_letters ADD COLUMN media_path TEXT")
             if "media_paths_json" not in dead_cols:
                 con.execute("ALTER TABLE dead_letters ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
+            if "occurrences" not in dead_cols:
+                con.execute("ALTER TABLE dead_letters ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1")
             con.execute("""CREATE TABLE IF NOT EXISTS delivery_history (
                 history_id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER,
                 target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
