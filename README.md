@@ -248,3 +248,48 @@ Queue insertion refuses new messages if the queue filesystem has less than **100
 ### Home Assistant Marketplace / HACS
 
 This repository retains `hacs.json` for compatibility with both legacy HACS and the new Home Assistant Marketplace. Add this repository as a **custom Integration repository** until accepted into a public catalog. A GitHub release tag provides the versioned update channel. A Home Assistant Core restart is required after updating Python code.
+
+
+## v0.6.1 — optional default and staging inbox
+
+**When no default notify entity has been set**, and an automation calls `reliable_notify.enqueue` without `recipients`, `target_entity` or `action`, the message is **persisted without delivery**. An administrator can read the full content in the **Staged (no recipient)** section of the Reliable Notify Lovelace card, select a configured individual recipient and click **Assign and send**, or delete it. Staged items survive Home Assistant restarts and are ignored by all delivery workers, including bulk retry. A message with a TTL may expire before manual assignment.
+
+Explicit recipients and groups remain the recommended normal behavior. To configure without a default notify entity, leave the optional Default Notify field empty in the setup wizard or integration options. Existing configurations retain their previously selected default until it is cleared.
+
+### Companion app notifications (Android and iOS)
+
+Reliable Notify can also queue the existing Home Assistant Companion App notify action — no additional app or push gateway is required. Configure the phone as a named recipient:
+
+```yaml
+recipients:
+  wolfgang_phone:
+    action: notify.mobile_app_your_device_id
+groups:
+  personal:
+    - wolfgang_phone
+```
+
+Then send a message with a **tap destination**, using the Companion App's documented native parameters:
+
+```yaml
+- action: reliable_notify.enqueue
+  data:
+    recipients: [wolfgang_phone]
+    priority: warning
+    title: "Fensterwarnung"
+    message: "Das Schlafzimmerfenster ist seit 90 Minuten geöffnet."
+    data:
+      data:
+        # iOS
+        url: "/lovelace/windows"
+        # Android
+        clickAction: "/lovelace/windows"
+        # Replaces previous notification with the same tag on the device
+        tag: "bedroom_window"
+```
+
+**Double `data` is intentional:** the outer map contains Reliable Notify transport parameters, while the nested map is passed through to the Companion App action. **Replace the example Lovelace path** with a view that really exists. When a notification is tapped, this opens the requested Home Assistant page instead of the app's default start view. On Android, swipe down to expand long notifications. The phone's operating system ultimately controls how much text is shown on the lock screen, and no custom integration can override those display/privacy settings.
+
+The push notification body is **not yet automatically stored as a permanent readable message archive after successful delivery**. For a durable in-HA copy of critical notices, use an additional `notify.persistent_notification` action or send to an HA dashboard entity/view containing the full details. The staging inbox is for **unaddressed test messages only**, not an archive of delivered push notifications.
+
+**Privacy:** staged message bodies are readable to Home Assistant administrators through the dashboard. Avoid storing passwords, access tokens, or other secrets in notification messages.
