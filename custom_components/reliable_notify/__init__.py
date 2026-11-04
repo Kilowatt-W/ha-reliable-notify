@@ -16,6 +16,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
 from .routing import resolve, validate_config, valid_action
@@ -455,8 +456,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         register_dashboard(hass)
         await hass.http.async_register_static_paths([
             StaticPathConfig('/reliable_notify/reliable-notify-card.js',
-                str(Path(__file__).parent / 'reliable-notify-card.js'), False)
+                str(Path(__file__).parent / 'reliable-notify-card.js'), False),
+            StaticPathConfig('/reliable_notify/reliable-notify-panel.js',
+                str(Path(__file__).parent / 'reliable-notify-panel.js'), False),
         ])
+        await panel_custom.async_register_panel(
+            hass, webcomponent_name="reliable-notify-panel",
+            frontend_url_path="reliable-notify",
+            sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
+            module_url="/reliable_notify/reliable-notify-panel.js",
+            require_admin=True)
         hass.data['reliable_notify_dashboard_registered'] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
 
@@ -537,8 +546,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     manager = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if manager is not None:
         await manager.stop()
-    # Handlers and static assets are registered once per HA lifetime.
+    # WebSocket endpoints are HA-lifetime registrations; panel can be re-added on reload.
     if not hass.data.get(DOMAIN):
+        frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
+        hass.data.pop('reliable_notify_dashboard_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
                         'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss'):
             hass.services.async_remove(DOMAIN, service)
