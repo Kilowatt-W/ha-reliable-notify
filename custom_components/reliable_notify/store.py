@@ -4,6 +4,7 @@ import asyncio
 import json
 import sqlite3
 import time
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 from pathlib import Path
 
 PRIORITY_ORDER = "CASE priority WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END"
@@ -53,6 +54,18 @@ class QueueStore:
                 status TEXT NOT NULL, attempts INTEGER NOT NULL, occurred_at REAL NOT NULL,
                 detail TEXT)""")
             con.execute("CREATE INDEX IF NOT EXISTS idx_history_time ON delivery_history(occurred_at)")
+            con.execute("""CREATE TABLE IF NOT EXISTS message_archive (
+                id INTEGER PRIMARY KEY, title TEXT, message TEXT NOT NULL,
+                target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
+                status TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT)""")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_archive_recent ON message_archive(created_at DESC)")
+            con.execute("""DELETE FROM message_archive WHERE created_at<? AND id NOT IN
+                (SELECT id FROM messages UNION SELECT id FROM dead_letters)""",(time.time()-30*86400,))
+            con.execute("""DELETE FROM message_archive WHERE id IN (
+                SELECT id FROM message_archive WHERE id NOT IN
+                (SELECT id FROM messages UNION SELECT id FROM dead_letters)
+                ORDER BY created_at DESC LIMIT -1 OFFSET 2000)""")
             result = op(con, *args)
             con.commit()
             return result
@@ -96,7 +109,28 @@ class QueueStore:
                      item.get("dedup_key"), now + item["ttl"] if item.get("ttl") else None,
                      now, now, item["action"], payload, item.get("media_path"),
                      json.dumps(item.get("media_paths", []))))
-                ids.append(cur.lastrowid)
+                ident = cur.lastrowid
+                ids.append(ident)
+                status = 'staged' if item["action"] == 'reliable_notify.staged' else 'queued'
+                con.execute("""INSERT INTO message_archive
+                    (id,title,message,target,action,priority,status,created_at,updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (ident,item.get('title'),item['message'],item['target'],
+                     item['action'],item['priority'],status,now,now))
+                archive_url = item.get('archive_url')
+                if archive_url and item['action'].startswith('notify.mobile_app_'):
+                    notification = dict(item.get('payload') or {})
+                    phone_data = dict(notification.get('data') or {})
+                    if not phone_data.get('url') and not phone_data.get('clickAction'):
+                        parts = urlsplit(archive_url)
+                        query = [(k,v) for k,v in parse_qsl(parts.query,keep_blank_values=True) if k!='rn_message']
+                        query.append(('rn_message',str(ident)))
+                        link = urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),parts.fragment))
+                        phone_data['url'] = link
+                        phone_data['clickAction'] = link
+                        notification['data'] = phone_data
+                        con.execute("UPDATE messages SET payload_json=? WHERE id=?",
+                                    (json.dumps(notification,ensure_ascii=False),ident))
             return ids
         return await self._run(op)
 
@@ -140,6 +174,8 @@ class QueueStore:
             if con.execute("DELETE FROM messages WHERE id=?", (identifier,)).rowcount:
                 self._inc(con,"sent")
                 self._history(con, identifier, row, "sent", None)
+                con.execute("UPDATE message_archive SET status='sent',updated_at=?,attempts=? WHERE id=?",
+                            (time.time(), (row[3] if row else 0)+1, identifier))
         await self._run(op)
 
     @staticmethod
@@ -175,11 +211,15 @@ class QueueStore:
                 con.execute(f"INSERT INTO dead_letters ({','.join(fields)},failed_at) VALUES ({','.join('?' for _ in fields)},?)",
                             (*[record[k] for k in fields], time.time()))
                 con.execute("DELETE FROM messages WHERE id=?", (identifier,))
+                con.execute("UPDATE message_archive SET status='dead',updated_at=?,attempts=?,last_error=? WHERE id=?",
+                            (time.time(), attempts, f'[{category}]'[:120], identifier))
                 self._inc(con,"dead_letters")
                 self._history(con,identifier,(row["target"],row["action"],row["priority"],attempts),"dead",error)
             else:
                 con.execute("""UPDATE messages SET attempts=?,last_error=?,next_attempt=?,lease_until=NULL
                     WHERE id=?""", (attempts,f"[{category}] {error}"[:1000],time.time()+delay,identifier))
+                con.execute("UPDATE message_archive SET status='retry',updated_at=?,attempts=?,last_error=? WHERE id=?",
+                            (time.time(),attempts,f'[{category}]'[:120],identifier))
         await self._run(op)
 
     async def staged_count(self):
@@ -198,9 +238,35 @@ class QueueStore:
         """Assign a staged message to a specific previously validated recipient."""
         now=time.time()
         def op(con):
-            return con.execute("""UPDATE messages SET action=?,target=?,payload_json=?,next_attempt=?,lease_until=NULL
+            updated = con.execute("""UPDATE messages SET action=?,target=?,payload_json=?,next_attempt=?,lease_until=NULL
                 WHERE id=? AND action='reliable_notify.staged' AND (expires_at IS NULL OR expires_at>?)""",
                 (action,target,json.dumps(payload,ensure_ascii=False),now,identifier,now)).rowcount
+            if updated:
+                con.execute("UPDATE message_archive SET target=?,action=?,status=\'queued\',updated_at=? WHERE id=?",(target,action,now,identifier))
+            return updated
+        return await self._run(op)
+
+    async def archive_list(self, limit=40, search=""):
+        """Admin-only searchable index; intentionally no message bodies."""
+        def op(con):
+            con.row_factory=sqlite3.Row
+            return [dict(row) for row in con.execute("""
+                SELECT id,title,target,action,priority,status,created_at,updated_at,attempts
+                FROM message_archive
+                WHERE (? = '' OR instr(lower(message),lower(?)) > 0
+                       OR instr(lower(coalesce(title,'')),lower(?)) > 0)
+                ORDER BY id DESC LIMIT ?""",
+                (search,search,search,min(100,max(1,int(limit)))))]
+        return await self._run(op)
+
+    async def archive_detail(self, identifier):
+        """Admin-only full text; no payloads, credentials or attachments."""
+        def op(con):
+            con.row_factory=sqlite3.Row
+            row=con.execute("""SELECT id,title,message,target,action,priority,status,
+                created_at,updated_at,attempts,last_error FROM message_archive
+                WHERE id=?""",(identifier,)).fetchone()
+            return dict(row) if row else None
         return await self._run(op)
 
     async def count(self):
@@ -224,6 +290,7 @@ class QueueStore:
                 SELECT message,title,target,priority,dedup_key,expires_at,0,?,created_at,NULL,
                 action,payload_json,NULL,media_path,media_paths_json FROM dead_letters WHERE expires_at IS NULL OR expires_at>?""", (time.time(),time.time()))
             con.execute("DELETE FROM dead_letters")
+            con.execute("UPDATE message_archive SET status='queued',updated_at=? WHERE id IN (SELECT id FROM messages) AND status='dead'",(time.time(),))
             return count
         return await self._run(op)
 
@@ -271,6 +338,7 @@ class QueueStore:
                 count = con.execute("DELETE FROM dead_letters WHERE id=?",(identifier,)).rowcount
             if count:
                 self._history(con,identifier,row,"deleted",None)
+                con.execute("UPDATE message_archive SET status='deleted',updated_at=? WHERE id=?",(time.time(),identifier))
             return count
         return await self._run(op)
 
