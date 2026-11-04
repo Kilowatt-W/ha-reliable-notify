@@ -47,3 +47,5 @@ A tap on the mobile notification opens the configured dashboard view, where the 
 
 
 Release workflow: publication is gated on Python tests, HACS checks and hassfest. Test under Home Assistant before relying on this for alarms.
+
+Release build additionally checks JavaScript syntax and keeps the original notification ID when restoring dead letters, so archived links remain stable.
