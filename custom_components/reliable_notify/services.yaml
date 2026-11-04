@@ -79,6 +79,10 @@ enqueue:
             - always
             - replace
             - digest
+    only_if:
+      description: Optional current HA entity-state guard; suppress the notification before delivery if the state no longer matches (for example a closed window).
+      selector:
+        object:
     test_mode:
       description: Force local staging for this notification, with no delivery or escalation.
       selector:
