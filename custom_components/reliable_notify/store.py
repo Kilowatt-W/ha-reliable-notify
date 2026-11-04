@@ -448,6 +448,76 @@ class QueueStore:
                 (key,index)).rowcount
         return await self._run(op)
 
+    async def enqueue_escalation_atomic(self, key, index, recipients, limit=1000):
+        """Commit escalation jobs and stage advancement in one SQLite transaction.
+
+        No duplicate jobs after process restart/crash at the enqueue boundary.
+        Recipients are already validated by the HA routing layer. Only text
+        transport jobs are accepted (no media/attachments).
+        """
+        now=time.time()
+        def op(con):
+            con.row_factory=sqlite3.Row
+            ack=con.execute("""SELECT ack_key,message,title,priority,created_at,
+                steps_json,next_step,acknowledged_at FROM acknowledgements
+                WHERE ack_key=?""",(key,)).fetchone()
+            if not ack or ack["acknowledged_at"] is not None or ack["next_step"]!=index:
+                return []
+            steps=json.loads(ack["steps_json"])
+            if index>=len(steps) or ack["created_at"]+steps[index]["after"]>now:
+                return []
+            if con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]+len(recipients)>limit:
+                raise OverflowError("queue full; escalation deferred")
+            ids=[]
+            for name,rec in recipients:
+                action=rec.get("action","notify.send_message")
+                if action=="reliable_notify.staged" or action=="telegram_bot.send_photo":
+                    raise ValueError("escalation text only")
+                target=rec.get("target_entity","") if action in ("notify.send_message","smtp.send_message") else name
+                payload=json.dumps(rec.get("data",{}),ensure_ascii=False,allow_nan=False)
+                cur=con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
+                    expires_at,next_attempt,created_at,action,payload_json,media_paths_json)
+                    VALUES(?,?,?,?,NULL,NULL,?,?,?,?,?)""",
+                    (ack["message"],ack["title"],target,ack["priority"],now,now,
+                     action,payload,"[]"))
+                ident=cur.lastrowid
+                ids.append(ident)
+                con.execute("""INSERT INTO message_archive(
+                    id,title,message,target,action,priority,status,created_at,updated_at,message_type,retention_days)
+                    VALUES(?,?,?,?,?,?,'queued',?,?,?,?)""",
+                    (ident,ack["title"],ack["message"],target,action,ack["priority"],
+                     now,now,ack["priority"],30))
+            con.execute("UPDATE acknowledgements SET next_step=next_step+1 WHERE ack_key=?",(key,))
+            return ids
+        return await self._run(op)
+
+    async def act_on_incident(self,key,action,by="callback"):
+        """Atomic ACK, snooze (15m), or immediate next-step escalation."""
+        if action not in ("ack","snooze","escalate"):
+            raise ValueError("unsupported incident action")
+        now=time.time()
+        def op(con):
+            con.row_factory=sqlite3.Row
+            row=con.execute("""SELECT next_step,steps_json FROM acknowledgements
+                WHERE ack_key=? AND acknowledged_at IS NULL""",(key,)).fetchone()
+            if row is None:
+                return False
+            if action=="ack":
+                con.execute("""UPDATE acknowledgements
+                    SET acknowledged_at=?,acknowledged_by=? WHERE ack_key=?""",
+                    (now,by[:100],key))
+            elif action=="snooze":
+                con.execute("UPDATE acknowledgements SET created_at=created_at+900 WHERE ack_key=?",(key,))
+            else:
+                steps=json.loads(row["steps_json"])
+                if row["next_step"]>=len(steps):
+                    return False
+                required=steps[row["next_step"]]["after"]
+                con.execute("UPDATE acknowledgements SET created_at=? WHERE ack_key=?",
+                            (now-required-1,key))
+            return True
+        return await self._run(op)
+
     async def archive_list(self, limit=40, search=""):
         """Admin-only searchable index; intentionally no message bodies."""
         def op(con):
