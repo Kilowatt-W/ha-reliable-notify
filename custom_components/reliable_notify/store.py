@@ -60,6 +60,11 @@ class QueueStore:
                 status TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT)""")
             con.execute("CREATE INDEX IF NOT EXISTS idx_archive_recent ON message_archive(created_at DESC)")
+            archive_cols = {r[1] for r in con.execute("PRAGMA table_info(message_archive)")}
+            if "message_type" not in archive_cols:
+                con.execute("ALTER TABLE message_archive ADD COLUMN message_type TEXT NOT NULL DEFAULT 'info'")
+            if "retention_days" not in archive_cols:
+                con.execute("ALTER TABLE message_archive ADD COLUMN retention_days INTEGER NOT NULL DEFAULT 30")
             con.execute("""DELETE FROM message_archive WHERE created_at<? AND id NOT IN
                 (SELECT id FROM messages UNION SELECT id FROM dead_letters)""",(time.time()-30*86400,))
             con.execute("""DELETE FROM message_archive WHERE id IN (
