@@ -225,7 +225,7 @@ class ReliableNotifyPanel extends HTMLElement {
     const report=this.element('pre','Lade ...');
     const load=async()=>{const data=await this.call('statistics',{days:Number(days.value)});
       this._lastStats=data;report.textContent=JSON.stringify(data,null,2);};
-    refresh.addEventListener('click',()=>this.run(report,load));
+    // Refresh callback is set after the chart loader is constructed.
     exportButton.addEventListener('click',()=>{
       if(!this._lastStats)return;
       const blob=new Blob([JSON.stringify(this._lastStats,null,2)],{type:'application/json'});
