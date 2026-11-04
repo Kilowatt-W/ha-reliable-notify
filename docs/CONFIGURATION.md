@@ -70,6 +70,24 @@ In the integration options choose **Quiet hours and digests** or use the admin p
 
 `strategy: digest` needs `dedup_key`, is available only for text notifications without attachments, and groups waiting occurrences into a single message. Default digest window: 300 seconds. Noncritical attempts are rate-limited by recipient/action (default 10 per minute); critical alerts bypass the limit.
 
+## State-dependent alerts
+
+The optional `only_if` field prevents obsolete notifications from being delivered after an internet outage. Reliable Notify checks the state **immediately before dispatch**, not just when the message was enqueued.
+
+```yaml
+- action: reliable_notify.enqueue
+  data:
+    recipients: [phone]
+    title: "Schlafzimmerfenster noch offen"
+    message: "Das Fenster wurde zu lange offengelassen."
+    dedup_key: bedroom_window
+    only_if:
+      entity_id: binary_sensor.kontakt_fenster_schlafzimmer_extended
+      state: "on"
+```
+
+If the window is already closed when the worker processes the queued message, its status becomes `suppressed` and no push is emitted. This reduces misleading delayed warnings; it is not a transactional guarantee against a state change in the milliseconds between the check and provider dispatch.
+
 ## Test mode
 
 From integration options or admin panel choose `test_mode: stage`. With an empty `test_recipients` list **all** newly queued messages are staged; otherwise only matching endpoint targets are staged. Staged messages never send and never escalate. They can be assigned a real recipient manually later.
