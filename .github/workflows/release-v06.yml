@@ -1,0 +1,65 @@
+name: Publish Reliable Notify v0.6.0
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - RELEASE_NOTES_v0.6.0.md
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reliable-notify-release-v0.6.0
+  cancel-in-progress: false
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m compileall -q custom_components/reliable_notify
+      - run: python -m unittest discover -s tests -v
+      - name: Verify version number
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          assert json.loads(Path("custom_components/reliable_notify/manifest.json").read_text())["version"] == "0.6.0"
+          PY
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  publish:
+    needs: [python, hassfest, hacs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release after validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v0.6.0 >/dev/null 2>&1; then
+            echo "v0.6.0 already exists"
+            exit 0
+          fi
+          gh release create v0.6.0 \
+            --title "Reliable Notify v0.6.0" \
+            --notes-file RELEASE_NOTES_v0.6.0.md \
+            --target "${{ github.sha }}" \
+            --latest
