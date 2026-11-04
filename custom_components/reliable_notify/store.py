@@ -67,6 +67,16 @@ class QueueStore:
             con.execute("""CREATE TABLE IF NOT EXISTS send_rate_windows (
                 bucket TEXT PRIMARY KEY, window_start REAL NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0)""")
+            con.execute("""CREATE TABLE IF NOT EXISTS telegram_receipts (
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                queue_id INTEGER NOT NULL,
+                dedup_key TEXT,
+                created_at REAL NOT NULL,
+                PRIMARY KEY(chat_id,message_id)
+            )""")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_tg_receipts_dedup ON telegram_receipts(dedup_key,created_at)")
+
             message_cols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
             if "occurrences" not in message_cols:
                 con.execute("ALTER TABLE messages ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1")
@@ -469,6 +479,7 @@ class QueueStore:
                 con.execute("UPDATE message_archive SET status='dead_expired',updated_at=? WHERE id=?",
                             (now,ident))
             con.execute("DELETE FROM send_rate_windows WHERE window_start<?",(now-300,))
+            con.execute("DELETE FROM telegram_receipts WHERE created_at<?",(now-90*86400,))
             con.execute("DELETE FROM delivery_daily WHERE day<date(?,'unixepoch')",(now-366*86400,))
             con.execute("""DELETE FROM acknowledgements
                 WHERE acknowledged_at IS NOT NULL AND acknowledged_at<?""",
@@ -500,6 +511,42 @@ class QueueStore:
                     "database_bytes":size,"dead_letters":dead,"critical_dead_letters":critical}
         finally:
             con.close()
+
+    async def record_telegram_receipt(self, identifier, chat_id, message_id):
+        """Store Telegram delivery reference by our own tagged outgoing queue ID."""
+        def op(con):
+            try:
+                id_num=int(identifier)
+                chat=int(chat_id)
+                message=int(message_id)
+            except (TypeError,ValueError):
+                return False
+            if id_num<=0 or message<=0:
+                return False
+            row=con.execute("SELECT dedup_key FROM messages WHERE id=?",(id_num,)).fetchone()
+            if row is None:
+                return False
+            con.execute("""INSERT OR IGNORE INTO telegram_receipts(
+                chat_id,message_id,queue_id,dedup_key,created_at)
+                VALUES(?,?,?,?,?)""",(chat,message,id_num,row[0],time.time()))
+            return True
+        return await self._run(op)
+
+    async def telegram_receipts(self, dedup_key):
+        """List sent Telegram messages only for a known idempotency key."""
+        if not isinstance(dedup_key,str) or not 1<=len(dedup_key)<=128:
+            raise ValueError("invalid deduplication key")
+        def op(con):
+            rows=con.execute("""SELECT chat_id,message_id FROM telegram_receipts
+                WHERE dedup_key=? ORDER BY created_at DESC LIMIT 100""",(dedup_key,)).fetchall()
+            return [{"chat_id":r[0],"message_id":r[1]} for r in rows]
+        return await self._run(op)
+
+    async def telegram_receipt_deleted(self, chat_id, message_id):
+        def op(con):
+            return con.execute("DELETE FROM telegram_receipts WHERE chat_id=? AND message_id=?",
+                               (chat_id,message_id)).rowcount
+        return await self._run(op)
 
     async def acknowledgement(self, key, by="manual"):
         """Public legacy ACK method delegates to atomic incident state update."""
