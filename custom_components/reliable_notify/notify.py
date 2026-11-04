@@ -12,6 +12,7 @@ from homeassistant.components.notify import NotifyEntity, NotifyEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
 
@@ -32,9 +33,15 @@ async def async_setup_entry(
 ) -> None:
     """Register a modern entity for each named route."""
     manager = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [ReliableNotifyEntity(manager, name) for name in available_routes(manager.routes)]
-    )
+    active = available_routes(manager.routes)
+    active_ids = {f"{entry.entry_id}_route_{name}" for name in active}
+    registry = er.async_get(hass)
+    for item in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (item.domain == "notify" and item.platform == DOMAIN
+                and item.unique_id.startswith(f"{entry.entry_id}_route_")
+                and item.unique_id not in active_ids):
+            registry.async_remove(item.entity_id)
+    async_add_entities([ReliableNotifyEntity(manager, name) for name in active])
 
 
 class ReliableNotifyEntity(NotifyEntity):
