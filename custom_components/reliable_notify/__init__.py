@@ -146,7 +146,8 @@ class ReliableNotifyManager:
                 jobs.append(dict(message=data["message"], title=data.get("title"),
                     target=target, action=action, payload=payload,
                     priority=data.get("priority", "info"), ttl=data.get("ttl", 0),
-                    dedup_key=data.get("dedup_key"), strategy=data.get("strategy", "always")))
+                    dedup_key=data.get("dedup_key"), strategy=data.get("strategy", "always"),
+                    archive_url=self.settings.get("archive_url") or None))
             snapshots = []
             try:
                 # A queued photo must not depend on a rotating camera snapshot file.
