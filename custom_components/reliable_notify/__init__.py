@@ -10,7 +10,7 @@ import secrets
 from pathlib import Path
 
 import voluptuous as vol
-import yaml
+from homeassistant.util.yaml import load_yaml
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
@@ -74,8 +74,7 @@ def _load_routes(path):
     file = Path(path)
     if not file.exists():
         return {"recipients": {}, "groups": {}, "persons": {}}
-    with file.open(encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh) or {}
+    raw = load_yaml(file) or {}
     return validate_config(raw)
 
 
