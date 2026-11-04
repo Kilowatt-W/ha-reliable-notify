@@ -1,0 +1,31 @@
+# Reliable Notify v0.4.0 - Copy to /config/reliable_notify_routes.yaml
+# Telegram chat IDs must already be allowlisted in the Telegram bot integration.
+# Avoid storing credentials here. For mail, configure a Home Assistant notify entity/service.
+recipients:
+  wolfgang_telegram:
+    action: telegram_bot.send_message
+    data:
+      chat_id: 123456789 # REPLACE
+      parse_mode: html
+  bernadette_telegram:
+    action: telegram_bot.send_message
+    data:
+      chat_id: 987654321 # REPLACE
+  wolfgang_phone:
+    action: notify.send_message
+    target_entity: notify.mobile_app_wolfgang # REPLACE
+  admin_mail:
+    action: notify.email_admin # REPLACE with a configured HA legacy mail notify service
+    data: {}
+groups:
+  wolfgang:
+    - wolfgang_telegram
+    - wolfgang_phone
+  bernadette:
+    - bernadette_telegram
+  familie:
+    - wolfgang
+    - bernadette
+  it_alarm:
+    - wolfgang
+    - admin_mail

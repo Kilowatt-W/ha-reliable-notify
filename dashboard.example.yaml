@@ -1,0 +1,62 @@
+# Native Lovelace dashboard (no extra frontend module required).
+# Add as a new dashboard view in Raw configuration editor.
+# Verify entity IDs in Developer Tools > States after installation.
+title: Reliable Notify
+views:
+  - title: Notifications
+    path: reliable-notify
+    icon: mdi:email-fast-outline
+    cards:
+      - type: entities
+        title: Zustellung & Warteschlange
+        entities:
+          - entity: sensor.reliable_notify_queue_size
+            name: Wartende Nachrichten
+          - entity: sensor.reliable_notify_dead_letter_count
+            name: Dead Letters
+          - entity: sensor.reliable_notify_sent
+            name: Erfolgreich versendet
+          - entity: sensor.reliable_notify_failures
+            name: Fehler / Versuche
+          - entity: button.reliable_notify_retry_all
+            name: Jetzt erneut versuchen
+      - type: markdown
+        title: Wartende Nachrichten (max. 10)
+        content: >-
+          {% set rows = state_attr('sensor.reliable_notify_queue_size', 'recent') or [] %}
+          {% if rows %}
+          | ID | Ziel | Priorität | Versuche |
+          | ---: | --- | --- | ---: |
+          {% for x in rows %}
+          | {{ x.id }} | {{ x.target }} | {{ x.priority }} | {{ x.attempts }} |
+          {% endfor %}
+          {% else %}Keine wartenden Nachrichten.{% endif %}
+      - type: markdown
+        title: Fehlgeschlagen (Dead Letters)
+        content: >-
+          {% set rows = state_attr('sensor.reliable_notify_dead_letter_count', 'recent') or [] %}
+          {% if rows %}
+          | ID | Ziel | Versuche |
+          | ---: | --- | ---: |
+          {% for x in rows %}
+          | {{ x.id }} | {{ x.target }} | {{ x.attempts }} |
+          {% endfor %}
+          {% else %}Keine Dead Letters.{% endif %}
+      - type: markdown
+        title: Versandhistorie (letzte 15)
+        content: >-
+          {% set rows = state_attr('sensor.reliable_notify_delivery_history', 'recent') or [] %}
+          {% if rows %}
+          | ID | Ziel | Status | Versuche |
+          | ---: | --- | --- | ---: |
+          {% for x in rows %}
+          | {{ x.id }} | {{ x.target }} | {{ x.status }} | {{ x.attempts }} |
+          {% endfor %}
+          {% else %}Noch keine Einträge.{% endif %}
+      - type: markdown
+        title: Einzelne Nachricht verwalten
+        content: >-
+          Über **Entwicklerwerkzeuge → Aktionen** kannst du
+          `reliable_notify.retry_one` und `reliable_notify.delete_one`
+          mit der jeweiligen ID aus der Tabelle verwenden.
+          Bei einem Dead-Letter zusätzlich `dead: true` angeben.

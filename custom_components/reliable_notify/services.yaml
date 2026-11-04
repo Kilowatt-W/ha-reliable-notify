@@ -1,0 +1,107 @@
+enqueue:
+  name: Queue notification
+  description: Persist a notification, fan out to named people/groups or one destination, then retry asynchronously.
+  fields:
+    message:
+      required: true
+      selector:
+        text:
+          multiline: true
+    title:
+      selector:
+        text:
+    recipients:
+      description: Named person, channel or group from reliable_notify_routes.yaml (list or string).
+      selector:
+        object:
+    media:
+      description: For Telegram recipients, photo changes send_message to send_photo; other transports retain their normal message.
+      selector:
+        select:
+          options:
+            - text
+            - photo
+    action:
+      description: Optional direct transport action (omit when using recipients).
+      selector:
+        text:
+    target_entity:
+      description: Notify entity for direct notify.send_message.
+      selector:
+        entity:
+          domain: notify
+    data:
+      description: Transport parameters such as Telegram target, inline_keyboard, file or url.
+      selector:
+        object:
+    priority:
+      selector:
+        select:
+          options:
+            - info
+            - warning
+            - critical
+    ttl:
+      selector:
+        number:
+          min: 0
+          max: 604800
+          mode: box
+    dedup_key:
+      selector:
+        text:
+    strategy:
+      selector:
+        select:
+          options:
+            - always
+            - replace
+retry_all:
+  name: Retry waiting messages
+  description: Schedule queued notifications for immediate retry.
+retry_dead:
+  name: Retry dead letters
+  description: Return failed messages to the active queue (may cause duplicates).
+clear_queue:
+  name: Clear queued messages
+  description: Destructively remove waiting messages (not in-flight).
+cancel:
+  name: Cancel waiting messages
+  fields:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    target_entity:
+      selector:
+        text:
+reload_routes:
+  name: Reload people and groups
+  description: Validate and reload /config/reliable_notify_routes.yaml without restarting HA.
+
+retry_one:
+  name: Retry a single queued notification
+  fields:
+    id:
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    dead:
+      description: True to restore from the dead-letter queue.
+      selector:
+        boolean:
+delete_one:
+  name: Delete one queued notification
+  fields:
+    id:
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    dead:
+      description: True to delete a dead-letter message.
+      selector:
+        boolean:

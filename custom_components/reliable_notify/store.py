@@ -1,0 +1,272 @@
+"""Durable SQLite queue: one transaction per fan-out operation, at-least-once."""
+from __future__ import annotations
+import asyncio
+import json
+import sqlite3
+import time
+from pathlib import Path
+
+PRIORITY_ORDER = "CASE priority WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END"
+
+
+class QueueStore:
+    def __init__(self, path):
+        self.path = Path(path)
+        self._lock = asyncio.Lock()
+
+    def _execute(self, op, *args):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(self.path, timeout=15)
+        try:
+            con.execute("PRAGMA busy_timeout=15000")
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("""CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message TEXT NOT NULL, title TEXT, target TEXT NOT NULL,
+                priority TEXT NOT NULL, dedup_key TEXT, expires_at REAL,
+                attempts INTEGER NOT NULL DEFAULT 0, next_attempt REAL NOT NULL,
+                created_at REAL NOT NULL, last_error TEXT)""")
+            cols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
+            for name, definition in (("action", "TEXT NOT NULL DEFAULT 'notify.send_message'"),
+                                     ("payload_json", "TEXT NOT NULL DEFAULT '{}'"),
+                                     ("lease_until", "REAL"), ("media_path", "TEXT")):
+                if name not in cols:
+                    con.execute(f"ALTER TABLE messages ADD COLUMN {name} {definition}")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_due ON messages(next_attempt)")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON messages(dedup_key,target,action)")
+            con.execute("CREATE TABLE IF NOT EXISTS metrics (key TEXT PRIMARY KEY,value INTEGER NOT NULL DEFAULT 0)")
+            con.execute("""CREATE TABLE IF NOT EXISTS dead_letters (
+                id INTEGER PRIMARY KEY, message TEXT NOT NULL, title TEXT,
+                target TEXT NOT NULL, priority TEXT NOT NULL, dedup_key TEXT,
+                expires_at REAL, attempts INTEGER NOT NULL, next_attempt REAL NOT NULL,
+                created_at REAL NOT NULL, last_error TEXT, action TEXT NOT NULL,
+                payload_json TEXT NOT NULL, lease_until REAL, failed_at REAL NOT NULL, media_path TEXT)""")
+            dead_cols = {r[1] for r in con.execute("PRAGMA table_info(dead_letters)")}
+            if "media_path" not in dead_cols:
+                con.execute("ALTER TABLE dead_letters ADD COLUMN media_path TEXT")
+            con.execute("""CREATE TABLE IF NOT EXISTS delivery_history (
+                history_id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER,
+                target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
+                status TEXT NOT NULL, attempts INTEGER NOT NULL, occurred_at REAL NOT NULL,
+                detail TEXT)""")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_history_time ON delivery_history(occurred_at)")
+            result = op(con, *args)
+            con.commit()
+            return result
+        finally:
+            con.close()
+
+    async def _run(self, op, *args):
+        async with self._lock:
+            return await asyncio.to_thread(self._execute, op, *args)
+
+    async def enqueue_many(self, items, limit):
+        now = time.time()
+        def op(con):
+            con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
+            current = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+            replacements = set()
+            for item in items:
+                if item.get("strategy") == "replace" and item.get("dedup_key"):
+                    row = con.execute("""SELECT COUNT(*) FROM messages
+                        WHERE dedup_key=? AND target=? AND action=?
+                        AND (lease_until IS NULL OR lease_until<=?)""",
+                        (item["dedup_key"], item["target"], item["action"], now)).fetchone()
+                    # The conservative reservation counts duplicates at most once.
+                    replacements.add((item["dedup_key"], item["target"], item["action"]))
+            removable = sum(con.execute("""SELECT COUNT(*) FROM messages WHERE
+                dedup_key=? AND target=? AND action=? AND (lease_until IS NULL OR lease_until<=?)""",
+                (*k, now)).fetchone()[0] for k in replacements)
+            if current - removable + len(items) > limit:
+                raise OverflowError("Reliable Notify queue capacity exceeded")
+            ids = []
+            for item in items:
+                if item.get("strategy") == "replace" and item.get("dedup_key"):
+                    con.execute("""DELETE FROM messages WHERE dedup_key=? AND target=? AND action=?
+                        AND (lease_until IS NULL OR lease_until<=?)""",
+                        (item["dedup_key"], item["target"], item["action"], now))
+                payload = json.dumps(item.get("payload") or {}, ensure_ascii=False, allow_nan=False)
+                cur = con.execute("""INSERT INTO messages(message,title,target,priority,dedup_key,
+                    expires_at,next_attempt,created_at,action,payload_json,media_path)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (item["message"], item.get("title"), item["target"], item["priority"],
+                     item.get("dedup_key"), now + item["ttl"] if item.get("ttl") else None,
+                     now, now, item["action"], payload, item.get("media_path")))
+                ids.append(cur.lastrowid)
+            return ids
+        return await self._run(op)
+
+    async def enqueue(self, message, title, target, priority, ttl, dedup_key,
+                      strategy, limit, action="notify.send_message", payload=None):
+        result = await self.enqueue_many([dict(message=message, title=title, target=target,
+            priority=priority, ttl=ttl, dedup_key=dedup_key, strategy=strategy,
+            action=action, payload=payload)], limit)
+        return result[0]
+
+    async def claim_due(self, lease_seconds=90, lane=None):
+        now = time.time()
+        def op(con):
+            con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
+            con.row_factory = sqlite3.Row
+            lane_clause = ("AND action LIKE 'telegram_bot.%'" if lane == "telegram" else
+                           "AND action NOT LIKE 'telegram_bot.%' AND action != 'smtp.send_message'" if lane == "notify" else
+                           "AND action = 'smtp.send_message'" if lane == "smtp" else "")
+            item = con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
+                AND (lease_until IS NULL OR lease_until<=?) {lane_clause}
+                ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 1""", (now, now)).fetchone()
+            if item:
+                con.execute("UPDATE messages SET lease_until=? WHERE id=?", (now+lease_seconds,item["id"]))
+            return dict(item) if item else None
+        return await self._run(op)
+
+    async def next_due(self):
+        now = time.time()
+        def op(con):
+            con.row_factory = sqlite3.Row
+            row = con.execute(f"""SELECT * FROM messages WHERE next_attempt<=?
+                AND (lease_until IS NULL OR lease_until<=?)
+                AND (expires_at IS NULL OR expires_at>?)
+                ORDER BY {PRIORITY_ORDER},created_at,id LIMIT 1""", (now,now,now)).fetchone()
+            return dict(row) if row else None
+        return await self._run(op)
+
+    async def succeeded(self, identifier):
+        def op(con):
+            row = con.execute("SELECT target,action,priority,attempts FROM messages WHERE id=?",(identifier,)).fetchone()
+            if con.execute("DELETE FROM messages WHERE id=?", (identifier,)).rowcount:
+                self._inc(con,"sent")
+                self._history(con, identifier, row, "sent", None)
+        await self._run(op)
+
+    @staticmethod
+    def _inc(con, key):
+        con.execute("INSERT INTO metrics(key,value) VALUES (?,1) ON CONFLICT(key) DO UPDATE SET value=value+1", (key,))
+
+    @staticmethod
+    def _history(con, identifier, row, status, detail):
+        if row is not None:
+            con.execute("""INSERT INTO delivery_history(message_id,target,action,priority,status,
+                attempts,occurred_at,detail) VALUES (?,?,?,?,?,?,?,?)""",
+                (identifier,row[0],row[1],row[2],status,row[3],time.time(),(detail or "")[:300]))
+            # Bound history to 2000 entries and 30 days.
+            con.execute("DELETE FROM delivery_history WHERE occurred_at<?",(time.time()-30*86400,))
+            con.execute("""DELETE FROM delivery_history WHERE history_id NOT IN
+                (SELECT history_id FROM delivery_history ORDER BY history_id DESC LIMIT 2000)""")
+
+    async def failed(self, identifier, attempts, error, base_interval, max_attempts=12, permanent=False):
+        delay = min(3600, base_interval * (2 ** min(max(0,attempts-1),10)))
+        def op(con):
+            con.row_factory = sqlite3.Row
+            row = con.execute("SELECT * FROM messages WHERE id=?", (identifier,)).fetchone()
+            if not row:
+                return
+            self._inc(con,"failures")
+            if permanent or (max_attempts is not None and attempts >= max_attempts):
+                record = dict(row)
+                record.update(attempts=attempts, last_error=error[:1000], lease_until=None)
+                fields = [k for k in record if k != "failed_at"]
+                con.execute(f"INSERT INTO dead_letters ({','.join(fields)},failed_at) VALUES ({','.join('?' for _ in fields)},?)",
+                            (*[record[k] for k in fields], time.time()))
+                con.execute("DELETE FROM messages WHERE id=?", (identifier,))
+                self._inc(con,"dead_letters")
+                self._history(con,identifier,(row["target"],row["action"],row["priority"],attempts),"dead",error)
+            else:
+                con.execute("""UPDATE messages SET attempts=?,last_error=?,next_attempt=?,lease_until=NULL
+                    WHERE id=?""", (attempts,error[:1000],time.time()+delay,identifier))
+        await self._run(op)
+
+    async def count(self):
+        return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM messages WHERE expires_at IS NULL OR expires_at>?", (time.time(),)).fetchone()[0])
+
+    async def dead_count(self):
+        return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0])
+
+    async def metrics(self):
+        return await self._run(lambda con: dict(con.execute("SELECT key,value FROM metrics").fetchall()))
+
+    async def retry_all(self):
+        now = time.time()
+        await self._run(lambda con: con.execute("UPDATE messages SET next_attempt=? WHERE lease_until IS NULL OR lease_until<=?", (now,now)))
+
+    async def retry_dead(self):
+        def op(con):
+            count = con.execute("SELECT COUNT(*) FROM dead_letters").fetchone()[0]
+            con.execute("""INSERT INTO messages (message,title,target,priority,dedup_key,expires_at,
+                attempts,next_attempt,created_at,last_error,action,payload_json,lease_until,media_path)
+                SELECT message,title,target,priority,dedup_key,expires_at,0,?,created_at,NULL,
+                action,payload_json,NULL,media_path FROM dead_letters WHERE expires_at IS NULL OR expires_at>?""", (time.time(),time.time()))
+            con.execute("DELETE FROM dead_letters")
+            return count
+        return await self._run(op)
+
+    async def cancel(self, key, target=None):
+        def op(con):
+            if target:
+                return con.execute("DELETE FROM messages WHERE dedup_key=? AND target=? AND (lease_until IS NULL OR lease_until<=?)",(key,target,time.time())).rowcount
+            return con.execute("DELETE FROM messages WHERE dedup_key=? AND (lease_until IS NULL OR lease_until<=?)",(key,time.time())).rowcount
+        return await self._run(op)
+
+    async def clear(self):
+        await self._run(lambda con: con.execute("DELETE FROM messages WHERE lease_until IS NULL OR lease_until<=?",(time.time(),)))
+
+    async def retry_one(self, identifier: int, dead: bool = False):
+        """Retry a single eligible job; never mutate a currently leased job."""
+        now = time.time()
+        def op(con):
+            if not dead:
+                return con.execute("""UPDATE messages SET next_attempt=?,lease_until=NULL
+                    WHERE id=? AND (lease_until IS NULL OR lease_until<=?)""",
+                    (now,identifier,now)).rowcount
+            row = con.execute("SELECT * FROM dead_letters WHERE id=? AND (expires_at IS NULL OR expires_at>?)",(identifier,now)).fetchone()
+            if not row:
+                return 0
+            con.row_factory = sqlite3.Row
+            record = con.execute("SELECT * FROM dead_letters WHERE id=?",(identifier,)).fetchone()
+            columns = ['message','title','target','priority','dedup_key','expires_at','attempts',
+                       'next_attempt','created_at','last_error','action','payload_json','lease_until','media_path']
+            values = [record[col] for col in columns]
+            values[6],values[7],values[9],values[12] = 0,now,None,None
+            con.execute(f"INSERT INTO messages ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",values)
+            con.execute("DELETE FROM dead_letters WHERE id=?",(identifier,))
+            return 1
+        return await self._run(op)
+
+    async def delete_one(self, identifier: int, dead: bool = False):
+        table = 'dead_letters' if dead else 'messages'
+        now = time.time()
+        def op(con):
+            row = con.execute(f"SELECT target,action,priority,attempts FROM {table} WHERE id=?",(identifier,)).fetchone()
+            if not dead:
+                count = con.execute("""DELETE FROM messages WHERE id=? AND
+                    (lease_until IS NULL OR lease_until<=?)""",(identifier,now)).rowcount
+            else:
+                count = con.execute("DELETE FROM dead_letters WHERE id=?",(identifier,)).rowcount
+            if count:
+                self._history(con,identifier,row,"deleted",None)
+            return count
+        return await self._run(op)
+
+    async def history(self, limit=20):
+        def op(con):
+            con.row_factory = sqlite3.Row
+            return [dict(row) for row in con.execute("""SELECT message_id AS id,target,action,priority,
+                status,attempts,occurred_at,detail FROM delivery_history
+                ORDER BY history_id DESC LIMIT ?""",(min(100,max(1,int(limit))),))]
+        return await self._run(op)
+
+    async def pending_media_paths(self):
+        """Media references still used by queued or dead-letter jobs."""
+        def op(con):
+            return {row[0] for table in ("messages", "dead_letters")
+                    for row in con.execute(f"SELECT DISTINCT media_path FROM {table} WHERE media_path IS NOT NULL")}
+        return await self._run(op)
+
+    async def recent(self, limit=40, dead=False):
+        """Sanitized queue data for monitoring; never expose payload credentials."""
+        table = "dead_letters" if dead else "messages"
+        def op(con):
+            con.row_factory = sqlite3.Row
+            return [dict(row) for row in con.execute(
+                f"SELECT id,target,priority,action,attempts,created_at,next_attempt,last_error "
+                f"FROM {table} ORDER BY id DESC LIMIT ?", (min(200,max(1,int(limit))),))]
+        return await self._run(op)

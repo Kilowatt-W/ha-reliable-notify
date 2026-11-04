@@ -1,0 +1,14 @@
+{
+  "config": {"step": {"user": {"title": "Set up Reliable Notify", "data": {"target_entity": "Default notify entity", "retry_interval": "Base retry interval (seconds)"}}}, "abort": {"already_configured": "Already configured"}},
+  "options": {
+    "step": {
+      "init": {"title": "Manage Reliable Notify", "data": {"manage": "Choose configuration task"}},
+      "settings": {"title": "General settings", "data": {"target_entity": "Default notify entity", "retry_interval": "Base retry interval (seconds)"}},
+      "recipient": {"title": "Add or update recipient", "description": "Enter an existing Home Assistant notification action and its transport parameters. For custom legacy notify services use the YAML routes file.", "data": {"name": "Logical recipient name", "action": "Transport action", "target_entity": "Notify entity (modern notify only)", "data_json": "Transport parameters (JSON)"}},
+      "group": {"title": "Add or update group", "description": "Members may be recipients or other groups, separated by commas.", "data": {"name": "Group name", "members": "Members (comma separated)"}},
+      "delete": {"title": "Delete UI-defined route", "data": {"route": "Route"}}
+    },
+    "error": {"invalid_route": "Invalid route: check recipients, group members, Telegram target and JSON."},
+    "abort": {"no_routes": "No UI-defined routes to delete"}
+  }
+}
