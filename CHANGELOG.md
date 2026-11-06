@@ -1,6 +1,9 @@
 # Changelog
 
 ## 3.2.0
+- Add admin-only real test notifications per saved recipient, group and person, with bounded live status polling, respecting quiet hours and test mode.
+- Add theme-aware action colours, icons and accessible test statuses.
+- Fix service translation metadata required by hassfest.
 - Add a direct target-management link and clear sidebar instructions in setup and integration options (German and English).
 - Localize the admin panel, Lovelace card, service descriptions/fields and diagnostic sensor names in German and English; use HA language, English fallback.
 - Browse existing notify.* and person.* entities by friendly name and ID; suggest existing notification actions including classic notify.mobile_app_* services.

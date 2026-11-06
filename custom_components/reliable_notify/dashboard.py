@@ -273,6 +273,43 @@ def register_dashboard(hass):
         connection.send_result(msg["id"], {"definition": definition})
 
     @websocket_api.websocket_command({
+        vol.Required("type"): "reliable_notify/test_route",
+        vol.Required("category"): vol.In(("recipients", "groups", "persons")),
+        vol.Required("name"): str,
+        vol.Optional("language", default="en"): vol.In(("de", "en")),
+    })
+    @websocket_api.async_response
+    async def test_route(hass, connection, msg):
+        """Queue an explicit, real test through the normal delivery pipeline."""
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"], "unauthorized", "Administrator required")
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
+            return
+        name = msg["name"]
+        if name not in manager.routes.get(msg["category"], {}):
+            connection.send_error(msg["id"], "not_found", "Save the target before testing it")
+            return
+        de = msg.get("language", "en") == "de"
+        notification = {
+            "recipients": [name], "priority": "info", "strategy": "always",
+            "title": "Reliable Notify · Test",
+            "message": (f"Testnachricht von Reliable Notify an {name}." if de
+                        else f"Test notification from Reliable Notify to {name}."),
+            "message_type": "test", "archive_days": 1, "ttl": 86400,
+        }
+        try:
+            scheduled = manager.preview(notification).get("not_before")
+            ids = await manager.enqueue(notification)
+        except Exception:
+            # Transport settings can contain secrets; do not echo exception payloads.
+            connection.send_error(msg["id"], "test_failed", "Could not queue test; check target configuration and diagnostics")
+            return
+        connection.send_result(msg["id"], {"ids": ids, "not_before": scheduled})
+
+    @websocket_api.websocket_command({
         vol.Required("type"): "reliable_notify/set_route",
         vol.Required("category"): vol.In(("recipients","groups","persons")),
         vol.Required("name"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$", msg="Invalid internal name: use 1–64 lowercase letters, digits or underscores; start with a letter. Example: rn_kw_telegram (not RN-KW-Telegram)."),
@@ -552,6 +589,7 @@ def register_dashboard(hass):
     websocket_api.async_register_command(hass, migration_scan_command)
     websocket_api.async_register_command(hass, dry_run)
     websocket_api.async_register_command(hass, admin_inventory)
+    websocket_api.async_register_command(hass, test_route)
     websocket_api.async_register_command(hass, set_route)
     websocket_api.async_register_command(hass, route_definition)
     websocket_api.async_register_command(hass, settings_v2)

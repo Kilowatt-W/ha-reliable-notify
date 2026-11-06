@@ -21,6 +21,9 @@ class LocalizationTests(unittest.TestCase):
             for key, service in services.items():
                 item = translation['services'][key]
                 self.assertTrue(item['name'])
+                self.assertTrue(item.get('description'))
+                for field in item.get('fields', {}).values():
+                    self.assertNotIn('{required true, escalation list}', field.get('description', ''))
                 self.assertEqual(set(item.get('fields', {})), set(service.get('fields', {})))
                 for field in item.get('fields', {}).values():
                     self.assertTrue(field['name'])

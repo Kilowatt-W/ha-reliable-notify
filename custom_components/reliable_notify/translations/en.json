@@ -205,7 +205,7 @@
         },
         "acknowledgement": {
           "name": "Acknowledgement and escalation",
-          "description": "Optional {required true, escalation list} with dedup_key; uses explicit acknowledge action."
+          "description": "Optional acknowledgement (required: true, escalation: list) with dedup_key; uses an explicit acknowledge action."
         },
         "strategy": {
           "name": "Delivery strategy"
@@ -241,7 +241,8 @@
         "target_entity": {
           "name": "Notify target entity"
         }
-      }
+      },
+      "description": "Cancel waiting notifications matching a deduplication key."
     },
     "reload_routes": {
       "name": "Reload people and groups",
@@ -257,7 +258,8 @@
           "name": "From dead-letter queue",
           "description": "True to restore from the dead-letter queue."
         }
-      }
+      },
+      "description": "Schedule a single queued or failed notification for retry."
     },
     "delete_one": {
       "name": "Delete one queued notification",
@@ -269,7 +271,8 @@
           "name": "From dead-letter queue",
           "description": "True to delete a dead-letter message."
         }
-      }
+      },
+      "description": "Delete a single queued or failed notification."
     },
     "acknowledge": {
       "name": "Acknowledge pending alert",

@@ -28,6 +28,37 @@ class ReliableNotifyPanel extends HTMLElement {
     if(cls)n.className=cls;
     return n;
   }
+  actionButton(text, icon, className='') {
+    const button=this.element('button',null,className);
+    const symbol=this.element('ha-icon');symbol.setAttribute('icon',icon);symbol.setAttribute('aria-hidden','true');
+    button.append(symbol,this.element('span',text));return button;
+  }
+  async testTarget(category,name,button,result){
+    button.disabled=true;
+    this.status(result,this.t('Test wird eingereiht …'));result.className='pending';
+    try{
+      const response=await this.call('test_route',{category,name,language:rnLanguage(this._hass)});
+      const ids=response.ids||[];
+      if(!ids.length)throw Error(this.t('Keine Empfänger aufgelöst. Zielkonfiguration prüfen.'));
+      this.status(result,this.t('Test eingereiht (IDs: {ids}).',{ids:ids.join(', ')}));result.className='pending';
+      // Read only the IDs returned for this test, with a bounded polling window.
+      for(let attempt=0;attempt<15;attempt++){
+        if(!result.isConnected && !this.shadowRoot.contains(result))return;
+        const entries=await Promise.all(ids.map(message_id=>this.call('archive_detail',{message_id})));
+        const summary=entries.map(e=>'#'+e.id+': '+this.t(({sent:'Vom Transport angenommen',staged:'Testmodus: zurückgestellt, nicht gesendet',
+          queued:'Wartet auf Versand',retry:'Versandfehler, erneuter Versuch folgt',dead:'Versand fehlgeschlagen',expired:'Abgelaufen',
+          cancelled:'Abgebrochen',suppressed:'Unterdrückt'})[e.status]||e.status)+(e.last_error?' ('+e.last_error+')':'')).join(' · ');
+        this.status(result,summary);result.className=entries.every(e=>e.status==='sent')?'status':entries.some(e=>['dead','expired','retry'].includes(e.status))?'error':'pending';
+        if(entries.every(e=>['sent','staged','dead','expired','cancelled','suppressed'].includes(e.status)))return;
+        if(response.not_before>Date.now()/1000+2){
+          result.textContent+=' '+this.t('Geplant ab {time} (Ruhezeiten aktiv).',{time:new Date(response.not_before*1000).toLocaleString(rnLanguage(this._hass))});return;
+        }
+        if(attempt<14)await new Promise(resolve=>setTimeout(resolve,2000));
+      }
+      result.textContent+=' '+this.t('Weitere Details unter Nachrichten / Archiv.');
+    }catch(e){this.status(result,this.t('Test fehlgeschlagen. Zielkonfiguration und Diagnose prüfen.')+' '+(e.code||''),true);}
+    finally{button.disabled=false;}
+  }
   async call(type,other={}){
     if(!this._hass)throw Error(this.t('Home Assistant unavailable'));
     return this._hass.callWS({type:'reliable_notify/'+type,...other});
@@ -208,7 +239,16 @@ class ReliableNotifyPanel extends HTMLElement {
       .tabs{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0 22px}
       button{border:1px solid var(--divider-color);padding:9px 13px;border-radius:8px;
         background:var(--card-background-color);color:var(--primary-text-color);cursor:pointer}
-      button:hover{filter:brightness(.94)}button.active{background:var(--primary-color);color:var(--text-primary-color)}
+      button:hover{filter:brightness(.94)}
+      button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+      button ha-icon{--mdc-icon-size:19px}button:disabled{opacity:.55;cursor:default}
+      button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff)}
+      button.test{color:var(--primary-text-color);border-color:var(--info-color,#039be5);background:color-mix(in srgb,var(--info-color,#039be5) 13%,var(--card-background-color))}
+      button.danger{color:var(--error-color);border-color:var(--error-color)}
+      .route-item{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:9px;border-radius:9px;background:var(--secondary-background-color);width:100%;box-sizing:border-box}
+      .route-item p{flex-basis:100%;margin:3px 0;overflow-wrap:anywhere}.pending{color:var(--primary-text-color)}
+      .route-heading{display:flex;align-items:center;gap:10px}.route-heading ha-icon{color:var(--primary-color)}
+      .test-hint{border-left:3px solid var(--info-color,#039be5);padding:10px;background:color-mix(in srgb,var(--info-color,#039be5) 8%,var(--card-background-color));border-radius:5px}button.active{background:var(--primary-color);color:var(--text-primary-color)}
       .panel{background:var(--card-background-color);border-radius:12px;padding:18px;margin:12px 0;
         border:1px solid var(--divider-color)}
       input,textarea,select{box-sizing:border-box;max-width:100%;width:100%;padding:9px;
@@ -255,28 +295,35 @@ class ReliableNotifyPanel extends HTMLElement {
     try{
       const data=await this.call('admin_inventory');status.remove();
       for(const [category,label,kind] of [['recipients',this.t('Ziele / Empfänger'),'recipient'],['groups',this.t('Gruppen'),'group'],['persons',this.t('Personen'),'person']]){
-        const section=this.element('section',null,'panel');section.append(this.element('h2',label));
+        const section=this.element('section',null,'panel');
+        const heading=this.element('h2',null,'route-heading');const symbol=this.element('ha-icon');
+        symbol.setAttribute('icon',category==='recipients'?'mdi:send-check':category==='groups'?'mdi:account-group':'mdi:account');
+        heading.append(symbol,this.element('span',label));section.append(heading);
         const inventory=this.element('div',null,'tabs');section.append(inventory);
         const name=this.element('input');name.placeholder=this.t('Eindeutiger Name');
         name.maxLength=64;name.pattern='[a-z][a-z0-9_]{0,63}';
         const hint=this.element('p',this.t('Interner Name: 1–64 Zeichen, mit Kleinbuchstaben beginnen; nur a–z, 0–9 und Unterstriche (_). Beispiel: rn_kw_telegram. Großbuchstaben, Leerzeichen und Bindestriche sind nicht erlaubt.'),'muted');
         this._fieldId=(this._fieldId||0)+1;hint.id='rn-name-help-'+this._fieldId;name.setAttribute('aria-describedby',hint.id);
         const editorBox=this.element('div');let editor;
-        let loaded=null;
+        let loaded=null,selectedTest=null;
         const draw=value=>{editor=this.fieldEditor(value,{defaults:this.fieldDefaults(kind)});editorBox.replaceChildren(editor.node);section.dispatchEvent(new Event('input',{bubbles:true}));};
-        const reset=()=>{loaded=null;name.value='';draw(category==='groups'?[]:category==='persons'
+        const reset=()=>{loaded=null;if(selectedTest)selectedTest.disabled=true;name.value='';draw(category==='groups'?[]:category==='persons'
           ?{entity:'',channels:{},preferred:{}}:{action:'notify.send_message',target_entity:'',data:{}});};
         reset();
-        const result=this.element('p');
+        const result=this.element('p');result.setAttribute('role','status');
         for(const id of Object.keys(data.routes[category]||{})){
-          const button=this.element('button',id);button.addEventListener('click',()=>this.run(result,async()=>{
+          const item=this.element('div',null,'route-item');const testResult=this.element('p');testResult.setAttribute('role','status');
+          const test=this.actionButton(this.t('Test senden'),'mdi:bell-ring-outline','test');
+          test.addEventListener('click',()=>this.testTarget(category,id,test,testResult));
+          const button=this.actionButton(id,'mdi:pencil-outline');button.addEventListener('click',()=>this.run(result,async()=>{
             const response=await this.call('route_definition',{category,name:id});
-            name.value=id;loaded=id;draw(response.definition);
-          }));inventory.append(button);
+            name.value=id;loaded=id;draw(response.definition);selectedTest.disabled=false;
+          }));item.append(button,test,testResult);inventory.append(item);
         }
-        const fresh=this.element('button',category==='recipients'?this.t('Neues Ziel anlegen'):category==='groups'?this.t('Neue Gruppe anlegen'):this.t('Neue Person anlegen'));fresh.addEventListener('click',reset);inventory.append(fresh);
+        const fresh=this.actionButton(category==='recipients'?this.t('Neues Ziel anlegen'):category==='groups'?this.t('Neue Gruppe anlegen'):this.t('Neue Person anlegen'),'mdi:plus','primary');fresh.addEventListener('click',()=>{reset();selectedTest.disabled=true;});inventory.append(fresh);
+        section.append(this.element('p',this.t('Test senden verschickt eine echte Nachricht über die gespeicherte Konfiguration. Testmodus und Ruhezeiten bleiben aktiv. Bei Gruppen und Personen können mehrere Empfänger erreicht werden.'),'test-hint'));
         section.append(this.element('label','Name'),name,hint,editorBox);
-        const save=this.element('button',this.t('Speichern'));save.addEventListener('click',()=>this.run(result,async()=>{
+        const save=this.actionButton(this.t('Speichern'),'mdi:content-save-outline','primary');save.addEventListener('click',()=>this.run(result,async()=>{
           name.value=name.value.trim();
           if(!/^[a-z][a-z0-9_]{0,63}$/.test(name.value)){
             const example=name.value.toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^[^a-z]+/,'').slice(0,64)||'rn_kw_telegram';
@@ -286,12 +333,16 @@ class ReliableNotifyPanel extends HTMLElement {
           name.removeAttribute('aria-invalid');
           if(loaded&&name.value!==loaded)throw Error(this.t('Zum Umbenennen neuen Eintrag anlegen und den alten gezielt löschen.'));
           await this.call('set_route',{category,name:name.value,definition:editor.read()});
-          this.status(result,this.t('Gespeichert. Zum Aktualisieren der Liste diesen Bereich erneut öffnen.'));
+          loaded=name.value;selectedTest.disabled=false;this.status(result,this.t('Gespeichert. Zum Aktualisieren der Liste diesen Bereich erneut öffnen.'));
         }));
-        const remove=this.element('button',this.t('Eintrag löschen'));remove.addEventListener('click',()=>this.run(result,async()=>{
+        const remove=this.actionButton(this.t('Eintrag löschen'),'mdi:delete-outline','danger');remove.addEventListener('click',()=>this.run(result,async()=>{
           if(!confirm(this.t('UI-Eintrag ')+name.value+this.t(' löschen?')))return;
           await this.call('set_route',{category,name:name.value,delete:true});reset();
-        }));section.append(save,remove,result);this.yamlView(section,()=>({[category]:{[name.value||'neuer_eintrag']:editor.read()}}));box.append(section);
+        }));
+        selectedTest=this.actionButton(this.t('Gespeichertes Ziel testen'),'mdi:bell-ring-outline','test');selectedTest.disabled=true;
+        selectedTest.addEventListener('click',()=>this.testTarget(category,loaded,selectedTest,result));
+        name.addEventListener('input',()=>{selectedTest.disabled=!loaded||name.value!==loaded;});
+        section.append(save,selectedTest,remove,result);this.yamlView(section,()=>({[category]:{[name.value||'neuer_eintrag']:editor.read()}}));box.append(section);
       }
     }catch(e){this.status(status,e.message,true);if(!status.parentNode)box.append(status);}
   }

@@ -194,3 +194,44 @@ test('standalone card renders German and English without translating recipient a
     assert.match(card.shadowRoot.textContent,/Meine Nachricht/);
   }
 });
+
+test('each saved target has an icon test button and reports transport acceptance',async()=>{
+  const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{phone:{}},groups:{family:[]},persons:{wolfgang:{}}}},
+    test_route:{ids:[5],not_before:0},archive_detail:{id:5,status:'sent'}});
+  await panel.routes(box);
+  assert.equal([...box.querySelectorAll('button')].filter(b=>b.textContent==='Test senden').length,3);
+  assert.equal(box.querySelectorAll('.route-item button.test ha-icon[icon="mdi:bell-ring-outline"]').length,3);
+  assert.equal(box.querySelectorAll('button.danger ha-icon[icon="mdi:delete-outline"]').length,3);
+  click(box,'Test senden');await tick();await tick();
+  assert.equal(calls.filter(c=>c.type.endsWith('/test_route')).length,1);
+  assert.equal(calls.find(c=>c.type.endsWith('/test_route')).name,'phone');
+  assert.match(box.querySelector('.route-item p').textContent,/Vom Transport angenommen/);
+  assert.equal(box.querySelector('.route-item p').className,'status');
+  assert.equal(box.querySelector('.route-item button.test').disabled,false);
+});
+
+test('test mode, delivery failures and quiet hours do not claim successful delivery',async()=>{
+  for(const [status,expected] of [['staged',/Testmodus/],['dead',/fehlgeschlagen/],['queued',/Ruhezeiten aktiv/]]){
+    const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{phone:{}},groups:{},persons:{}}},
+      test_route:{ids:[9],not_before:Date.now()/1000+3600},archive_detail:{id:9,status}});
+    await panel.routes(box);click(box,'Test senden');await tick();await tick();
+    const result=box.querySelector('.route-item p');
+    assert.match(result.textContent,expected);assert.notEqual(result.className,'status');
+    assert.equal(calls.filter(c=>c.type.endsWith('/test_route')).length,1);
+  }
+});
+
+test('saved-target test is disabled until saving and uses persisted alias in English',async()=>{
+  const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
+    test_route:{ids:[7],not_before:0},archive_detail:{id:7,status:'sent'}});
+  panel._hass.language='en';await panel.routes(box);
+  const section=box.querySelector('section');
+  const test=[...section.querySelectorAll('button')].find(b=>b.textContent==='Test saved target');
+  assert.equal(test.disabled,true);
+  section.querySelector('input[placeholder="Unique name"]').value='new_phone';
+  click(section,'Save');await tick();assert.equal(test.disabled,false);
+  test.click();await tick();await tick();
+  assert.equal(calls.find(c=>c.type.endsWith('/test_route')).name,'new_phone');
+  assert.equal(calls.find(c=>c.type.endsWith('/test_route')).language,'en');
+  assert.match(section.textContent,/Accepted by transport/);
+});
