@@ -143,3 +143,14 @@ The HA options dialog displays General, Quiet hours, three retry priorities, Arc
 The panel displays recipients, groups and persons in separate open cards. Select an existing name to load its complete definition before editing; adding a new item does not alter existing ones. Parameters can be added as text, numbers, switches, lists or nested fields. Secret fields are masked. Saving a file-backed route creates a UI override; only UI-managed entries can be deleted.
 
 YAML previews are optional and read-only. In the options dialog, enable **Show YAML before saving** and submit; confirm on the preview page to save. In the panel, expand **YAML preview** to inspect live form values. Previews can contain configured transport credentials, so do not share them. No JSON editing is needed.
+
+
+## Language and target selection / Sprache und Zielauswahl
+
+**English:** Setup and integration options link directly to [target management](/reliable-notify). In the sidebar open **Reliable Notify → Targets & people**. Add a target and select an existing `notify.*` entity from **Notify target entity**. For classic `notify.mobile_app_*` services, choose the service under **HA action**; no notify entity is required for these services. People use the **Person entity** selector for existing `person.*` entities. Internal names use 1–64 lowercase letters, digits and underscores, starting with a lowercase letter: `rn_kw_telegram`, not `RN-KW-Telegram`.
+
+**Deutsch:** Einrichtung und Integrationsoptionen verlinken direkt zur [Zielverwaltung](/reliable-notify). Öffne in der Seitenleiste **Reliable Notify → Ziele & Personen**. Wähle unter **Notify-Zielentität** eine vorhandene `notify.*`-Entität aus. Klassische `notify.mobile_app_*`-Dienste wählst du unter **HA-Aktion**; diese benötigen keine Notify-Entität. Bei Personen wählst du unter **Person-Entität** eine vorhandene `person.*`-Entität aus. Interne Namen verwenden 1–64 Kleinbuchstaben, Ziffern und Unterstriche und beginnen mit einem Kleinbuchstaben: `rn_kw_telegram` statt `RN-KW-Telegram`.
+
+The integration follows your HA profile language: German (`de`, including regional variants) or English (also the fallback for other languages). / Die Integration folgt der HA-Profilsprache: Deutsch (`de`, einschließlich regionaler Varianten) oder Englisch (auch als Rückfallsprache für andere Sprachen).
+
+Message bodies, route aliases, YAML/API keys and raw diagnostic data remain unchanged. / Nachrichtentexte, Zielnamen, YAML-/API-Schlüssel und technische Diagnosedaten bleiben unverändert.

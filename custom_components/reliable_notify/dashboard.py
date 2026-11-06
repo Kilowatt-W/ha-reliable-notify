@@ -275,7 +275,7 @@ def register_dashboard(hass):
     @websocket_api.websocket_command({
         vol.Required("type"): "reliable_notify/set_route",
         vol.Required("category"): vol.In(("recipients","groups","persons")),
-        vol.Required("name"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$"),
+        vol.Required("name"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$", msg="Invalid internal name: use 1–64 lowercase letters, digits or underscores; start with a letter. Example: rn_kw_telegram (not RN-KW-Telegram)."),
         vol.Optional("definition"): object,
         vol.Optional("delete",default=False): bool,
     })

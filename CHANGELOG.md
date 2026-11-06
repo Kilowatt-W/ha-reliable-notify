@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.2.0
+- Add a direct target-management link and clear sidebar instructions in setup and integration options (German and English).
+- Localize the admin panel, Lovelace card, service descriptions/fields and diagnostic sensor names in German and English; use HA language, English fallback.
+- Browse existing notify.* and person.* entities by friendly name and ID; suggest existing notification actions including classic notify.mobile_app_* services.
+- Explain invalid internal route names with allowed characters, length and a valid example before submitting.
+- Fix target-management navigation from an already rendered settings panel and preserve technical keys, aliases, secrets and message content during localization.
+
 ## 3.1.1
 - Keep the default notify entity optional in setup and options; omit invalid empty entity suggestions and normalize cleared selections.
 - Clarify target creation with a Ziele & Personen tab, explicit create buttons, setup hints and a direct entry from settings.

@@ -7,7 +7,7 @@
           "target_entity": "Optional default notify entity",
           "retry_interval": "Base retry interval (seconds)"
         },
-        "description": "Optional. Leave empty or clear to disable. New targets: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
+        "description": "**New notification targets and people:** Open [Reliable Notify – target management](/reliable-notify) in the sidebar → **Targets & people** → **Add target** or **Add person**. Target management is visible to administrators only. This dialog configures integration operation. The default target is optional."
       }
     },
     "abort": {
@@ -18,7 +18,7 @@
     "step": {
       "init": {
         "title": "Settings",
-        "description": "All sections are expanded. Manage recipients, groups, people, profiles and templates in the Reliable Notify sidebar panel. The optional YAML preview appears before saving.",
+        "description": "**New notification targets and people:** Open [Reliable Notify – target management](/reliable-notify) in the sidebar → **Targets & people** → **Add target** or **Add person**. Target management is visible to administrators only. This dialog configures integration operation. The default target is optional. All sections are expanded. The optional YAML preview appears before saving.",
         "data": {
           "show_yaml": "Show YAML before saving"
         },
@@ -33,7 +33,7 @@
               "legacy_notify_services": "Enable legacy notify.reliable_* services"
             },
             "data_description": {
-              "target_entity": "Optional. Leave empty or clear to disable. New targets: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
+              "target_entity": "Optional fallback, not a new notification target. Create targets in the Reliable Notify sidebar panel."
             }
           },
           "smart": {
@@ -109,6 +109,283 @@
     },
     "error": {
       "invalid_options": "Invalid settings: check numeric ranges, times and retry delays."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "queue_size": {
+        "name": "Queue size"
+      },
+      "sent": {
+        "name": "Sent"
+      },
+      "failures": {
+        "name": "Failures"
+      },
+      "dead_letter_count": {
+        "name": "Dead letter count"
+      },
+      "history": {
+        "name": "Delivery history"
+      },
+      "storage_free": {
+        "name": "Storage free"
+      },
+      "database_size": {
+        "name": "Database size"
+      },
+      "maintenance_health": {
+        "name": "Maintenance health"
+      },
+      "health": {
+        "name": "Health"
+      },
+      "oldest_queued": {
+        "name": "Oldest queued"
+      },
+      "media_size": {
+        "name": "Media size"
+      },
+      "transport_health": {
+        "name": "Transport health"
+      }
+    }
+  },
+  "services": {
+    "enqueue": {
+      "name": "Queue notification",
+      "description": "Persist a notification for explicit recipients or transport; without recipients/default it stays staged for manual review (no push is sent).",
+      "fields": {
+        "message": {
+          "name": "Message"
+        },
+        "title": {
+          "name": "Title"
+        },
+        "recipients": {
+          "name": "Recipients",
+          "description": "Named person, channel or group from reliable_notify_routes.yaml (list or string)."
+        },
+        "media": {
+          "name": "Media type",
+          "description": "For Telegram recipients, photo changes send_message to send_photo; other transports retain their normal message."
+        },
+        "action": {
+          "name": "HA action",
+          "description": "Optional direct transport action (omit when using recipients)."
+        },
+        "target_entity": {
+          "name": "Notify target entity",
+          "description": "Notify entity for direct notify.send_message."
+        },
+        "data": {
+          "name": "Transport parameters",
+          "description": "Transport parameters such as Telegram target, inline_keyboard, file or url."
+        },
+        "priority": {
+          "name": "Priority"
+        },
+        "message_type": {
+          "name": "Message type",
+          "description": "Archive category, such as windows, pvec, security, or default priority."
+        },
+        "archive": {
+          "name": "Archiving",
+          "description": "Keep in archive, or delete immediately after successful delivery."
+        },
+        "archive_days": {
+          "name": "Retention (days)",
+          "description": "Explicit retention override in days. Zero deletes after successful delivery."
+        },
+        "ttl": {
+          "name": "Lifetime (seconds)"
+        },
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "acknowledgement": {
+          "name": "Acknowledgement and escalation",
+          "description": "Optional {required true, escalation list} with dedup_key; uses explicit acknowledge action."
+        },
+        "strategy": {
+          "name": "Delivery strategy"
+        },
+        "only_if": {
+          "name": "State condition",
+          "description": "Optional current HA entity-state guard; suppress the notification before delivery if the state no longer matches (for example a closed window)."
+        },
+        "test_mode": {
+          "name": "Test mode",
+          "description": "Force local staging for this notification, with no delivery or escalation."
+        }
+      }
+    },
+    "retry_all": {
+      "name": "Retry waiting messages",
+      "description": "Schedule queued notifications for immediate retry."
+    },
+    "retry_dead": {
+      "name": "Retry dead letters",
+      "description": "Return failed messages to the active queue (may cause duplicates)."
+    },
+    "clear_queue": {
+      "name": "Clear queued messages",
+      "description": "Destructively remove waiting messages (not in-flight)."
+    },
+    "cancel": {
+      "name": "Cancel waiting messages",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "target_entity": {
+          "name": "Notify target entity"
+        }
+      }
+    },
+    "reload_routes": {
+      "name": "Reload people and groups",
+      "description": "Validate and reload /config/reliable_notify_routes.yaml without restarting HA."
+    },
+    "retry_one": {
+      "name": "Retry a single queued notification",
+      "fields": {
+        "id": {
+          "name": "Message ID"
+        },
+        "dead": {
+          "name": "From dead-letter queue",
+          "description": "True to restore from the dead-letter queue."
+        }
+      }
+    },
+    "delete_one": {
+      "name": "Delete one queued notification",
+      "fields": {
+        "id": {
+          "name": "Message ID"
+        },
+        "dead": {
+          "name": "From dead-letter queue",
+          "description": "True to delete a dead-letter message."
+        }
+      }
+    },
+    "acknowledge": {
+      "name": "Acknowledge pending alert",
+      "description": "Mark a deduplication key as acknowledged and stop further escalations.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "by": {
+          "name": "Acknowledged by",
+          "description": "Human or automation identifier."
+        }
+      }
+    },
+    "update": {
+      "name": "Replace waiting notification",
+      "description": "Replace queued notifications sharing dedup_key, with a new message and explicit recipients.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "recipients": {
+          "name": "Recipients"
+        },
+        "message": {
+          "name": "Message"
+        }
+      }
+    },
+    "dismiss": {
+      "name": "Dismiss Companion App notification",
+      "description": "Cancel pending notifications and enqueue clear_notification commands by deterministic tag.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "recipients": {
+          "name": "Recipients"
+        }
+      }
+    },
+    "simulate": {
+      "name": "Simulate routing (no delivery)",
+      "description": "Read-only preview of recipients, priorities, quiet hours and archive lifetime. Does not write SQLite or send pushes. Requires response_variable.",
+      "fields": {
+        "message": {
+          "name": "Message"
+        },
+        "recipients": {
+          "name": "Recipients"
+        },
+        "priority": {
+          "name": "Priority"
+        },
+        "message_type": {
+          "name": "Message type"
+        },
+        "archive_days": {
+          "name": "Retention (days)"
+        }
+      }
+    },
+    "backup": {
+      "name": "Create consistent SQLite backup",
+      "description": "Admin-only online SQLite snapshot with integrity check. Requires response_variable. Retains configured number of prior snapshots."
+    },
+    "send_template": {
+      "name": "Send a stored Reliable Notify template",
+      "description": "Render an admin-configured message template and enqueue it through Reliable Notify. The template name must exist in the admin panel.",
+      "fields": {
+        "template": {
+          "name": "Template name"
+        },
+        "variables": {
+          "name": "Template variables",
+          "description": "Simple key-value template variables."
+        },
+        "recipients": {
+          "name": "Recipients",
+          "description": "Named recipients, people or groups; overrides template defaults."
+        },
+        "priority": {
+          "name": "Priority"
+        },
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "message_type": {
+          "name": "Message type"
+        },
+        "archive": {
+          "name": "Archiving"
+        },
+        "archive_days": {
+          "name": "Retention (days)"
+        }
+      }
+    },
+    "telegram_lifecycle": {
+      "name": "Edit or delete an already sent Telegram notification",
+      "description": "Edit/delete the most recent known Telegram message matching a deduplication key and explicitly configured chat. This calls Telegram directly and does not use retry queue.",
+      "fields": {
+        "recipient": {
+          "name": "Recipient name"
+        },
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "operation": {
+          "name": "Operation"
+        },
+        "message": {
+          "name": "Message",
+          "description": "New body required for edit operation."
+        }
+      }
     }
   }
 }

@@ -8,10 +8,11 @@ function setup(responses={}){
   const dom=new JSDOM('<body></body>',{runScripts:'outside-only',url:'https://ha.test/'});
   dom.window.structuredClone=structuredClone;
   dom.window.confirm=()=>true;
+  dom.window.eval(readFileSync('custom_components/reliable_notify/reliable-notify-card.js','utf8').replace(/^export /gm,''));
   dom.window.eval(source);
   const panel=dom.window.document.createElement('reliable-notify-panel');
   const calls=[];
-  panel._hass={callWS:async msg=>{calls.push(msg);return structuredClone(responses[msg.type.split('/')[1]]||{saved:true});}};
+  panel._hass={language:'de',states:{},services:{},callWS:async msg=>{calls.push(msg);return structuredClone(responses[msg.type.split('/')[1]]||{saved:true});}};
   const box=dom.window.document.createElement('main');
   panel.shadowRoot.append(box);
   const plain=value=>JSON.parse(JSON.stringify(value));
@@ -108,4 +109,88 @@ test('new target entry is discoverable from settings and opens a blank recipient
   click(panel.shadowRoot,'Neues Ziel anlegen');
   const name=panel.shadowRoot.querySelector('input[placeholder="Eindeutiger Name"]');
   assert.equal(name.value,'');
+});
+
+test('target and person browsers use existing HA entities and preserve missing configured IDs',()=>{
+  const {panel,box,plain}=setup();
+  panel._hass.states={
+    'notify.mail':{attributes:{friendly_name:'Clinic mail'}},
+    'notify.phone':{attributes:{friendly_name:'My phone'}},
+    'person.wolfgang':{attributes:{friendly_name:'Wolfgang'}},
+    'sensor.noise':{attributes:{friendly_name:'Not a target'}}
+  };
+  panel._hass.services={notify:{mobile_app_phone:{name:'Phone push'},send_message:{name:'Send'}},
+    light:{turn_on:{name:'Light'}}};
+  const editor=panel.fieldEditor({action:'notify.send_message',target_entity:'notify.removed',entity:'person.wolfgang'});
+  box.append(editor.node);
+  const notify=control(box,'Notify-Zielentität'),person=control(box,'Person-Entität');
+  assert.equal(notify.tagName,'SELECT');assert.equal(person.tagName,'SELECT');
+  assert.deepEqual([...notify.options].map(o=>o.value),['','notify.mail','notify.phone','notify.removed']);
+  assert.match(notify.textContent,/Clinic mail — notify.mail/);
+  assert.deepEqual([...person.options].map(o=>o.value),['','person.wolfgang']);
+  assert.equal(notify.value,'notify.removed');
+  notify.value='notify.mail';person.value='person.wolfgang';
+  assert.deepEqual(plain(editor.read()),{action:'notify.send_message',target_entity:'notify.mail',entity:'person.wolfgang'});
+  assert.deepEqual([...box.querySelectorAll('datalist option')].map(o=>o.value),['notify.mobile_app_phone','notify.send_message']);
+  notify.value='';assert.equal(editor.read().target_entity,'');
+});
+
+test('invalid target name gives a localized example and never reaches the backend',async()=>{
+  for(const [language,label,expected] of [['de','Speichern',/Ungültiger interner Name/],['en','Save',/Invalid internal name/]]){
+    const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}}});
+    panel._hass.language=language;
+    await panel.routes(box);
+    const name=box.querySelector('input[placeholder]');name.value='RN-KW-Telegram';
+    click(box,label);await tick();
+    assert.match(box.textContent,expected);assert.match(box.textContent,/rn_kw_telegram/);
+    assert.equal(name.getAttribute('aria-invalid'),'true');
+    assert.equal(calls.filter(c=>c.type.endsWith('/set_route')).length,0);
+    name.value='rn_kw_telegram';click(box,label);await tick();
+    assert.equal(calls.find(c=>c.type.endsWith('/set_route')).name,'rn_kw_telegram');
+    assert.equal(name.hasAttribute('aria-invalid'),false);
+  }
+});
+
+test('English panel labels and YAML preview keep technical keys and user data unchanged',async()=>{
+  const definition={action:'notify.send_message',target_entity:'notify.missing',data:{message:'Nachricht',token:'Speichern'}};
+  const {panel,box,calls,plain}=setup({admin_inventory:{routes:{recipients:{Speichern:{}},groups:{},persons:{}}},route_definition:{definition}});
+  panel._hass.language='en-GB';
+  await panel.routes(box);
+  assert.deepEqual([...box.querySelectorAll('h2')].map(e=>e.textContent),['Targets / recipients','Groups','People']);
+  assert.ok(control(box,'Notify target entity'));
+  // Existing route aliases and message values are user data, never localized.
+  click(box,'Speichern');await tick();
+  assert.equal(box.querySelector('input[placeholder="Unique name"]').value,'Speichern');
+  const editor=panel.fieldEditor(definition);assert.deepEqual(plain(editor.read()),definition);
+  const yaml=panel.yaml(editor.read());assert.match(yaml,/"token": "Speichern"/);
+  assert.match(box.querySelector('summary').textContent,/Show YAML/);
+  panel._hass.language='fr';assert.equal(panel.fieldLabel('target_entity'),'Notify target entity');
+});
+
+test('direct target entry works in a fully rendered panel and follows HA language changes',async()=>{
+  const {panel}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
+    dashboard:{policies:{},retention:{},smart:{}},statistics:{}});
+  panel._section='settings';panel.render();await tick();
+  click(panel.shadowRoot,'Neues Ziel anlegen');await tick();
+  assert.equal(panel._section,'routes');
+  assert.ok(panel.shadowRoot.querySelector('#content input[placeholder="Eindeutiger Name"]'));
+  assert.equal([...panel.shadowRoot.querySelectorAll('nav button.active')][0].textContent,'Ziele & Personen');
+  panel.hass={...panel._hass,language:'en'};await tick();
+  assert.ok(panel.shadowRoot.querySelector('#content input[placeholder="Unique name"]'));
+  assert.equal([...panel.shadowRoot.querySelectorAll('nav button.active')][0].textContent,'Targets & people');
+});
+
+test('standalone card renders German and English without translating recipient aliases',async()=>{
+  const {dom}=setup();
+  const card=dom.window.document.createElement('reliable-notify-card');
+  card.config={};card.attachShadow({mode:'open'});
+  const data={count:0,dead:0,storage:{free_bytes:null},metrics:{},queue:[],dead_letters:[],policies:{},retention:{},smart:{},
+    staged:[{id:7,title:'My title',message:'Meine Nachricht'}],recipient_names:['Save']};
+  for(const [language,empty,heading] of [['de','Keine Nachrichten','Wartend:'],['en','No messages','Queued:']]){
+    card._hass={language};card.render(data);
+    assert.match(card.shadowRoot.textContent,new RegExp(empty));
+    assert.match(card.shadowRoot.querySelector('.stats').textContent,new RegExp(heading));
+    assert.equal(card.shadowRoot.querySelector('select option').textContent,'Save');
+    assert.match(card.shadowRoot.textContent,/Meine Nachricht/);
+  }
 });

@@ -7,18 +7,18 @@
           "target_entity": "Optionaler Standardempfänger",
           "retry_interval": "Basisintervall für Wiederholungen (Sekunden)"
         },
-        "description": "Optional. Kann leer bleiben oder entfernt werden. Neue Ziele: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
+        "description": "**Neue Sendeziele und Personen:** Öffne [Reliable Notify – Zielverwaltung](/reliable-notify) in der Seitenleiste → **Ziele & Personen** → **Neues Ziel anlegen** bzw. **Neue Person anlegen**. Diese Verwaltung ist nur für Administratoren sichtbar. Hier stellst du den Betrieb der Integration ein. Das Standardziel ist optional."
       }
     },
     "abort": {
-      "already_configured": "Already configured"
+      "already_configured": "Bereits eingerichtet"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Einstellungen",
-        "description": "Alle Bereiche sind aufgeklappt. Empfänger, Gruppen, Personen, Profile und Vorlagen verwaltest du im Reliable-Notify-Seitenmenü. Die optionale YAML-Vorschau erscheint vor dem Speichern.",
+        "description": "**Neue Sendeziele und Personen:** Öffne [Reliable Notify – Zielverwaltung](/reliable-notify) in der Seitenleiste → **Ziele & Personen** → **Neues Ziel anlegen** bzw. **Neue Person anlegen**. Diese Verwaltung ist nur für Administratoren sichtbar. Hier stellst du den Betrieb der Integration ein. Das Standardziel ist optional. Alle Bereiche sind aufgeklappt. Die optionale YAML-Vorschau erscheint vor dem Speichern.",
         "data": {
           "show_yaml": "YAML vor dem Speichern anzeigen"
         },
@@ -33,7 +33,7 @@
               "legacy_notify_services": "Klassische notify.reliable_* Dienste aktivieren"
             },
             "data_description": {
-              "target_entity": "Optional. Kann leer bleiben oder entfernt werden. Neue Ziele: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
+              "target_entity": "Optionaler Fallback, kein neues Sendeziel. Ziele im Seitenleistenpanel „Reliable Notify“ anlegen."
             }
           },
           "smart": {
@@ -109,6 +109,286 @@
     },
     "error": {
       "invalid_options": "Ungültige Eingaben: Zahlenbereiche, Zeiten und Wiederholungsabstände prüfen."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "queue_size": {
+        "name": "Warteschlangengröße"
+      },
+      "sent": {
+        "name": "Versendet"
+      },
+      "failures": {
+        "name": "Fehler"
+      },
+      "dead_letter_count": {
+        "name": "Fehlgeschlagene Nachrichten"
+      },
+      "history": {
+        "name": "Zustellverlauf"
+      },
+      "storage_free": {
+        "name": "Freier Speicher"
+      },
+      "database_size": {
+        "name": "Datenbankgröße"
+      },
+      "maintenance_health": {
+        "name": "Wartungszustand"
+      },
+      "health": {
+        "name": "Systemzustand"
+      },
+      "oldest_queued": {
+        "name": "Älteste wartende Nachricht"
+      },
+      "media_size": {
+        "name": "Mediengröße"
+      },
+      "transport_health": {
+        "name": "Transportzustand"
+      }
+    }
+  },
+  "services": {
+    "enqueue": {
+      "name": "Benachrichtigung einreihen",
+      "description": "Benachrichtigung für explizite Empfänger oder einen Transport dauerhaft einreihen. Ohne Empfänger oder Standardziel bleibt sie zur manuellen Prüfung zurückgestellt; es wird nichts gesendet.",
+      "fields": {
+        "message": {
+          "name": "Nachricht"
+        },
+        "title": {
+          "name": "Titel"
+        },
+        "recipients": {
+          "name": "Empfänger",
+          "description": "Person, Kanal oder Gruppe aus der Zielverwaltung oder reliable_notify_routes.yaml (Liste oder Text)."
+        },
+        "media": {
+          "name": "Medientyp",
+          "description": "Bei Telegram verwendet photo die Aktion send_photo statt send_message. Andere Transporte bleiben unverändert."
+        },
+        "action": {
+          "name": "HA-Aktion",
+          "description": "Optionale direkte Transportaktion. Bei Verwendung von Empfängern weglassen."
+        },
+        "target_entity": {
+          "name": "Notify-Zielentität",
+          "description": "Notify-Entität für die direkte Aktion notify.send_message."
+        },
+        "data": {
+          "name": "Transportparameter",
+          "description": "Transportparameter wie Telegram-Ziel, inline_keyboard, file oder url."
+        },
+        "priority": {
+          "name": "Priorität"
+        },
+        "message_type": {
+          "name": "Nachrichtentyp",
+          "description": "Archivkategorie wie windows, pvec oder security; standardmäßig die Priorität."
+        },
+        "archive": {
+          "name": "Archivierung",
+          "description": "Im Archiv behalten oder nach erfolgreicher Zustellung sofort löschen."
+        },
+        "archive_days": {
+          "name": "Aufbewahrung (Tage)",
+          "description": "Abweichende Aufbewahrung in Tagen. Null löscht nach erfolgreicher Zustellung."
+        },
+        "ttl": {
+          "name": "Gültigkeit (Sekunden)"
+        },
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "acknowledgement": {
+          "name": "Bestätigung und Eskalation",
+          "description": "Optionale Bestätigung (required: true, escalation: Liste) mit dedup_key; verwendet die explizite Bestätigungsaktion."
+        },
+        "strategy": {
+          "name": "Zustellstrategie"
+        },
+        "only_if": {
+          "name": "Zustandsbedingung",
+          "description": "Optionale Prüfung des aktuellen HA-Entitätszustands. Versand unterdrücken, wenn der Zustand nicht mehr passt (z. B. geschlossenes Fenster)."
+        },
+        "test_mode": {
+          "name": "Testmodus",
+          "description": "Diese Nachricht lokal zurückstellen, ohne Zustellung oder Eskalation."
+        }
+      }
+    },
+    "retry_all": {
+      "name": "Wartende Nachrichten erneut versuchen",
+      "description": "Wartende Benachrichtigungen zum sofortigen erneuten Versand einplanen."
+    },
+    "retry_dead": {
+      "name": "Fehlgeschlagene Nachrichten erneut versuchen",
+      "description": "Fehlgeschlagene Nachrichten zurück in die aktive Warteschlange verschieben. Kann Duplikate verursachen."
+    },
+    "clear_queue": {
+      "name": "Warteschlange leeren",
+      "description": "Wartende Nachrichten unwiderruflich entfernen. Laufende Zustellungen sind ausgenommen."
+    },
+    "cancel": {
+      "name": "Wartende Nachrichten abbrechen",
+      "description": "Wartende Nachrichten mit passendem Deduplizierungsschlüssel abbrechen.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "target_entity": {
+          "name": "Notify-Zielentität"
+        }
+      }
+    },
+    "reload_routes": {
+      "name": "Ziele, Personen und Gruppen neu laden",
+      "description": "/config/reliable_notify_routes.yaml prüfen und ohne HA-Neustart neu laden."
+    },
+    "retry_one": {
+      "name": "Einzelne Nachricht erneut versuchen",
+      "description": "Eine wartende oder fehlgeschlagene Nachricht erneut einreihen.",
+      "fields": {
+        "id": {
+          "name": "Nachrichten-ID"
+        },
+        "dead": {
+          "name": "Aus fehlgeschlagener Warteschlange",
+          "description": "Aktivieren, um eine fehlgeschlagene Nachricht wiederherzustellen."
+        }
+      }
+    },
+    "delete_one": {
+      "name": "Einzelne Nachricht löschen",
+      "description": "Eine wartende oder fehlgeschlagene Nachricht löschen.",
+      "fields": {
+        "id": {
+          "name": "Nachrichten-ID"
+        },
+        "dead": {
+          "name": "Aus fehlgeschlagener Warteschlange",
+          "description": "Aktivieren, um eine fehlgeschlagene Nachricht zu löschen."
+        }
+      }
+    },
+    "acknowledge": {
+      "name": "Offenen Alarm bestätigen",
+      "description": "Deduplizierungsschlüssel als bestätigt markieren und weitere Eskalationen stoppen.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "by": {
+          "name": "Bestätigt durch",
+          "description": "Kennung der Person oder Automation."
+        }
+      }
+    },
+    "update": {
+      "name": "Wartende Nachricht ersetzen",
+      "description": "Wartende Nachrichten mit gleichem dedup_key durch neuen Text und explizite Empfänger ersetzen.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "recipients": {
+          "name": "Empfänger"
+        },
+        "message": {
+          "name": "Nachricht"
+        }
+      }
+    },
+    "dismiss": {
+      "name": "Companion-App-Benachrichtigung entfernen",
+      "description": "Wartende Nachrichten abbrechen und clear_notification mit dem zugehörigen Tag einreihen.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "recipients": {
+          "name": "Empfänger"
+        }
+      }
+    },
+    "simulate": {
+      "name": "Zustellung simulieren (ohne Versand)",
+      "description": "Schreibgeschützte Vorschau von Empfängern, Prioritäten, Ruhezeiten und Aufbewahrung. Keine Datenbankänderung und kein Push. Benötigt response_variable.",
+      "fields": {
+        "message": {
+          "name": "Nachricht"
+        },
+        "recipients": {
+          "name": "Empfänger"
+        },
+        "priority": {
+          "name": "Priorität"
+        },
+        "message_type": {
+          "name": "Nachrichtentyp"
+        },
+        "archive_days": {
+          "name": "Aufbewahrung (Tage)"
+        }
+      }
+    },
+    "backup": {
+      "name": "Konsistente SQLite-Sicherung erstellen",
+      "description": "Online-Sicherung mit Integritätsprüfung, nur für Administratoren. Benötigt response_variable. Die konfigurierte Anzahl älterer Sicherungen bleibt erhalten."
+    },
+    "send_template": {
+      "name": "Gespeicherte Nachrichtenvorlage senden",
+      "description": "Im Verwaltungs-Panel angelegte Vorlage rendern und über Reliable Notify einreihen.",
+      "fields": {
+        "template": {
+          "name": "Vorlagenname"
+        },
+        "variables": {
+          "name": "Vorlagenvariablen",
+          "description": "Einfache Schlüssel-Wert-Paare für die Vorlage."
+        },
+        "recipients": {
+          "name": "Empfänger",
+          "description": "Benannte Empfänger, Personen oder Gruppen; überschreibt die Vorgaben der Vorlage."
+        },
+        "priority": {
+          "name": "Priorität"
+        },
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "message_type": {
+          "name": "Nachrichtentyp"
+        },
+        "archive": {
+          "name": "Archivierung"
+        },
+        "archive_days": {
+          "name": "Aufbewahrung (Tage)"
+        }
+      }
+    },
+    "telegram_lifecycle": {
+      "name": "Zugestellte Telegram-Nachricht bearbeiten oder löschen",
+      "description": "Die letzte bekannte Telegram-Nachricht mit passendem Deduplizierungsschlüssel und explizit konfiguriertem Chat direkt bearbeiten oder löschen. Verwendet keine Wiederholungswarteschlange.",
+      "fields": {
+        "recipient": {
+          "name": "Empfängername"
+        },
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "operation": {
+          "name": "Vorgang"
+        },
+        "message": {
+          "name": "Nachricht",
+          "description": "Neuer Nachrichtentext; beim Bearbeiten erforderlich."
+        }
+      }
     }
   }
 }
