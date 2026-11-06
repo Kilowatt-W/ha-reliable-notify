@@ -6,8 +6,10 @@
 2. Install the latest published release and restart HA Core.
 3. Add Reliable Notify under Settings → Devices & services. **Default Notify is optional**.
 4. Open the **Reliable Notify** sidebar panel (admin only).
-5. Set up recipients. The panel lists Companion notify services and `person.*` entities detected by HA.
-6. To migrate existing automations, replace direct notify actions with `reliable_notify.enqueue` and explicitly list recipient aliases.
+5. Open **Ziele & Personen → Ziele / Empfänger → Neues Ziel anlegen**. Enter a unique alias, HA action and (if required) target entity or transport parameters, then click **Speichern**. Use this alias in `recipients`. The **Einstellungen** tab also has a direct **Neues Ziel anlegen** button.
+6. The default notify entity remains optional in setup and options; clear the selection to remove an existing fallback.
+7. Set up recipients. The panel lists Companion notify services and `person.*` entities detected by HA.
+8. To migrate existing automations, replace direct notify actions with `reliable_notify.enqueue` and explicitly list recipient aliases.
 
 ## Recipient examples
 

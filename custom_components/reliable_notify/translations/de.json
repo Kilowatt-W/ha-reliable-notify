@@ -6,7 +6,8 @@
         "data": {
           "target_entity": "Optionaler Standardempfänger",
           "retry_interval": "Basisintervall für Wiederholungen (Sekunden)"
-        }
+        },
+        "description": "Optional. Kann leer bleiben oder entfernt werden. Neue Ziele: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
       }
     },
     "abort": {
@@ -30,6 +31,9 @@
               "archive_url": "URL der Archivansicht",
               "dead_letter_days": "Aufbewahrung nichtkritischer Fehler (Tage)",
               "legacy_notify_services": "Klassische notify.reliable_* Dienste aktivieren"
+            },
+            "data_description": {
+              "target_entity": "Optional. Kann leer bleiben oder entfernt werden. Neue Ziele: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
             }
           },
           "smart": {

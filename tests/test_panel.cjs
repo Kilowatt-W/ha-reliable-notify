@@ -58,7 +58,7 @@ test('existing route is loaded in full before saving, and all categories stay vi
   const definition={action:'telegram_bot.send_message',data:{chat_id:-100123,parse_mode:'HTML',disable_notification:true}};
   const {panel,box,calls,plain}=setup({admin_inventory:{routes:{recipients:{telegram:{}},groups:{},persons:{}}},route_definition:{definition}});
   await panel.routes(box);
-  assert.deepEqual([...box.querySelectorAll('h2')].map(n=>n.textContent),['Empfänger','Gruppen','Personen']);
+  assert.deepEqual([...box.querySelectorAll('h2')].map(n=>n.textContent),['Ziele / Empfänger','Gruppen','Personen']);
   click(box,'telegram');await tick();
   click(box,'Speichern');await tick();
   assert.deepEqual(plain(calls.find(c=>c.type.endsWith('/set_route')).definition),definition);
@@ -95,4 +95,17 @@ test('YAML preview is valid for strings, Jinja, arrays, null and empty objects',
   const parsed=JSON.parse(require('node:child_process').execFileSync('python',['-c',
     'import sys,yaml,json;print(json.dumps(yaml.safe_load(sys.stdin.read())))'],{input:panel.yaml(value),encoding:'utf8'}));
   assert.deepEqual(parsed,value);
+});
+
+
+test('new target entry is discoverable from settings and opens a blank recipient form',async()=>{
+  const {panel,box}=setup({dashboard:{policies:{},retention:{},smart:{}},statistics:{},
+    admin_inventory:{routes:{recipients:{},groups:{},persons:{}}}});
+  await panel.settings(box);
+  click(box,'Neues Ziel anlegen');await tick();
+  assert.equal(panel._section,'routes');
+  assert.match(panel.shadowRoot.textContent,/Ziele \& Personen/);
+  click(panel.shadowRoot,'Neues Ziel anlegen');
+  const name=panel.shadowRoot.querySelector('input[placeholder="Eindeutiger Name"]');
+  assert.equal(name.value,'');
 });

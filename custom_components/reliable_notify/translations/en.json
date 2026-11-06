@@ -6,7 +6,8 @@
         "data": {
           "target_entity": "Optional default notify entity",
           "retry_interval": "Base retry interval (seconds)"
-        }
+        },
+        "description": "Optional. Leave empty or clear to disable. New targets: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
       }
     },
     "abort": {
@@ -30,6 +31,9 @@
               "archive_url": "Archive URL",
               "dead_letter_days": "Noncritical dead-letter retention (days)",
               "legacy_notify_services": "Enable legacy notify.reliable_* services"
+            },
+            "data_description": {
+              "target_entity": "Optional. Leave empty or clear to disable. New targets: Reliable Notify → Ziele & Personen → Neues Ziel anlegen."
             }
           },
           "smart": {

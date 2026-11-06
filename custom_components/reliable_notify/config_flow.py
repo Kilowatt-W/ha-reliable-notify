@@ -18,6 +18,13 @@ def number(low, high):
     return vol.All(vol.Coerce(int), vol.Range(min=low, max=high))
 
 
+def optional_target(value=None):
+    """Do not suggest an invalid empty entity to HA's form control."""
+    description = {'suggested_value': value} if value else {}
+    return {vol.Optional(CONF_TARGET, description=description): selector.EntitySelector(
+        selector.EntitySelectorConfig(domain='notify', multiple=False))}
+
+
 class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -25,10 +32,9 @@ class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             await self.async_set_unique_id('primary')
             self._abort_if_unique_id_configured()
-            return self.async_create_entry(title='Reliable Notify', data=user_input)
+            return self.async_create_entry(title='Reliable Notify', data={**user_input, CONF_TARGET: user_input.get(CONF_TARGET) or ''})
         return self.async_show_form(step_id='user', data_schema=vol.Schema({
-            vol.Optional(CONF_TARGET): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain='notify', multiple=False)),
+            **optional_target(),
             vol.Optional(CONF_INTERVAL, default=DEFAULT_INTERVAL): number(10, 3600),
         }))
 
@@ -61,7 +67,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                     'transport_logging': validate_transport_logging(user_input['logging']),
                     'test_recipients': recipients,
                 }
-                opts[CONF_TARGET] = general.get(CONF_TARGET, '')
+                opts[CONF_TARGET] = general.get(CONF_TARGET) or ''
                 opts['archive_url'] = general.get('archive_url', '').strip()
                 if user_input.get('show_yaml'):
                     self._pending = opts
@@ -77,9 +83,9 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             schema[vol.Required(name)] = section(vol.Schema(fields), {'collapsed': False})
 
         general = {**current, **submitted.get('general', {})}
+        target = submitted['general'].get(CONF_TARGET) if 'general' in submitted else current.get(CONF_TARGET)
         add('general', {
-            vol.Optional(CONF_TARGET, description={'suggested_value': general.get(CONF_TARGET, '')}):
-                selector.EntitySelector(selector.EntitySelectorConfig(domain='notify')),
+            **optional_target(target),
             vol.Required(CONF_INTERVAL, default=general.get(CONF_INTERVAL, DEFAULT_INTERVAL)): number(10, 3600),
             vol.Optional('archive_url', default=general.get('archive_url', '')): str,
             vol.Required('dead_letter_days', default=general.get('dead_letter_days', 30)): number(1, 365),

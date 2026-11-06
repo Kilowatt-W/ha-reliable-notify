@@ -73,6 +73,33 @@ class OptionsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(section.section_options, {'collapsed': False})
             self.assertFalse(any('json' in str(key.schema) for key in section.schema))
 
+    async def test_default_target_optional_in_both_forms_without_empty_suggestion(self):
+        initial = await self.module.ReliableNotifyConfigFlow().async_step_user()
+        general = next(v for k, v in self.form['data_schema'].schema.items() if k.schema == 'general')
+        for schema in (initial['data_schema'], general):
+            key = next(k for k in schema.schema if k.schema == 'target_entity')
+            self.assertIsInstance(key, vol.Optional)
+            self.assertNotIn('suggested_value', key.description)
+            self.assertNotIn('target_entity', schema({}))
+        result = await self.flow.async_step_init(self.input)
+        self.assertEqual(result['data']['target_entity'], '')
+
+    async def test_clear_existing_default_overrides_setup_value(self):
+        self.flow.config_entry.data = {'target_entity': 'notify.old'}
+        form = await self.flow.async_step_init()
+        general = next(v for k, v in form['data_schema'].schema.items() if k.schema == 'general')
+        key = next(k for k in general.schema if k.schema == 'target_entity')
+        self.assertEqual(key.description['suggested_value'], 'notify.old')
+        for value in (None, ''):
+            self.input['general']['target_entity'] = value
+            result = await self.flow.async_step_init(self.input)
+            self.assertEqual(result['data']['target_entity'], '')
+        self.input['general'].pop('target_entity')
+        result = await self.flow.async_step_init(self.input)
+        self.assertEqual(result['data']['target_entity'], '')
+        self.input['general']['target_entity'] = 'notify.new'
+        self.assertEqual((await self.flow.async_step_init(self.input))['data']['target_entity'], 'notify.new')
+
     async def test_save_preserves_unrelated_options_and_custom_retention(self):
         self.input['retry_critical']['max_attempts'] = 0
         self.input['smart']['start'] = '23:15'

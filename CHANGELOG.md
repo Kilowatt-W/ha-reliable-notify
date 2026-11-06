@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.1
+- Keep the default notify entity optional in setup and options; omit invalid empty entity suggestions and normalize cleared selections.
+- Clarify target creation with a Ziele & Personen tab, explicit create buttons, setup hints and a direct entry from settings.
+
 ## 3.1.0
 - Replace the settings-area dropdown with eight expanded settings sections.
 - Replace admin-panel JSON editors with typed, nested form fields for routes, profiles, templates and simulation.

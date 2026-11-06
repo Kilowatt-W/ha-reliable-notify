@@ -209,7 +209,7 @@ class ReliableNotifyPanel extends HTMLElement {
     shell.append(this.element('h1','🔔 Reliable Notify'));
     shell.append(this.element('p','Benachrichtigungen • Zustellung • Eskalation • Diagnose','muted'));
     const tabs=this.element('nav',null,'tabs');
-    for(const [id,name] of [['messages','Nachrichten'],['routes','Empfänger & Personen'],
+    for(const [id,name] of [['messages','Nachrichten'],['routes','Ziele & Personen'],
        ['incidents','Eskalationen'],['simulation','Simulation'],['analytics','Statistik'],['templates','Vorlagen'],['profiles','Profile & API'],['migration','Automation-Migration'],['settings','Einstellungen']]){
       const button=this.element('button',name);
       button.addEventListener('click',()=>{this._section=id;
@@ -230,10 +230,11 @@ class ReliableNotifyPanel extends HTMLElement {
     box.append(card);
   }
   async routes(box){
+    box.append(this.element('p','Hier neue Ziele anlegen: Unter Ziele / Empfänger auf „Neues Ziel anlegen“ klicken, einen Namen vergeben, HA-Aktion und gegebenenfalls Zielentität oder Transportparameter ausfüllen und speichern. Diesen Namen anschließend als Empfänger verwenden. Das optionale Standardziel ist nur ein Fallback für Nachrichten ohne explizite Empfänger.','muted'));
     const status=this.element('p','Empfänger werden geladen …');box.append(status);
     try{
       const data=await this.call('admin_inventory');status.remove();
-      for(const [category,label,kind] of [['recipients','Empfänger','recipient'],['groups','Gruppen','group'],['persons','Personen','person']]){
+      for(const [category,label,kind] of [['recipients','Ziele / Empfänger','recipient'],['groups','Gruppen','group'],['persons','Personen','person']]){
         const section=this.element('section',null,'panel');section.append(this.element('h2',label));
         const inventory=this.element('div',null,'tabs');section.append(inventory);
         const name=this.element('input');name.placeholder='Eindeutiger Name';
@@ -250,7 +251,7 @@ class ReliableNotifyPanel extends HTMLElement {
             name.value=id;loaded=id;draw(response.definition);
           }));inventory.append(button);
         }
-        const fresh=this.element('button','Neu anlegen');fresh.addEventListener('click',reset);inventory.append(fresh);
+        const fresh=this.element('button',category==='recipients'?'Neues Ziel anlegen':category==='groups'?'Neue Gruppe anlegen':'Neue Person anlegen');fresh.addEventListener('click',reset);inventory.append(fresh);
         section.append(this.element('label','Name'),name,editorBox);
         const save=this.element('button','Speichern');save.addEventListener('click',()=>this.run(result,async()=>{
           if(loaded&&name.value!==loaded)throw Error('Zum Umbenennen neuen Eintrag anlegen und den alten gezielt löschen.');
@@ -503,8 +504,9 @@ class ReliableNotifyPanel extends HTMLElement {
   }
   async settings(box){
     const intro=this.element('div',null,'panel');intro.append(this.element('h2','Einstellungen'),
-      this.element('p','Alle Betriebsoptionen stehen gemeinsam im HA-Konfigurationsdialog. Empfänger, Personen, Profile und Vorlagen lassen sich in den gleichnamigen Bereichen bearbeiten.','muted'));
-    const open=this.element('a','Alle Integrationsoptionen öffnen');open.href='/config/integrations/integration/reliable_notify';intro.append(open);box.append(intro);
+      this.element('p','Alle Betriebsoptionen stehen gemeinsam im HA-Konfigurationsdialog. Neue Ziele und Empfänger unter „Ziele & Personen“ anlegen; Profile und Vorlagen in den gleichnamigen Bereichen bearbeiten.','muted'));
+    const open=this.element('a','Alle Integrationsoptionen öffnen');open.href='/config/integrations/integration/reliable_notify';intro.append(open);
+    const targets=this.element('button','Neues Ziel anlegen');targets.addEventListener('click',()=>{this._section='routes';this.render();});intro.append(targets);box.append(intro);
     const status=this.element('p','Lade …');box.append(status);
     try{
       const [d,stats]=await Promise.all([this.call('dashboard'),this.call('statistics')]);
