@@ -8,8 +8,7 @@ function setup(responses={}){
   const dom=new JSDOM('<body></body>',{runScripts:'outside-only',url:'https://ha.test/'});
   dom.window.structuredClone=structuredClone;
   dom.window.confirm=()=>true;
-  dom.window.eval(readFileSync('custom_components/reliable_notify/reliable-notify-card.js','utf8').replace(/^export /gm,''));
-  dom.window.eval(source);
+  dom.window.eval(readFileSync('custom_components/reliable_notify/reliable-notify-card.js','utf8').replace(/^export /gm,'')+'\n'+source);
   const panel=dom.window.document.createElement('reliable-notify-panel');
   const calls=[];
   panel._hass={language:'de',states:{},services:{},callWS:async msg=>{calls.push(msg);return structuredClone(responses[msg.type.split('/')[1]]||{saved:true});}};

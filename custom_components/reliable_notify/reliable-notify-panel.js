@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.2 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage } from './reliable-notify-card.js?v=3.2.0';
+/* Reliable Notify Admin Panel 3.2.1 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.2.1';
 
 class ReliableNotifyPanel extends HTMLElement {
   constructor() {
@@ -29,9 +29,20 @@ class ReliableNotifyPanel extends HTMLElement {
     return n;
   }
   actionButton(text, icon, className='') {
-    const button=this.element('button',null,className);
-    const symbol=this.element('ha-icon');symbol.setAttribute('icon',icon);symbol.setAttribute('aria-hidden','true');
-    button.append(symbol,this.element('span',text));return button;
+    const button=this.element('button',text,className);
+    return rnDecorate(button,icon,className==='danger'?'red':className==='primary'?'teal':className==='test'?'cyan':'blue');
+  }
+  heading(text,icon,tone='blue',tag='h2') {
+    return rnDecorate(this.element(tag,text),icon,tone);
+  }
+  fieldIcon(key) {
+    return ({action:'mdi:gesture-tap-button',target_entity:'mdi:send-outline',entity:'mdi:account-outline',
+      channels:'mdi:transit-connection-variant',data:'mdi:tune',preferred:'mdi:sort-variant',preferred_by_zone:'mdi:map-marker-radius-outline',
+      priority:'mdi:flag-outline',recipients:'mdi:account-multiple-outline',message:'mdi:message-text-outline',title:'mdi:format-title',
+      archive:'mdi:archive-outline',archive_days:'mdi:calendar-clock-outline',quiet_hours:'mdi:weather-night',transport_logging:'mdi:math-log',
+      test_mode:'mdi:flask-outline',only_if:'mdi:filter-check-outline',acknowledgement:'mdi:check-decagram-outline',
+      escalation:'mdi:alert-decagram-outline',token:'mdi:key-outline',headers:'mdi:code-json',rate:'mdi:speedometer',
+      max_attempts:'mdi:reload',base_seconds:'mdi:timer-outline',max_delay:'mdi:timer-sand'})[key]||'mdi:form-textbox';
   }
   async testTarget(category,name,button,result){
     button.disabled=true;
@@ -112,7 +123,7 @@ class ReliableNotifyPanel extends HTMLElement {
   }
   yamlView(parent,read){
     const details=this.element('details',null,'yaml-view');
-    details.append(this.element('summary',this.t('YAML-Ansicht einblenden (nur Vorschau, ggf. mit Zugangsdaten)')));
+    details.append(this.heading(this.t('YAML-Ansicht einblenden (nur Vorschau, ggf. mit Zugangsdaten)'),'mdi:code-braces','slate','summary'));
     const preview=this.element('pre');details.append(preview);parent.append(details);
     const refresh=()=>{if(details.open){try{preview.textContent=this.yaml(read());}
       catch(e){preview.textContent=e.message;}}};
@@ -172,7 +183,7 @@ class ReliableNotifyPanel extends HTMLElement {
     const add=(name,value)=>{
       if(!array&&rows.some(r=>r.name===name))throw Error(this.t('Feld existiert bereits'));
       const row=this.element('div',null,'field-row');
-      const label=this.element('label',array?this.t('Eintrag'):this.fieldLabel(name));
+      const label=this.element('label',array?this.t('Eintrag'):this.fieldLabel(name));rnDecorate(label,array?'mdi:format-list-bulleted':this.fieldIcon(name),'slate');
       const child=this.fieldEditor(value,{key:array?'':name,fixed:fixed&&value!==null&&typeof value==='object'&&!Array.isArray(value),choices:key==='transport_logging'?['off','error','warning','info','debug']:key==='allow_priorities'?['info','warning','critical']:null,defaults:!array&&name==='preferred'
         ?{info:[],warning:[],critical:[]}:!array&&name==='data'
         ?{chat_id:0,config_entry_id:'',entity_id:'',base_url:'',allow_private:false,url:'',topic:'',token:'',headers:{},method:'POST',parse_mode:'HTML',disable_notification:false}
@@ -180,7 +191,7 @@ class ReliableNotifyPanel extends HTMLElement {
       const control=child.node.querySelector('input,textarea,select');
       if(control){if(!control.id){this._fieldId=(this._fieldId||0)+1;control.id='rn-field-'+this._fieldId;}label.htmlFor=control.id;}
       row.append(label,child.node);const record={name,child,row};rows.push(record);
-      if(!fixed){const remove=this.element('button',this.t('Entfernen'));remove.type='button';
+      if(!fixed){const remove=this.actionButton(this.t('Entfernen'),'mdi:minus-circle-outline','danger');remove.type='button';
         remove.addEventListener('click',()=>{rows.splice(rows.indexOf(record),1);row.remove();host.dispatchEvent(new Event('input',{bubbles:true}));});row.append(remove);}
       fields.append(row);
     };
@@ -198,7 +209,7 @@ class ReliableNotifyPanel extends HTMLElement {
       const type=this.element('select');
       for(const [value,label] of [['text','Text'],['number',this.t('Zahl')],['boolean',this.t('Schalter')],['list',this.t('Liste')],['object',this.t('Felder')]]){
         const opt=this.element('option',label);opt.value=value;type.append(opt);}
-      const button=this.element('button',array?this.t('Eintrag hinzufügen'):this.t('Feld hinzufügen'));button.type='button';
+      const button=this.actionButton(array?this.t('Eintrag hinzufügen'):this.t('Feld hinzufügen'),'mdi:plus-circle-outline');button.type='button';
       const error=this.element('p',null,'error');
       button.addEventListener('click',()=>{
         try{
@@ -241,7 +252,7 @@ class ReliableNotifyPanel extends HTMLElement {
         background:var(--card-background-color);color:var(--primary-text-color);cursor:pointer}
       button:hover{filter:brightness(.94)}
       button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
-      button ha-icon{--mdc-icon-size:19px}button:disabled{opacity:.55;cursor:default}
+      button ha-icon{--mdc-icon-size:19px}button:disabled{opacity:.55;cursor:default}button{overflow-wrap:anywhere}
       button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff)}
       button.test{color:var(--primary-text-color);border-color:var(--info-color,#039be5);background:color-mix(in srgb,var(--info-color,#039be5) 13%,var(--card-background-color))}
       button.danger{color:var(--error-color);border-color:var(--error-color)}
@@ -264,23 +275,44 @@ class ReliableNotifyPanel extends HTMLElement {
       .footer{font-size:12px;margin-top:20px;color:var(--secondary-text-color)}
       @media(max-width:600px){.shell{padding:9px}.panel{padding:10px}.tabs button{flex:1 1 40%}}
     `;
+    style.textContent+=RN_UI_STYLES;
+    style.textContent+=`
+      .shell{padding:24px;--rn-accent:var(--primary-color)}
+      .hero{border:1px solid var(--divider-color);border-top:4px solid var(--rn-accent);border-radius:16px;
+        padding:18px 20px;background:linear-gradient(110deg,color-mix(in srgb,var(--rn-accent) 13%,var(--card-background-color)),var(--card-background-color));margin-bottom:16px}
+      .hero h1{font-size:25px;gap:12px}.hero h1 ha-icon{--mdc-icon-size:30px}.hero p{margin:8px 0 0}
+      nav.tabs{padding:8px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);gap:7px}
+      nav.tabs button{flex:1 1 145px;justify-content:flex-start;padding:12px 13px;line-height:1.25;border-radius:10px;min-height:47px}
+      nav.tabs button.active{background:color-mix(in srgb,var(--rn-accent) 17%,var(--card-background-color));color:var(--primary-text-color);
+        border:1px solid var(--rn-accent);box-shadow:inset 0 -3px 0 var(--rn-accent);font-weight:700}
+      .panel{border-top:3px solid color-mix(in srgb,var(--rn-accent) 65%,var(--divider-color));border-radius:14px;
+        background:linear-gradient(160deg,color-mix(in srgb,var(--rn-accent) 4%,var(--card-background-color)),var(--card-background-color))}
+      .field-row{border-top:2px solid color-mix(in srgb,var(--rn-accent) 22%,var(--divider-color));background:color-mix(in srgb,var(--rn-accent) 2%,var(--card-background-color))}
+      label.rn-icon-label{display:flex;gap:7px;line-height:1.4;margin-bottom:6px}label ha-icon{--mdc-icon-size:17px}
+      .yaml-view{padding:0 10px;border:1px dashed var(--divider-color);border-radius:9px;background:var(--secondary-background-color)}
+      .panel>button{margin:4px 6px 4px 0}.panel>a.rn-icon-label{margin:8px 12px 8px 0;padding:9px;border:1px solid var(--divider-color);border-radius:8px;text-decoration:none}
+      .route-item{border-left:3px solid var(--rn-accent)}button.primary{background:color-mix(in srgb,var(--rn-teal) 16%,var(--card-background-color));color:var(--primary-text-color);border-color:var(--rn-teal);font-weight:600}
+      button.primary ha-icon{color:var(--rn-teal)}.footer{display:flex;align-items:center;gap:8px}
+      @media(max-width:600px){.shell{padding:10px}.hero{padding:14px}nav.tabs button{flex:1 1 130px;padding:10px}.panel{padding:12px}}
+    `;
     root.append(style);
     const shell=this.element('div',null,'shell');
-    shell.append(this.element('h1','🔔 Reliable Notify'));
-    shell.append(this.element('p',this.t('Benachrichtigungen • Zustellung • Eskalation • Diagnose'),'muted'));
-    const tabs=this.element('nav',null,'tabs');
+    shell.dataset.tone=RN_SECTIONS[this._section]?.tone||'blue';
+    const hero=this.element('header',null,'hero');hero.append(this.heading('Reliable Notify','mdi:bell-check-outline',RN_SECTIONS[this._section]?.tone||'blue','h1'),
+      this.element('p',this.t('Benachrichtigungen • Zustellung • Eskalation • Diagnose'),'muted'));shell.append(hero);
+    const tabs=this.element('nav',null,'tabs');tabs.setAttribute('aria-label',this.t('Hauptnavigation'));
     for(const [id,name] of [['messages',this.t('Nachrichten')],['routes',this.t('Ziele & Personen')],
        ['incidents',this.t('Eskalationen')],['simulation','Simulation'],['analytics',this.t('Statistik')],['templates',this.t('Vorlagen')],['profiles',this.t('Profile & API')],['migration',this.t('Automation-Migration')],['settings',this.t('Einstellungen')]]){
-      const button=this.element('button',this.t(name));
+      const button=this.actionButton(this.t(name),RN_SECTIONS[id].icon);button.dataset.tone=RN_SECTIONS[id].tone;
       button.addEventListener('click',()=>{this._section=id;
-        for(const sibling of tabs.children)sibling.classList.remove('active');
-        button.classList.add('active');this.refreshSection();});
-      if(id===this._section)button.classList.add('active');
+        for(const sibling of tabs.children){sibling.classList.remove('active');sibling.removeAttribute('aria-current');}
+        button.classList.add('active');button.setAttribute('aria-current','page');shell.dataset.tone=RN_SECTIONS[id].tone;this.refreshSection();});
+      if(id===this._section){button.classList.add('active');button.setAttribute('aria-current','page');}
       tabs.append(button);
     }
     shell.append(tabs);
     const content=this.element('main');content.id='content';shell.append(content);
-    shell.append(this.element('p',this.t('Die Verwaltungsfunktionen sind nur für Home-Assistant-Administratoren freigegeben.'),'footer'));
+    shell.append(rnDecorate(this.element('p',this.t('Die Verwaltungsfunktionen sind nur für Home-Assistant-Administratoren freigegeben.'),'footer'),'mdi:shield-lock-outline','slate'));
     root.append(shell);this.refreshSection();
   }
   messages(box){
@@ -296,9 +328,7 @@ class ReliableNotifyPanel extends HTMLElement {
       const data=await this.call('admin_inventory');status.remove();
       for(const [category,label,kind] of [['recipients',this.t('Ziele / Empfänger'),'recipient'],['groups',this.t('Gruppen'),'group'],['persons',this.t('Personen'),'person']]){
         const section=this.element('section',null,'panel');
-        const heading=this.element('h2',null,'route-heading');const symbol=this.element('ha-icon');
-        symbol.setAttribute('icon',category==='recipients'?'mdi:send-check':category==='groups'?'mdi:account-group':'mdi:account');
-        heading.append(symbol,this.element('span',label));section.append(heading);
+        const heading=this.heading(label,category==='recipients'?'mdi:send-check':category==='groups'?'mdi:account-group':'mdi:account',category==='recipients'?'blue':category==='groups'?'purple':'teal');section.append(heading);
         const inventory=this.element('div',null,'tabs');section.append(inventory);
         const name=this.element('input');name.placeholder=this.t('Eindeutiger Name');
         name.maxLength=64;name.pattern='[a-z][a-z0-9_]{0,63}';
@@ -322,7 +352,7 @@ class ReliableNotifyPanel extends HTMLElement {
         }
         const fresh=this.actionButton(category==='recipients'?this.t('Neues Ziel anlegen'):category==='groups'?this.t('Neue Gruppe anlegen'):this.t('Neue Person anlegen'),'mdi:plus','primary');fresh.addEventListener('click',()=>{reset();selectedTest.disabled=true;});inventory.append(fresh);
         section.append(this.element('p',this.t('Test senden verschickt eine echte Nachricht über die gespeicherte Konfiguration. Testmodus und Ruhezeiten bleiben aktiv. Bei Gruppen und Personen können mehrere Empfänger erreicht werden.'),'test-hint'));
-        section.append(this.element('label','Name'),name,hint,editorBox);
+        section.append(rnDecorate(this.element('label','Name'),'mdi:tag-text-outline','slate'),name,hint,editorBox);
         const save=this.actionButton(this.t('Speichern'),'mdi:content-save-outline','primary');save.addEventListener('click',()=>this.run(result,async()=>{
           name.value=name.value.trim();
           if(!/^[a-z][a-z0-9_]{0,63}$/.test(name.value)){
@@ -347,7 +377,7 @@ class ReliableNotifyPanel extends HTMLElement {
     }catch(e){this.status(status,e.message,true);if(!status.parentNode)box.append(status);}
   }
   async incidents(box){
-    const incidents=this.element('div',null,'panel');incidents.append(this.element('h2',this.t('Unbestätigte Alarme')));
+    const incidents=this.element('div',null,'panel');incidents.append(this.heading(this.t('Unbestätigte Alarme'),'mdi:alert-decagram-outline','amber','h2'));
     const list=this.element('div',this.t('Lade ...'));incidents.append(list);box.append(incidents);
     try{
       const d=await this.call('dashboard');
@@ -358,7 +388,7 @@ class ReliableNotifyPanel extends HTMLElement {
         row.append(this.element('p',this.t('ID: ')+item.ack_key+this.t(' | Eskalationsstufe: ')+item.next_step));
         const status=this.element('p');
         for(const [action,label] of [['ack',this.t('Bestätigen')],['snooze',this.t('15 Min. verschieben')],['escalate',this.t('Sofort eskalieren')]]){
-          const button=this.element('button',label);
+          const button=this.actionButton(label,({ack:'mdi:check-circle-outline',snooze:'mdi:clock-plus-outline',escalate:'mdi:alert-outline'})[action]||'mdi:gesture-tap-button');
           button.addEventListener('click',()=>this.run(status,async()=>{
             await this.call('incident_action',{key:item.ack_key,action});
             box.replaceChildren();await this.incidents(box);
@@ -369,7 +399,7 @@ class ReliableNotifyPanel extends HTMLElement {
       }
       if(!(d.acknowledgements||[]).length)list.textContent=this.t('Keine offenen Bestätigungen.');
     }catch(e){list.textContent=e.message;}
-    const wizard=this.element('div',null,'panel');wizard.append(this.element('h2',this.t('Testbare Eskalationskette anlegen')));
+    const wizard=this.element('div',null,'panel');wizard.append(this.heading(this.t('Testbare Eskalationskette anlegen'),'mdi:timeline-alert-outline','orange','h2'));
     const key=this.element('input');key.placeholder='alarm_kennung';
     const target=this.element('input');target.placeholder='initial_recipient';
     const delayed=this.element('input');delayed.placeholder='fallback_recipient';
@@ -378,12 +408,12 @@ class ReliableNotifyPanel extends HTMLElement {
     for(const [label,field] of [[this.t('Dedup-Schlüssel'),key],[this.t('Erster Empfänger'),target],
       [this.t('Eskalationsempfänger'),delayed],[this.t('Eskalation nach Sekunden'),delay],[this.t('Nachricht'),message]])wizard.append(this.element('label',label),field);
     const response=this.element('p');
-    const plan=this.element('button',this.t('Nur simulieren'));
+    const plan=this.actionButton(this.t('Nur simulieren'),'mdi:flask-outline','test');
     plan.addEventListener('click',()=>this.run(response,async()=>{
       const result=await this.call('simulate',{notification:{recipients:[target.value],priority:'critical',
         message:message.value}});response.textContent=JSON.stringify(result,null,2);
     }));
-    const send=this.element('button',this.t('Alarm wirklich einreihen'));
+    const send=this.actionButton(this.t('Alarm wirklich einreihen'),'mdi:bell-alert-outline','primary');
     send.addEventListener('click',()=>this.run(response,async()=>{
       if(!confirm(this.t('Dieser Alarm wird tatsächlich verschickt. Fortfahren?')))return;
       await this._hass.callService('reliable_notify','enqueue',{
@@ -394,7 +424,7 @@ class ReliableNotifyPanel extends HTMLElement {
     wizard.append(plan,send,response);box.append(wizard);
 
     const telegram=this.element('div',null,'panel');
-    telegram.append(this.element('h2',this.t('Telegram: gesendete Nachricht bearbeiten / entfernen')));
+    telegram.append(this.heading(this.t('Telegram: gesendete Nachricht bearbeiten / entfernen'),'mdi:send-circle-outline','blue','h2'));
     telegram.append(this.element('p',this.t('Erfordert bekannte telegram_sent-Nachrichtenkennung und passenden konfigurierten Chat. Direktaufruf ohne Queue-Retry.'),'muted'));
     const route=this.element('input');route.placeholder=this.t('z.B. telegram_wolfgang');
     const keyInput=this.element('input');keyInput.placeholder=this.t('Dedup-Schlüssel der versendeten Meldung');
@@ -404,7 +434,7 @@ class ReliableNotifyPanel extends HTMLElement {
     telegram.append(this.element('label',this.t('Reliable-Notify-Telegram-Empfänger')),route,
       this.element('label',this.t('Dedup-Schlüssel')),keyInput,
       this.element('label',this.t('Aktion')),edit,this.element('label',this.t('Neue Nachricht')),msg);
-    const telegramStatus=this.element('p');const sendTelegram=this.element('button',this.t('Telegram-Aktion ausführen'));
+    const telegramStatus=this.element('p');const sendTelegram=this.actionButton(this.t('Telegram-Aktion ausführen'),'mdi:send-circle-outline','primary');
     sendTelegram.addEventListener('click',()=>this.run(telegramStatus,async()=>{
       if(!route.value||!keyInput.value)throw Error(this.t('Empfänger und Dedup-Schlüssel erforderlich'));
       if(edit.value==='edit'&&!msg.value)throw Error(this.t('Neuer Text fehlt'));
@@ -416,12 +446,12 @@ class ReliableNotifyPanel extends HTMLElement {
     telegram.append(sendTelegram,telegramStatus);box.append(telegram);
   }
   async simulation(box){
-    const wrapper=this.element('div',null,'panel');wrapper.append(this.element('h2',this.t('Simulation ohne Versand')));
+    const wrapper=this.element('div',null,'panel');wrapper.append(this.heading(this.t('Simulation ohne Versand'),'mdi:flask-outline','purple','h2'));
     wrapper.append(this.element('p',this.t('Zeigt Routing, Aufbewahrung und Ruhezeiten an. Keine Queue-Einträge oder Push-Nachrichten.'),'muted'));
     const editor=this.fieldEditor({recipients:['wolfgang_phone'],priority:'warning',
       message_type:'windows',message:this.t('Fenster seit 90 Minuten offen')},{defaults:this.fieldDefaults('template')});
     const result=this.element('pre');
-    const run=this.element('button',this.t('Versand simulieren'));
+    const run=this.actionButton(this.t('Versand simulieren'),'mdi:flask-outline','test');
     run.addEventListener('click',()=>this.run(result,async()=>{
       const answer=await this.call('simulate',{notification:editor.read()});
       result.textContent=JSON.stringify(answer,null,2);
@@ -429,13 +459,13 @@ class ReliableNotifyPanel extends HTMLElement {
     wrapper.append(editor.node,run,result);this.yamlView(wrapper,editor.read);box.append(wrapper);
   }
   async analytics(box){
-    const wrapper=this.element('div',null,'panel');wrapper.append(this.element('h2',this.t('Transportstatistik & Systemzustand')));
+    const wrapper=this.element('div',null,'panel');wrapper.append(this.heading(this.t('Transportstatistik & Systemzustand'),'mdi:chart-box-outline','cyan','h2'));
     const days=this.element('select');for(const day of [1,7,14,30]){
       const option=this.element('option',String(day)+this.t(' Tage'));option.value=day;
       if(day===7)option.selected=true;days.append(option);
     }
-    const refresh=this.element('button',this.t('Aktualisieren'));
-    const exportButton=this.element('button',this.t('Diagnose (ohne Nachrichtentexte) exportieren'));
+    const refresh=this.actionButton(this.t('Aktualisieren'),'mdi:refresh');
+    const exportButton=this.actionButton(this.t('Diagnose (ohne Nachrichtentexte) exportieren'),'mdi:download-outline');
     const report=this.element('pre',this.t('Lade ...'));
     const load=async()=>{const data=await this.call('statistics',{days:Number(days.value)});
       this._lastStats=data;report.textContent=JSON.stringify(data,null,2);};
@@ -448,7 +478,7 @@ class ReliableNotifyPanel extends HTMLElement {
       setTimeout(()=>URL.revokeObjectURL(url),250);
     });
     const trend=this.element('div',null,'panel');
-    const title=this.element('h3',this.t('Tägliche Zustellungen (letzte 30 Tage)'));
+    const title=this.heading(this.t('Tägliche Zustellungen (letzte 30 Tage)'),'mdi:chart-timeline-variant','cyan','h3');
     trend.append(title);
     const bars=this.element('div');
     bars.style.cssText='display:flex;align-items:flex-end;gap:3px;height:145px;overflow-x:auto;';
@@ -479,7 +509,7 @@ class ReliableNotifyPanel extends HTMLElement {
     await this.run(report,load);
   }
   async namedSettings(box,{title,kind,load,save,property}){
-    const section=this.element('section',null,'panel');section.append(this.element('h2',title));box.append(section);
+    const section=this.element('section',null,'panel');section.append(this.heading(title,kind==='template'?'mdi:text-box-multiple-outline':'mdi:shield-account-outline',kind==='template'?'indigo':'purple'));box.append(section);
     const status=this.element('p',this.t('Lade …'));section.append(status);
     try{
       const data=await this.call(load);
@@ -488,9 +518,9 @@ class ReliableNotifyPanel extends HTMLElement {
       const add=(name,value)=>{
         const row=this.element('div',null,'panel');const input=this.element('input');input.value=name;input.placeholder='Name';
         const fields=this.fieldEditor(value,{defaults});
-        row.append(this.element('label','Name'),input,fields.node);
+        row.append(rnDecorate(this.element('label','Name'),'mdi:tag-text-outline','slate'),input,fields.node);
         const record={input,fields};rows.push(record);
-        const remove=this.element('button',this.t('Entfernen'));remove.addEventListener('click',()=>{
+        const remove=this.actionButton(this.t('Entfernen'),'mdi:minus-circle-outline','danger');remove.addEventListener('click',()=>{
           rows.splice(rows.indexOf(record),1);row.remove();section.dispatchEvent(new Event('input',{bubbles:true}));});
         row.append(remove);body.append(row);
       };
@@ -502,10 +532,10 @@ class ReliableNotifyPanel extends HTMLElement {
           Object.defineProperty(result,name,{value:row.fields.read(),enumerable:true});
         }return result;
       };
-      const newButton=this.element('button',this.t('Neu anlegen'));newButton.addEventListener('click',()=>{
+      const newButton=this.actionButton(this.t('Neu anlegen'),'mdi:plus','primary');newButton.addEventListener('click',()=>{
         add('',kind==='template'?{message:'',priority:'info'}:{priority:'info'});
         section.dispatchEvent(new Event('input',{bubbles:true}));});
-      const submit=this.element('button',this.t('Speichern'));submit.addEventListener('click',()=>this.run(status,()=>this.call(save,{[property]:read()})));
+      const submit=this.actionButton(this.t('Speichern'),'mdi:content-save-outline','primary');submit.addEventListener('click',()=>this.run(status,()=>this.call(save,{[property]:read()})));
       section.append(newButton,submit);this.yamlView(section,read);this.status(status,'');
       return data;
     }catch(e){this.status(status,e.message,true);return null;}
@@ -516,22 +546,22 @@ class ReliableNotifyPanel extends HTMLElement {
   async profiles(box){
     const data=await this.namedSettings(box,{title:this.t('Benachrichtigungsprofile'),kind:'profile',load:'profiles',save:'set_profiles',property:'profiles'});
     if(!data)return;
-    const api=this.element('section',null,'panel');api.append(this.element('h2',this.t('Externe API')));
+    const api=this.element('section',null,'panel');api.append(this.heading(this.t('Externe API'),'mdi:api','purple','h2'));
     api.append(this.element('p',this.t('Nur HA-Administratoren mit Bearer-Token und ausdrücklich freigegebene Empfänger.'),'muted'));
     const editor=this.fieldEditor({enabled:Boolean(data.external_api_enabled),
       recipients:data.external_api_recipients||[],rate:data.external_api_rate||30},{fixed:true});
-    const status=this.element('p'),save=this.element('button',this.t('API-Einstellungen speichern'));
+    const status=this.element('p'),save=this.actionButton(this.t('API-Einstellungen speichern'),'mdi:content-save-outline','primary');
     save.addEventListener('click',()=>this.run(status,()=>this.call('set_external_api',editor.read())));
     api.append(editor.node,save,status);this.yamlView(api,editor.read);box.append(api);
   }
 
   async migration(box){
     const wrapper=this.element('div',null,'panel');
-    wrapper.append(this.element('h2',this.t('Bestehende Automationen prüfen')));
+    wrapper.append(this.heading(this.t('Bestehende Automationen prüfen'),'mdi:source-branch','orange','h2'));
     wrapper.append(this.element('p',this.t('Liest automations.yaml und scripts.yaml ausschließlich lesend. Es werden keine Dateien, Automationen oder Skripte verändert. Vorschläge bei Mehrdeutigkeiten sind ausdrücklich zu prüfen.'),'muted'));
-    const button=this.element('button',this.t('Benachrichtigungen analysieren'));
+    const button=this.actionButton(this.t('Benachrichtigungen analysieren'),'mdi:file-search-outline','primary');
     const result=this.element('div');
-    const download=this.element('button',this.t('Vorschläge als JSON herunterladen'));
+    const download=this.actionButton(this.t('Vorschläge als JSON herunterladen'),'mdi:download-outline');
     download.disabled=true;
     let last=null;
     button.addEventListener('click',()=>this.run(result,async()=>{
@@ -541,12 +571,12 @@ class ReliableNotifyPanel extends HTMLElement {
       result.append(this.element('p',report.proposed+this.t(' direkte Vorschläge • ')+report.manual+this.t(' manuell zu prüfen')));
       for(const file of report.files||[]){
         const section=this.element('div',null,'panel');
-        section.append(this.element('h3',file.file+' — '+(file.error||((file.proposals||[]).length+this.t(' Treffer')))));
+        section.append(this.heading(file.file+' — '+(file.error||((file.proposals||[]).length+this.t(' Treffer'))),'mdi:file-document-outline','orange','h3'));
         for(const item of file.proposals||[]){
           const details=this.element('details');
           const name=this.element('summary',(item.automation||item.path)+' • '+item.source+
             ' → '+(item.route||item.suggested_route||this.t('manuelle Prüfung')));
-          details.append(name,this.element('p',item.reason));
+          rnDecorate(name,'mdi:source-pull','orange');details.append(name,this.element('p',item.reason));
           if(item.replacement){
             details.append(this.element('pre',JSON.stringify(item.replacement,null,2)));
             if(item.preview_diff){
@@ -554,7 +584,7 @@ class ReliableNotifyPanel extends HTMLElement {
               diff.style.whiteSpace='pre-wrap';details.append(diff);
             }
             if(file.relative_file?.startsWith('packages/')&&file.sha256){
-              const apply=this.element('button',this.t('Einzelne Änderung mit Backup übernehmen'));
+              const apply=this.actionButton(this.t('Einzelne Änderung mit Backup übernehmen'),'mdi:content-save-check-outline','primary');
               const status=this.element('p');
               apply.addEventListener('click',()=>this.run(status,async()=>{
                 if(!confirm(this.t('Nur dieser EINE Paket-Eintrag wird geändert. Backup wird erstellt. Keine automatische HA-Neuladung. Fortfahren?')))return;
@@ -584,10 +614,10 @@ class ReliableNotifyPanel extends HTMLElement {
     wrapper.append(button,download,result);box.append(wrapper);
   }
   async settings(box){
-    const intro=this.element('div',null,'panel');intro.append(this.element('h2',this.t('Einstellungen')),
+    const intro=this.element('div',null,'panel');intro.append(this.heading(this.t('Einstellungen'),'mdi:cog-outline','slate','h2'),
       this.element('p',this.t('Alle Betriebsoptionen stehen gemeinsam im HA-Konfigurationsdialog. Neue Ziele und Empfänger unter „Ziele & Personen“ anlegen; Profile und Vorlagen in den gleichnamigen Bereichen bearbeiten.'),'muted'));
-    const open=this.element('a',this.t('Alle Integrationsoptionen öffnen'));open.href='/config/integrations/integration/reliable_notify';intro.append(open);
-    const targets=this.element('button',this.t('Neues Ziel anlegen'));targets.addEventListener('click',()=>{this._section='routes';this._rendered=false;this.shadowRoot.replaceChildren();this.render();});intro.append(targets);box.append(intro);
+    const open=rnDecorate(this.element('a',this.t('Alle Integrationsoptionen öffnen')),'mdi:open-in-new','slate');open.href='/config/integrations/integration/reliable_notify';intro.append(open);
+    const targets=this.actionButton(this.t('Neues Ziel anlegen'),'mdi:plus','primary');targets.addEventListener('click',()=>{this._section='routes';this._rendered=false;this.shadowRoot.replaceChildren();this.render();});intro.append(targets);box.append(intro);
     const status=this.element('p',this.t('Lade …'));box.append(status);
     try{
       const [d,stats]=await Promise.all([this.call('dashboard'),this.call('statistics')]);
@@ -600,9 +630,9 @@ class ReliableNotifyPanel extends HTMLElement {
             ['telegram','smtp','companion','notify','webhook','ntfy','gotify'].map(k=>[k,stats.transport_logging?.[k]||'warning']))},'settings_v2',null]
       ];
       for(const [title,initial,method,property] of specs){
-        const section=this.element('section',null,'panel');section.append(this.element('h2',title));
+        const section=this.element('section',null,'panel');section.append(this.heading(title,({set_retry_policies:'mdi:reload',set_archive_retention:'mdi:archive-clock-outline',set_smart_settings:'mdi:weather-night',settings_v2:'mdi:flask-outline'})[method]||'mdi:cog-outline','slate'));
         const editor=this.fieldEditor(initial,{fixed:true});
-        const result=this.element('p'),button=this.element('button',this.t('Speichern'));
+        const result=this.element('p'),button=this.actionButton(this.t('Speichern'),'mdi:content-save-outline','primary');
         button.addEventListener('click',()=>this.run(result,()=>this.call(method,property?{[property]:editor.read()}:editor.read())));
         section.append(editor.node,button,result);this.yamlView(section,editor.read);box.append(section);
       }this.status(status,'');

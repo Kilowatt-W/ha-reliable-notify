@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.1
+- Add semantic icons and section colours to all nine navigation entries, plus an explicit active-page marker and keyboard focus styling.
+- Add icons to panel headings, form groups, YAML previews and every action, preserving German/English labels and user-defined values.
+- Present queue metrics as five coloured tiles; add icons and semantic priority badges to the standalone card.
+- Share the theme-aware palette and icon helpers between panel and card; retain readable text in light/dark HA themes and responsive navigation.
+
 ## 3.2.0
 - Add admin-only real test notifications per saved recipient, group and person, with bounded live status polling, respecting quiet hours and test mode.
 - Add theme-aware action colours, icons and accessible test statuses.
