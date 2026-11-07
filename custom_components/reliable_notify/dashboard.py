@@ -11,6 +11,9 @@ from .const import DOMAIN
 from .retry import validate_policies
 from .retention import validate_retention
 from .smart import validate_quiet_hours
+from .i18n import text as i18n_text
+from .routing import (display_name, merge_routes, validate_config, valid_label,
+                      ROUTE_KINDS, MAX_LABEL)
 
 
 def register_dashboard(hass):
@@ -36,6 +39,7 @@ def register_dashboard(hass):
             'staged': staged, 'staged_count': len(staged),
             'recipient_names': sorted(manager.routes['recipients']),
             'persons': sorted(manager.routes.get('persons', {})),
+            'labels': dict(manager.routes.get('labels', {})),
             'policies': manager.policies, 'retention': manager.archive_retention, 'storage': await manager.storage_status(),
             'acknowledgements': await manager.store.active_acknowledgements(), 'maintenance': manager.maintenance_info,
             'smart': {'quiet_hours':manager.quiet_hours,
@@ -245,6 +249,8 @@ def register_dashboard(hass):
             "notify_entities":sorted(hass.states.async_entity_ids("notify")),
             "routes":{"recipients":recipients,"groups":routes.get("groups",{}),
                       "persons":routes.get("persons",{})},
+            # Display names only; routing keeps using the internal aliases.
+            "labels":dict(routes.get("labels",{})),
             "options_routes":{"recipients":sorted(manager.entry.options.get("routes",{}).get("recipients",{})),
                              "groups":sorted(manager.entry.options.get("routes",{}).get("groups",{})),
                              "persons":sorted(manager.entry.options.get("routes",{}).get("persons",{}))},
@@ -292,12 +298,11 @@ def register_dashboard(hass):
         if name not in manager.routes.get(msg["category"], {}):
             connection.send_error(msg["id"], "not_found", "Save the target before testing it")
             return
-        de = msg.get("language", "en") == "de"
+        language = msg.get("language", "en")
         notification = {
             "recipients": [name], "priority": "info", "strategy": "always",
-            "title": "Reliable Notify · Test",
-            "message": (f"Testnachricht von Reliable Notify an {name}." if de
-                        else f"Test notification from Reliable Notify to {name}."),
+            "title": i18n_text(language, "test_title"),
+            "message": i18n_text(language, "test_message", name=display_name(manager.routes, name)),
             "message_type": "test", "archive_days": 1, "ttl": 86400,
         }
         try:
@@ -314,6 +319,8 @@ def register_dashboard(hass):
         vol.Required("category"): vol.In(("recipients","groups","persons")),
         vol.Required("name"): vol.Match(r"^[a-z][a-z0-9_]{0,63}$", msg="Invalid internal name: use 1–64 lowercase letters, digits or underscores; start with a letter. Example: rn_kw_telegram (not RN-KW-Telegram)."),
         vol.Optional("definition"): object,
+        # Optional human-readable name (Klarname); empty removes it.
+        vol.Optional("label"): vol.Any(None, str),
         vol.Optional("delete",default=False): bool,
     })
     @websocket_api.async_response
@@ -325,32 +332,45 @@ def register_dashboard(hass):
         if manager is None:
             connection.send_error(msg["id"],"not_loaded","Integration unavailable")
             return
-        from .routing import validate_config
         category,name=msg["category"],msg["name"]
         old=manager.entry.options.get("routes",{})
         updated={kind:dict(old.get(kind,{}))
-                 for kind in ("recipients","groups","persons")}
+                 for kind in ROUTE_KINDS}
+        labels=dict(old.get("labels",{}))
         if msg["delete"]:
             if name not in updated[category]:
                 connection.send_error(msg["id"],"not_managed","Only UI-managed entries may be deleted")
                 return
             updated[category].pop(name)
+            labels.pop(name,None)
         else:
             if "definition" not in msg:
                 connection.send_error(msg["id"],"bad_input","Missing route definition")
                 return
             updated[category][name]=msg["definition"]
+            if "label" in msg:
+                label=(msg["label"] or "").strip()
+                if label and not valid_label(label):
+                    connection.send_error(msg["id"],"invalid_label",
+                        f"Display name: 1-{MAX_LABEL} characters, no control characters")
+                    return
+                if label and label!=name:
+                    labels[name]=label
+                else:
+                    labels.pop(name,None)
         from . import _load_routes
         file_routes=await __import__("asyncio").to_thread(_load_routes,manager.route_path)
-        merged={kind:{**file_routes.get(kind,{}),**updated[kind]}
-                for kind in ("recipients","groups","persons")}
+        merged=merge_routes(file_routes,{**updated,"labels":labels})
         try:
             validate_config(merged)
         except (TypeError,ValueError) as err:
             connection.send_error(msg["id"],"invalid_route",str(err))
             return
+        stored={**updated}
+        if labels:
+            stored["labels"]=labels
         hass.config_entries.async_update_entry(manager.entry,options={
-            **manager.entry.options,"routes":updated,
+            **manager.entry.options,"routes":stored,
         })
         connection.send_result(msg["id"],{"saved":True})
 

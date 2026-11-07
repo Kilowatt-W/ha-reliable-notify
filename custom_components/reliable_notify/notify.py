@@ -15,9 +15,25 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
+from .routing import display_name
 
 _LOGGER = logging.getLogger(__name__)
 SAFE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+
+
+def entity_name(routes, route_name):
+    """Friendly name: the configured display name, else the historic alias-based name."""
+    label = display_name(routes, route_name)
+    return label if label != route_name else f"Reliable {route_name.replace('_', ' ')}"
+
+
+def entity_id_for(route_name):
+    """Same entity ID the alias-based name produced before display names existed.
+
+    HA forbids double and trailing underscores in object IDs; slugifying the old
+    name "Reliable <alias with spaces>" collapsed them the same way.
+    """
+    return "notify.reliable_" + re.sub(r"_+", "_", route_name).strip("_")
 
 
 def available_routes(routes):
@@ -55,8 +71,11 @@ class ReliableNotifyEntity(NotifyEntity):
     def __init__(self, manager, route_name: str) -> None:
         self.manager = manager
         self.route_name = route_name
-        self._attr_name = f"Reliable {route_name.replace('_', ' ')}"
+        self._attr_name = entity_name(manager.routes, route_name)
         self._attr_unique_id = f"{manager.entry.entry_id}_route_{route_name}"
+        # Keep the entity ID derived from the internal alias, independent of the
+        # display name, so automations stay valid when the name changes.
+        self.entity_id = entity_id_for(route_name)
 
     @property
     def available(self) -> bool:

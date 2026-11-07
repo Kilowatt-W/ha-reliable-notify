@@ -139,7 +139,7 @@ test('invalid target name gives a localized example and never reaches the backen
     const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}}});
     panel._hass.language=language;
     await panel.routes(box);
-    const name=box.querySelector('input[placeholder]');name.value='RN-KW-Telegram';
+    const name=box.querySelector('input[name=route_id]');name.value='RN-KW-Telegram';
     click(box,label);await tick();
     assert.match(box.textContent,expected);assert.match(box.textContent,/rn_kw_telegram/);
     assert.equal(name.getAttribute('aria-invalid'),'true');
@@ -217,6 +217,87 @@ test('test mode, delivery failures and quiet hours do not claim successful deliv
     const result=box.querySelector('.route-item p');
     assert.match(result.textContent,expected);assert.notEqual(result.className,'status');
     assert.equal(calls.filter(c=>c.type.endsWith('/test_route')).length,1);
+  }
+});
+
+test('display name suggests the internal ID, is saved as label and shown in the target list',async()=>{
+  for(const [language,save,displayLabel,idLabel] of [['de','Speichern','Anzeigename (Klarname)','Interner Name (ID)'],['en','Save','Display name','Internal name (ID)']]){
+    const {panel,box,calls,dom}=setup({admin_inventory:{routes:{recipients:{tg_buero:{}},groups:{},persons:{}},labels:{tg_buero:'Telegram Büro'}}});
+    panel._hass.language=language;
+    await panel.routes(box);
+    const section=box.querySelector('section');
+    const display=control(section,displayLabel),name=control(section,idLabel);
+    assert.equal(display.name,'route_label');assert.equal(name.name,'route_id');
+    // Existing entry is listed by display name and alias; aliases are never translated.
+    assert.ok([...section.querySelectorAll('.route-item button')].some(b=>b.textContent==='Telegram Büro (tg_buero)'));
+    display.value='Telegram Wölfi – Büro 2';display.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+    assert.equal(name.value,'telegram_woelfi_buero_2');
+    click(section,save);await tick();
+    const saved=calls.find(c=>c.type.endsWith('/set_route'));
+    assert.equal(saved.name,'telegram_woelfi_buero_2');assert.equal(saved.label,'Telegram Wölfi – Büro 2');
+  }
+});
+
+test('a manually typed internal ID is not overwritten and existing IDs stay fixed',async()=>{
+  const definition={action:'notify.mobile_app_phone'};
+  const {panel,box,calls,dom}=setup({admin_inventory:{routes:{recipients:{tg_buero:{}},groups:{},persons:{}},labels:{tg_buero:'Telegram Büro'}},
+    route_definition:{definition}});
+  await panel.routes(box);
+  const section=box.querySelector('section');
+  const display=section.querySelector('input[name=route_label]'),name=section.querySelector('input[name=route_id]');
+  name.value='my_phone';display.value='Mein Handy';display.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+  assert.equal(name.value,'my_phone');
+  click(section,'Telegram Büro (tg_buero)');await tick();
+  assert.equal(name.value,'tg_buero');assert.equal(display.value,'Telegram Büro');
+  display.value='Telegram Büro neu';display.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+  assert.equal(name.value,'tg_buero');
+  click(section,'Speichern');await tick();
+  const saved=calls.find(c=>c.type.endsWith('/set_route'));
+  assert.deepEqual([saved.name,saved.label],['tg_buero','Telegram Büro neu']);
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.definition)),definition);
+});
+
+test('group members offer known targets with display names',async()=>{
+  const {panel,box}=setup({admin_inventory:{routes:{recipients:{tg_buero:{},mail:{}},groups:{family:['mail']},persons:{}},labels:{tg_buero:'Telegram Büro'}}});
+  await panel.routes(box);
+  const groups=box.querySelectorAll('section')[1];
+  click(groups,'Eintrag hinzufügen');
+  const input=groups.querySelector('.list-fields input');
+  const options=[...groups.querySelectorAll('datalist#'+input.getAttribute('list')+' option')];
+  assert.deepEqual(options.map(o=>o.value),['family','mail','tg_buero']);
+  assert.equal(options.find(o=>o.value==='tg_buero').label,'Telegram Büro (tg_buero)');
+});
+
+test('choice values and backend errors are shown in German and English',async()=>{
+  for(const [language,priority,error] of [['de','Kritisch',/Ungültige Zielkonfiguration: tg requires a notify entity/],['en','Critical',/Invalid target configuration: tg requires a notify entity/]]){
+    const {panel,box}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}}});
+    panel._hass.language=language;
+    const editor=panel.fieldEditor({priority:'critical',strategy:'digest'});box.append(editor.node);
+    const select=box.querySelector('select');
+    assert.equal(select.value,'critical');assert.equal(select.selectedOptions[0].textContent,priority);
+    assert.deepEqual(JSON.parse(JSON.stringify(editor.read())),{priority:'critical',strategy:'digest'});
+    const status=panel.element('p');
+    await panel.run(status,async()=>{throw Object.assign(Error('tg requires a notify entity'),{code:'invalid_route'});});
+    assert.match(status.textContent,error);
+    await panel.run(status,async()=>{throw {code:'unauthorized',message:'Administrator required'};});
+    assert.doesNotMatch(status.textContent,/Administrator required/);
+  }
+});
+
+test('card shows translated priorities and target display names without changing values',async()=>{
+  const {dom}=setup();
+  const card=dom.window.document.createElement('reliable-notify-card');
+  card.config={};card.attachShadow({mode:'open'});
+  const data={count:1,dead:0,storage:{free_bytes:null},metrics:{},dead_letters:[],policies:{critical:{max_attempts:0,base_seconds:5,max_delay:60}},
+    retention:{},smart:{},queue:[{id:3,target:'notify.mail',priority:'critical',action:'notify.send_message',attempts:0}],
+    staged:[{id:7,title:'T',message:'M'}],recipient_names:['tg_buero'],labels:{tg_buero:'Telegram Büro'}};
+  for(const [language,priority,retries] of [['de','Kritisch','Maximale Versuche'],['en','Critical','Maximum attempts']]){
+    card._hass={language};card.render(data);
+    assert.equal(card.shadowRoot.querySelector('.rn-priority').textContent,priority);
+    assert.equal(card.shadowRoot.querySelector('.rn-priority').title,'critical');
+    const option=card.shadowRoot.querySelector('select option');
+    assert.equal(option.value,'tg_buero');assert.equal(option.textContent,'Telegram Büro (tg_buero)');
+    assert.match(card.shadowRoot.textContent,new RegExp(retries));
   }
 });
 

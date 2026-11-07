@@ -390,5 +390,54 @@
         }
       }
     }
+  },
+  "selector": {
+    "priority": {
+      "options": {
+        "info": "Information",
+        "warning": "Warning",
+        "critical": "Critical"
+      }
+    },
+    "media": {
+      "options": {
+        "text": "Text",
+        "photo": "Photo"
+      }
+    },
+    "archive": {
+      "options": {
+        "keep": "Keep in archive",
+        "delete_after_send": "Delete after delivery"
+      }
+    },
+    "strategy": {
+      "options": {
+        "always": "Always send",
+        "replace": "Replace waiting message",
+        "digest": "Combine into digest"
+      }
+    },
+    "test_mode": {
+      "options": {
+        "off": "Off (deliver normally)",
+        "stage": "Stage only (do not send)"
+      }
+    },
+    "operation": {
+      "options": {
+        "edit": "Edit",
+        "delete": "Delete"
+      }
+    },
+    "log_level": {
+      "options": {
+        "off": "Off",
+        "error": "Errors",
+        "warning": "Warnings",
+        "info": "Information",
+        "debug": "Debug"
+      }
+    }
   }
 }

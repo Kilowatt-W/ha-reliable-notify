@@ -876,7 +876,61 @@ const RN_TRANSLATIONS = [
 RN_TRANSLATIONS.push(['Keine passenden person.*-Entitäten gefunden.','No matching person.* entities found.']);
 RN_TRANSLATIONS.push(...[["Test senden", "Send test"], ["Gespeichertes Ziel testen", "Test saved target"], ["Test wird eingereiht …", "Queueing test …"], ["Keine Empfänger aufgelöst. Zielkonfiguration prüfen.", "No recipients resolved. Check target configuration."], ["Test eingereiht (IDs: {ids}).", "Test queued (IDs: {ids})."], ["Vom Transport angenommen", "Accepted by transport"], ["Testmodus: zurückgestellt, nicht gesendet", "Test mode: staged, not sent"], ["Wartet auf Versand", "Waiting for delivery"], ["Versandfehler, erneuter Versuch folgt", "Delivery error; retry scheduled"], ["Versand fehlgeschlagen", "Delivery failed"], ["Abgelaufen", "Expired"], ["Abgebrochen", "Cancelled"], ["Unterdrückt", "Suppressed"], ["Geplant ab {time} (Ruhezeiten aktiv).", "Scheduled from {time} (quiet hours active)."], ["Weitere Details unter Nachrichten / Archiv.", "More details under Messages / archive."], ["Test fehlgeschlagen. Zielkonfiguration und Diagnose prüfen.", "Test failed. Check target configuration and diagnostics."], ["Test senden verschickt eine echte Nachricht über die gespeicherte Konfiguration. Testmodus und Ruhezeiten bleiben aktiv. Bei Gruppen und Personen können mehrere Empfänger erreicht werden.", "Send test sends a real notification using the saved configuration. Test mode and quiet hours remain active. Groups and people may reach multiple recipients."]]);
 RN_TRANSLATIONS.push(...[["Wartend:", "Queued:"], ["Versendet:", "Sent:"], ["Fehler:", "Failures:"], ["Freier Speicher:", "Disk free:"], ["Hauptnavigation", "Main navigation"]]);
+// 3.3.0: display names (Klarnamen), translated value labels and backend error texts.
+RN_TRANSLATIONS.push(...[
+  ['Anzeigename (Klarname)','Display name'],
+  ['z. B. Telegram Wolfgang','e.g. Telegram Wolfgang'],
+  ['Frei wählbarer Name mit Leerzeichen, Umlauten und Sonderzeichen (höchstens 100 Zeichen). Er erscheint in Listen und als Name der Notify-Entität.','Free text with spaces, accents and special characters (up to 100 characters). Shown in lists and as the name of the notify entity.'],
+  ['Interner Name (ID)','Internal name (ID)'],
+  ['Wird beim Anlegen automatisch aus dem Anzeigenamen vorgeschlagen und danach nicht mehr geändert. Automationen verwenden diesen Namen; die Entität heißt notify.reliable_<ID>.','Suggested automatically from the display name when creating and kept unchanged afterwards. Automations use this name; the entity is notify.reliable_<ID>.'],
+  ['Anzeigename: höchstens 100 Zeichen.','Display name: at most 100 characters.'],
+  ['Nur für Home-Assistant-Administratoren.','Home Assistant administrators only.'],
+  ['Reliable Notify ist nicht geladen.','Reliable Notify is not loaded.'],
+  ['Eintrag nicht gefunden. Bitte zuerst speichern.','Entry not found. Please save it first.'],
+  ['Nur in dieser Oberfläche angelegte Einträge können gelöscht werden.','Only entries created in this interface can be deleted.'],
+  ['Eingabe unvollständig.','Input incomplete.'],
+  ['Ungültige Eingabe:','Invalid input:'],
+  ['Ungültige Zielkonfiguration:','Invalid target configuration:'],
+  ['Anzeigename: 1–100 Zeichen, keine Steuerzeichen.','Display name: 1–100 characters, no control characters.'],
+  ['Ungültige Profile:','Invalid profiles:'],
+  ['Ungültige Vorlagen:','Invalid templates:'],
+  ['Ungültige Empfänger:','Invalid recipients:'],
+  ['Ungültige Wiederholungsregeln:','Invalid retry policies:'],
+  ['Migration fehlgeschlagen:','Migration failed:'],
+  ['z. B. fenster_offen','e.g. window_open'],
+  ['Interner Zielname, z. B. telegram_wolfgang','Internal target name, e.g. telegram_wolfgang'],
+  ['Persistente Benachrichtigungswarteschlange mit Verwaltung','Persistent notification queue and interactive administration'],
+  ['Neuer Nachrichtentext (nur beim Bearbeiten)','New message text (only when editing)'],
+]);
+// Labels for technical values; option values and stored data keep the raw value.
+export const RN_VALUE_LABELS = {
+  priority:{info:['Information','Information'],warning:['Warnung','Warning'],critical:['Kritisch','Critical']},
+  archive:{keep:['Im Archiv behalten','Keep in archive'],delete_after_send:['Nach Zustellung löschen','Delete after delivery']},
+  strategy:{always:['Immer senden','Always send'],replace:['Wartende Nachricht ersetzen','Replace waiting message'],digest:['Zu Sammelnachricht bündeln','Combine into digest']},
+  test_mode:{off:['Aus (normal zustellen)','Off (deliver normally)'],stage:['Nur zurückstellen (nicht senden)','Stage only (do not send)']},
+  level:{off:['Aus','Off'],error:['Fehler','Errors'],warning:['Warnungen','Warnings'],info:['Information','Information'],debug:['Debug','Debug']},
+  operation:{edit:['Bearbeiten','Edit'],delete:['Löschen','Delete']},
+  status:{queued:['Wartend','Queued'],retry:['Erneuter Versuch','Retrying'],sent:['Gesendet','Sent'],dead:['Fehlgeschlagen','Failed'],
+    expired:['Abgelaufen','Expired'],dead_expired:['Abgelaufen (fehlgeschlagen)','Expired (failed)'],cancelled:['Abgebrochen','Cancelled'],
+    suppressed:['Unterdrückt','Suppressed'],replaced:['Ersetzt','Replaced'],cleared:['Geleert','Cleared'],deleted:['Gelöscht','Deleted'],
+    staged:['Zurückgestellt','Staged']},
+};
 const RN_CATALOG = new Map(RN_TRANSLATIONS.flatMap(([de,en])=>[[de,{de,en}],[en,{de,en}]]));
+export function rnValueLabel(hass, kind, value) {
+  const entry=RN_VALUE_LABELS[kind]?.[value];
+  return entry ? entry[rnLanguage(hass)==='de'?0:1] : String(value);
+}
+// Suggest an internal route name from a display name: "Telegram Wölfi 2" -> "telegram_woelfi_2".
+export function rnSlug(text) {
+  const umlauts={ä:'ae',ö:'oe',ü:'ue',ß:'ss',Ä:'ae',Ö:'oe',Ü:'ue'};
+  return String(text||'').replace(/[äöüßÄÖÜ]/g,c=>umlauts[c]).normalize('NFKD').replace(/[̀-ͯ]/g,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^[^a-z]+/,'').slice(0,64).replace(/_+$/,'');
+}
+// "Display name (alias)" for pickers; the alias alone when no display name exists.
+export function rnRouteLabel(labels, name) {
+  const label=labels?.[name];
+  return label && label!==name ? label+' ('+name+')' : name;
+}
 export function rnLanguage(hass) {
   return String(hass?.selectedLanguage || hass?.language || hass?.locale?.language || 'en').toLowerCase().split(/[-_]/)[0]==='de'?'de':'en';
 }
@@ -886,7 +940,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.2.1 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.3.0 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},
@@ -1001,7 +1055,7 @@ class ReliableNotifyCard extends HTMLElement {
       const close=document.createElement('button');close.textContent=this.t('Close');rnDecorate(close,'mdi:close','slate');close.addEventListener('click',()=>panel.remove());
       const heading=document.createElement('h3');heading.textContent=(entry.title||this.t('Notification'))+' #'+entry.id;rnDecorate(heading,'mdi:email-open-outline','teal');
       const meta=document.createElement('div');meta.className='muted';
-      meta.textContent=[entry.status,entry.priority,entry.target,new Date(entry.created_at*1000).toLocaleString()].join(' • ');
+      meta.textContent=[rnValueLabel(this._hass,'status',entry.status),rnValueLabel(this._hass,'priority',entry.priority),entry.target,new Date(entry.created_at*1000).toLocaleString(rnLanguage(this._hass))].join(' • ');
       const body=document.createElement('pre');body.style.whiteSpace='pre-wrap';body.style.overflowWrap='anywhere';body.textContent=entry.message;
       panel.append(close,heading,meta,body);root.querySelector('ha-card')?.prepend(panel);
     } catch(e) {alert(this.t('Archive: ')+e.message);}
@@ -1012,7 +1066,7 @@ class ReliableNotifyCard extends HTMLElement {
       box.replaceChildren();
       for(const entry of result.items||[]) {
         const button=document.createElement('button');button.style.margin='4px';
-        button.textContent='#'+entry.id+' '+(entry.title||entry.action)+' — '+entry.status+' ['+(entry.message_type||entry.priority)+', '+entry.retention_days+'d]';
+        button.textContent='#'+entry.id+' '+(entry.title||entry.action)+' — '+rnValueLabel(this._hass,'status',entry.status)+' ['+(entry.message_type||rnValueLabel(this._hass,'priority',entry.priority))+', '+entry.retention_days+'d]';
         rnDecorate(button,'mdi:email-open-outline','indigo');button.addEventListener('click',()=>this.showArchiveMessage(entry.id));box.append(button);
       }
       if(!(result.items||[]).length) box.textContent=this.t('No archived notifications');
@@ -1060,7 +1114,7 @@ class ReliableNotifyCard extends HTMLElement {
     for(const ack of data.acknowledgements||[]) {
       const row=document.createElement('div');row.style.margin='9px 0';
       const label=document.createElement('span');
-      label.textContent=(ack.title||ack.ack_key)+' • '+ack.priority+' • '+ack.ack_key+' ';
+      label.textContent=(ack.title||ack.ack_key)+' • '+rnValueLabel(this._hass,'priority',ack.priority)+' • '+ack.ack_key+' ';
       const button=document.createElement('button');button.textContent=this.t('Acknowledge');rnDecorate(button,'mdi:check-circle-outline','teal');
       button.addEventListener('click',async()=>{
         try {await this._hass.callWS({type:'reliable_notify/acknowledge',key:ack.ack_key});await this.refresh();}
@@ -1087,7 +1141,7 @@ class ReliableNotifyCard extends HTMLElement {
       const preview=document.createElement('div');preview.style.whiteSpace='pre-wrap';
       preview.textContent='#'+item.id+' '+(item.title||'')+' — '+item.message;row.append(preview);
       const select=document.createElement('select');
-      for(const name of data.recipient_names||[]){const opt=document.createElement('option');opt.value=name;opt.textContent=name;select.append(opt);}row.append(select);
+      for(const name of data.recipient_names||[]){const opt=document.createElement('option');opt.value=name;opt.textContent=rnRouteLabel(data.labels,name);select.append(opt);}row.append(select);
       const send=document.createElement('button');send.textContent=this.t('Assign and send');rnDecorate(send,'mdi:send-outline','teal');send.disabled=!select.options.length;
       send.addEventListener('click',async()=>{try{await this._hass.callWS({type:'reliable_notify/send_staged',id:item.id,recipient:select.value});await this.refresh();}catch(e){alert(e.message);}});row.append(send);
       const del=document.createElement('button');del.textContent=this.t('Delete');rnDecorate(del,'mdi:delete-outline','red');del.addEventListener('click',()=>{if(confirm(this.t('Delete staged #')+item.id+'?'))this.command('delete_one',item.id,false);});row.append(del);
@@ -1103,7 +1157,7 @@ class ReliableNotifyCard extends HTMLElement {
       const tr=document.createElement('tr');
       for(const [index,value] of [row.id,row.target,row.priority,row.action,row.attempts,row.last_error||'-'].entries()){
         const td=document.createElement('td');
-        if(index===2){const badge=document.createElement('span');badge.className='rn-priority';badge.textContent=String(value);
+        if(index===2){const badge=document.createElement('span');badge.className='rn-priority';badge.textContent=rnValueLabel(this._hass,'priority',value);badge.title=String(value);
           rnDecorate(badge,value==='critical'?'mdi:alert-octagon-outline':value==='warning'?'mdi:alert-outline':'mdi:information-outline',value==='critical'?'red':value==='warning'?'amber':'blue');td.append(badge);
         }else td.textContent=String(value);tr.append(td);
       }
@@ -1121,10 +1175,11 @@ class ReliableNotifyCard extends HTMLElement {
     const policyFields={};
     for(const [priority, values] of Object.entries(data.policies)) {
       const row=document.createElement('div');row.style.margin='8px 0';
-      const label=document.createElement('strong');label.textContent=priority+' ';row.append(label);
+      const label=document.createElement('strong');label.textContent=rnValueLabel(this._hass,'priority',priority)+' ';row.append(label);
       policyFields[priority]={};
+      const fieldNames={max_attempts:'Maximale Versuche (0 = unbegrenzt)',base_seconds:'Basisabstand (Sekunden)',max_delay:'Maximaler Abstand (Sekunden)'};
       for(const [key,val] of Object.entries(values)) {
-        const name=document.createElement('label');name.textContent=key+' ';
+        const name=document.createElement('label');name.textContent=(fieldNames[key]?this.t(fieldNames[key]):key)+' ';
         const input=document.createElement('input');input.type='number';input.min=key==='max_attempts'?'0':'1';
         input.max=key==='max_attempts'?'10000':key==='max_delay'?'86400':'3600';
         input.value=val;input.style.width='68px';input.style.marginRight='8px';
@@ -1143,7 +1198,7 @@ class ReliableNotifyCard extends HTMLElement {
       catch(error){alert(this.t('Cannot save retry policies: ')+error.message);}
     });
     details.append(save);
-    const recent=document.createElement('div');recent.textContent=(data.history||[]).slice(0,15).map(r=>`#${r.id} ${r.status} ${r.action} (${r.attempts})`).join('\n');recent.style.whiteSpace='pre-line';details.append(recent);card.append(details);
+    const recent=document.createElement('div');recent.textContent=(data.history||[]).slice(0,15).map(r=>`#${r.id} ${rnValueLabel(this._hass,'status',r.status)} ${r.action} (${r.attempts})`).join('\n');recent.style.whiteSpace='pre-line';details.append(recent);card.append(details);
     const smartBox=document.createElement('details');
     const smartHeading=document.createElement('summary');
     smartHeading.textContent=this.t('Smart notifications: quiet hours, rate limit, digest');rnDecorate(smartHeading,'mdi:weather-night','purple');
@@ -1210,4 +1265,6 @@ class ReliableNotifyCard extends HTMLElement {
 }
 if(!customElements.get('reliable-notify-card'))customElements.define('reliable-notify-card', ReliableNotifyCard);
 window.customCards=window.customCards||[];
-window.customCards.push({type:'reliable-notify-card',name:'Reliable Notify',description:'Persistent notification queue and interactive administration'});
+// The card picker has no hass object yet; HA sets the page language on <html lang>.
+window.customCards.push({type:'reliable-notify-card',name:'Reliable Notify',
+  description:rnTranslate({language:document.documentElement?.lang},'Persistente Benachrichtigungswarteschlange mit Verwaltung')});

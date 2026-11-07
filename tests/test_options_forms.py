@@ -43,7 +43,8 @@ def load_flow():
     forms.section = section
     helpers = types.ModuleType('homeassistant.helpers')
     helpers.selector = types.SimpleNamespace(EntitySelector=Select, EntitySelectorConfig=dict,
-        SelectSelector=Select, SelectSelectorConfig=dict)
+        SelectSelector=Select, SelectSelectorConfig=dict,
+        SelectSelectorMode=types.SimpleNamespace(DROPDOWN='dropdown'))
     with patch.dict(sys.modules, {'rn_options': package, 'homeassistant': ha,
             'homeassistant.data_entry_flow': forms, 'homeassistant.helpers': helpers}):
         spec = importlib.util.spec_from_file_location('rn_options.config_flow', ROOT/'config_flow.py')

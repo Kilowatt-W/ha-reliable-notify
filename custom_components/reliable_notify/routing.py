@@ -9,6 +9,30 @@ NATIVE_ACTIONS = frozenset(("reliable_notify.ntfy","reliable_notify.gotify","rel
 ALLOWED = {"notify.send_message", "telegram_bot.send_message", "telegram_bot.send_photo", "smtp.send_message"}
 LEGACY_NOTIFY = re.compile(r"^notify\.[a-z][a-z0-9_]*$")
 REST_COMMAND = re.compile(r"^rest_command\.[a-z][a-z0-9_]*$")
+ROUTE_KINDS = ("recipients", "groups", "persons")
+MAX_LABEL = 100
+
+
+def valid_label(value):
+    """Display names are free text, but bounded and without control characters."""
+    return (isinstance(value, str) and 0 < len(value.strip()) <= MAX_LABEL
+            and not any(ord(char) < 32 or ord(char) == 127 for char in value))
+
+
+def merge_routes(file_routes, ui_routes):
+    """UI-defined routes and display names override YAML; labels only for existing routes."""
+    merged = {kind: {**(file_routes.get(kind) or {}), **(ui_routes.get(kind) or {})}
+              for kind in ROUTE_KINDS}
+    names = set().union(*(merged[kind] for kind in ROUTE_KINDS))
+    labels = {**(file_routes.get("labels") or {}), **(ui_routes.get("labels") or {})}
+    merged["labels"] = {name: label for name, label in labels.items() if name in names}
+    return merged
+
+
+def display_name(routes, name):
+    """Human-readable name of a route; the internal alias stays the routing key."""
+    label = (routes.get("labels") or {}).get(name)
+    return label.strip() if valid_label(label) else name
 
 
 def valid_action(action):
@@ -26,6 +50,10 @@ def validate_config(config):
     persons = config.get("persons", {})
     if not isinstance(recipients, dict) or not isinstance(groups, dict) or not isinstance(persons, dict):
         raise ValueError("recipients and groups must be mappings")
+    labels = config.get("labels", {})
+    if not isinstance(labels, dict) or any(
+            not isinstance(name, str) or not valid_label(label) for name, label in labels.items()):
+        raise ValueError(f"labels must map route names to display names (1-{MAX_LABEL} characters, no control characters)")
     for name, rec in recipients.items():
         if not isinstance(name, str) or not isinstance(rec, dict):
             raise ValueError("recipient must be named mapping")

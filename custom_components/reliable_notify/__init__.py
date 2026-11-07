@@ -19,7 +19,8 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
-from .routing import resolve, validate_config, valid_action
+from .routing import resolve, validate_config, valid_action, merge_routes
+from .i18n import ha_text
 from .notify_compat import async_register_compat, async_unregister_compat
 from .templates import validate_templates, validate_parameters
 from .profiles import DEFAULT as DEFAULT_PROFILES, validate_profiles, resolve_profile
@@ -82,7 +83,7 @@ CANCEL_SCHEMA = vol.Schema({vol.Required("dedup_key"): cv.string, vol.Optional("
 def _load_routes(path):
     file = Path(path)
     if not file.exists():
-        return {"recipients": {}, "groups": {}, "persons": {}}
+        return {"recipients": {}, "groups": {}, "persons": {}, "labels": {}}
     raw = load_yaml(file) or {}
     return validate_config(raw)
 
@@ -92,7 +93,7 @@ class ReliableNotifyManager:
         self.hass, self.entry = hass, entry
         self.store = QueueStore(hass.config.path(".storage", "reliable_notify.db"))
         self.route_path = hass.config.path("reliable_notify_routes.yaml")
-        self.routes = {"recipients": {}, "groups": {}, "persons": {}}
+        self.routes = {"recipients": {}, "groups": {}, "persons": {}, "labels": {}}
         self.wakeup = asyncio.Event()
         self.tasks = []
         self.stopping = False
@@ -132,11 +133,7 @@ class ReliableNotifyManager:
         # UI-defined routes override YAML names; invalid reload leaves previous mapping intact.
         file_routes = await asyncio.to_thread(_load_routes, self.route_path)
         ui_routes = self.entry.options.get("routes", {"recipients": {}, "groups": {}})
-        self.routes = validate_config({
-            "recipients": {**file_routes["recipients"], **ui_routes.get("recipients", {})},
-            "groups": {**file_routes["groups"], **ui_routes.get("groups", {})},
-            "persons": {**file_routes.get("persons",{}), **ui_routes.get("persons",{})},
-        })
+        self.routes = validate_config(merge_routes(file_routes, ui_routes))
         _LOGGER.info("Reliable Notify: %s recipients and %s groups loaded",
                      len(self.routes["recipients"]), len(self.routes["groups"]))
 
@@ -204,7 +201,7 @@ class ReliableNotifyManager:
             if not query_id or not self.hass.services.has_service("telegram_bot","answer_callback_query"):
                 return
             payload={"callback_query_id":str(query_id),
-                     "message":"Aktion übernommen" if applied else "Bereits bearbeitet oder ungültig"}
+                     "message":ha_text(self.hass,"action_applied" if applied else "action_rejected")}
             config_id=event.data.get("config_entry_id")
             if config_id:
                 payload["config_entry_id"]=config_id
@@ -248,18 +245,18 @@ class ReliableNotifyManager:
         prepared=dict(payload)
         tokens={name:make_token(self.callback_secret,key,name)
                 for name in ("ack","snooze","escalate")}
+        # Button titles follow the HA system language; the signed tokens stay unchanged.
+        titles={name:ha_text(self.hass,name) for name in tokens}
         if action.startswith("notify.mobile_app_"):
             native=dict(prepared.get("data") or {})
             native.setdefault("actions",[
-                {"action":tokens["ack"],"title":"Bestätigen"},
-                {"action":tokens["snooze"],"title":"15 Min. später"},
-                {"action":tokens["escalate"],"title":"Eskalieren"},
+                {"action":tokens[name],"title":titles[name]} for name in ("ack","snooze","escalate")
             ])
             prepared["data"]=native
         elif action=="telegram_bot.send_message":
             prepared.setdefault("inline_keyboard",[
-                "Bestätigen:"+tokens["ack"]+", 15 Min. später:"+tokens["snooze"],
-                "Eskalieren:"+tokens["escalate"],
+                titles["ack"]+":"+tokens["ack"]+", "+titles["snooze"]+":"+tokens["snooze"],
+                titles["escalate"]+":"+tokens["escalate"],
             ])
         return prepared
 
@@ -591,7 +588,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.2.1",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.3.0",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

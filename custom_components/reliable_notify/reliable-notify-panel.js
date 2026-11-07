@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.2.1 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.2.1';
+/* Reliable Notify Admin Panel 3.3.0 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.3.0';
 
 class ReliableNotifyPanel extends HTMLElement {
   constructor() {
@@ -75,12 +75,40 @@ class ReliableNotifyPanel extends HTMLElement {
     return this._hass.callWS({type:'reliable_notify/'+type,...other});
   }
   status(node,value,error=false){node.textContent=value;node.className=error?'error':'status';}
+  // Backend errors carry stable codes; show them in the HA language and keep technical details.
+  errorText(e){
+    const texts={unauthorized:'Nur für Home-Assistant-Administratoren.',not_loaded:'Reliable Notify ist nicht geladen.',
+      not_found:'Eintrag nicht gefunden. Bitte zuerst speichern.',not_managed:'Nur in dieser Oberfläche angelegte Einträge können gelöscht werden.',
+      bad_input:'Eingabe unvollständig.',invalid_input:'Ungültige Eingabe:',invalid_format:'Ungültige Eingabe:',
+      invalid_route:'Ungültige Zielkonfiguration:',invalid_label:'Anzeigename: 1–100 Zeichen, keine Steuerzeichen.',
+      invalid_profiles:'Ungültige Profile:',invalid_templates:'Ungültige Vorlagen:',invalid_recipients:'Ungültige Empfänger:',
+      invalid_policy:'Ungültige Wiederholungsregeln:',migration_failed:'Migration fehlgeschlagen:',
+      test_failed:'Test fehlgeschlagen. Zielkonfiguration und Diagnose prüfen.'};
+    const text=texts[e?.code];
+    if(!text)return e?.message||String(e);
+    return text.endsWith(':')&&e.message?this.t(text)+' '+e.message:this.t(text);
+  }
   async run(node, fn){
     const oldText=node.textContent;
     try {
       await fn();
       if(node.textContent===oldText)this.status(node,this.t('Erfolgreich'));
-    }catch(e){this.status(node,e.message||String(e),true);}
+    }catch(e){this.status(node,this.errorText(e),true);}
+  }
+  // Known route aliases with display names, for pickers in groups, people, profiles and wizards.
+  setRouteChoices(data){
+    const labels=data?.labels||{},names=new Set();
+    for(const kind of ['recipients','groups','persons'])for(const id of Object.keys(data?.routes?.[kind]||{}))names.add(id);
+    this._routeLabels=labels;this._routeChoices=[...names].sort().map(id=>[id,labels[id]||'']);
+  }
+  async loadRouteChoices(){
+    if(this._routeChoices)return;
+    try{this.setRouteChoices(await this.call('admin_inventory'));}catch(_){this._routeChoices=[];}
+  }
+  routeList(input){
+    const list=this.element('datalist');this._fieldId=(this._fieldId||0)+1;list.id='rn-routes-'+this._fieldId;
+    for(const [id,label] of this._routeChoices||[]){const option=this.element('option');option.value=id;if(label)option.label=label+' ('+id+')';list.append(option);}
+    input.setAttribute('list',list.id);return list;
   }
   fieldLabel(key){
     return ({action:this.t('HA-Aktion'),target_entity:this.t('Notify-Zielentität'),data:this.t('Transportparameter'),
@@ -131,18 +159,19 @@ class ReliableNotifyPanel extends HTMLElement {
     parent.addEventListener('input',refresh);parent.addEventListener('change',refresh);
     return refresh;
   }
-  fieldEditor(initial,{defaults={},fixed=false,key='',choices=null}={}){
+  fieldEditor(initial,{defaults={},fixed=false,key='',choices=null,routes=false,valueKind=null}={}){
     const host=this.element('div',null,'field-editor');
     if(initial===null||typeof initial!=='object'){
       const enums={priority:['info','warning','critical'],archive:['keep','delete_after_send'],
         strategy:['always','replace','digest'],test_mode:['off','stage']};
+      const kind=valueKind||(Object.hasOwn(enums,key)?key:null);
       const entityDomain=key==='target_entity'?'notify':key==='entity'?'person':null;
       const entities=entityDomain?Object.keys(this._hass?.states||{}).filter(id=>id.startsWith(entityDomain+'.')).sort():[];
       const options=entityDomain?['',...new Set([...entities,...(initial?[initial]:[])])]:choices||enums[key];
       const input=this.element(options?'select':key==='message'||(typeof initial==='string'&&initial.includes('\n'))?'textarea':'input');
       if(options){for(const value of new Set([...options,initial])){
         const entity=this._hass?.states?.[value];
-        const label=entityDomain?(value?(entity?.attributes?.friendly_name?entity.attributes.friendly_name+' — '+value:value):this.t('Entität auswählen (optional)')):this.t(String(value));
+        const label=entityDomain?(value?(entity?.attributes?.friendly_name?entity.attributes.friendly_name+' — '+value:value):this.t('Entität auswählen (optional)')):kind?rnValueLabel(this._hass,kind,value):this.t(String(value));
         const opt=this.element('option',label);opt.value=value;input.append(opt);}}
       const type=initial===null?'null':typeof initial;
       if(!options&&input.tagName==='INPUT')input.type=type==='boolean'?'checkbox':type==='number'?'number':
@@ -154,6 +183,7 @@ class ReliableNotifyPanel extends HTMLElement {
         base_seconds:[1,3600],max_delay:[1,86400]};
       if(numeric[key]){[input.min,input.max]=numeric[key];input.step='1';}
       host.append(input);
+      if(routes&&!options&&input.tagName==='INPUT'&&type==='string')host.append(this.routeList(input));
       if(entityDomain){
         host.append(this.element('p',this.t(entityDomain==='person'?'Vorhandene person.*-Entität auswählen.':'Vorhandene Notify-Entitäten durchsuchen. Klassische notify.mobile_app_* Ziele werden unter HA-Aktion ausgewählt.'),'muted'));
         if(!entities.length)host.append(this.element('p',this.t(entityDomain==='person'?'Keine passenden person.*-Entitäten gefunden.':'Keine passenden Entitäten gefunden. Klassische Notify-Ziele unter HA-Aktion auswählen.'),'muted'));
@@ -184,7 +214,11 @@ class ReliableNotifyPanel extends HTMLElement {
       if(!array&&rows.some(r=>r.name===name))throw Error(this.t('Feld existiert bereits'));
       const row=this.element('div',null,'field-row');
       const label=this.element('label',array?this.t('Eintrag'):this.fieldLabel(name));rnDecorate(label,array?'mdi:format-list-bulleted':this.fieldIcon(name),'slate');
-      const child=this.fieldEditor(value,{key:array?'':name,fixed:fixed&&value!==null&&typeof value==='object'&&!Array.isArray(value),choices:key==='transport_logging'?['off','error','warning','info','debug']:key==='allow_priorities'?['info','warning','critical']:null,defaults:!array&&name==='preferred'
+      // Lists of recipients and person channels offer known targets with their display names.
+      const childRoutes=array||key==='channels'?routes:['channels','recipients'].includes(name);
+      const child=this.fieldEditor(value,{key:array?'':name,routes:childRoutes,
+        valueKind:key==='transport_logging'?'level':key==='allow_priorities'?'priority':null,
+        fixed:fixed&&value!==null&&typeof value==='object'&&!Array.isArray(value),choices:key==='transport_logging'?['off','error','warning','info','debug']:key==='allow_priorities'?['info','warning','critical']:null,defaults:!array&&name==='preferred'
         ?{info:[],warning:[],critical:[]}:!array&&name==='data'
         ?{chat_id:0,config_entry_id:'',entity_id:'',base_url:'',allow_private:false,url:'',topic:'',token:'',headers:{},method:'POST',parse_mode:'HTML',disable_notification:false}
         :!array&&name==='only_if'?{entity_id:'',state:''}:{}});
@@ -326,53 +360,70 @@ class ReliableNotifyPanel extends HTMLElement {
     const status=this.element('p',this.t('Empfänger werden geladen …'));box.append(status);
     try{
       const data=await this.call('admin_inventory');status.remove();
+      this.setRouteChoices(data);
+      const labels=data.labels||{};
       for(const [category,label,kind] of [['recipients',this.t('Ziele / Empfänger'),'recipient'],['groups',this.t('Gruppen'),'group'],['persons',this.t('Personen'),'person']]){
         const section=this.element('section',null,'panel');
         const heading=this.heading(label,category==='recipients'?'mdi:send-check':category==='groups'?'mdi:account-group':'mdi:account',category==='recipients'?'blue':category==='groups'?'purple':'teal');section.append(heading);
         const inventory=this.element('div',null,'tabs');section.append(inventory);
-        const name=this.element('input');name.placeholder=this.t('Eindeutiger Name');
+        // Display name (free text) first; the internal alias is suggested from it.
+        const display=this.element('input');display.name='route_label';display.placeholder=this.t('z. B. Telegram Wolfgang');display.maxLength=100;
+        const displayHint=this.element('p',this.t('Frei wählbarer Name mit Leerzeichen, Umlauten und Sonderzeichen (höchstens 100 Zeichen). Er erscheint in Listen und als Name der Notify-Entität.'),'muted');
+        const name=this.element('input');name.name='route_id';name.placeholder=this.t('Eindeutiger Name');
         name.maxLength=64;name.pattern='[a-z][a-z0-9_]{0,63}';
-        const hint=this.element('p',this.t('Interner Name: 1–64 Zeichen, mit Kleinbuchstaben beginnen; nur a–z, 0–9 und Unterstriche (_). Beispiel: rn_kw_telegram. Großbuchstaben, Leerzeichen und Bindestriche sind nicht erlaubt.'),'muted');
-        this._fieldId=(this._fieldId||0)+1;hint.id='rn-name-help-'+this._fieldId;name.setAttribute('aria-describedby',hint.id);
+        const hint=this.element('p',this.t('Interner Name: 1–64 Zeichen, mit Kleinbuchstaben beginnen; nur a–z, 0–9 und Unterstriche (_). Beispiel: rn_kw_telegram. Großbuchstaben, Leerzeichen und Bindestriche sind nicht erlaubt.')+' '+
+          this.t('Wird beim Anlegen automatisch aus dem Anzeigenamen vorgeschlagen und danach nicht mehr geändert. Automationen verwenden diesen Namen; die Entität heißt notify.reliable_<ID>.'),'muted');
+        for(const [input,help] of [[display,displayHint],[name,hint]]){this._fieldId=(this._fieldId||0)+1;input.id='rn-route-input-'+this._fieldId;help.id='rn-name-help-'+this._fieldId;input.setAttribute('aria-describedby',help.id);}
         const editorBox=this.element('div');let editor;
-        let loaded=null,selectedTest=null;
-        const draw=value=>{editor=this.fieldEditor(value,{defaults:this.fieldDefaults(kind)});editorBox.replaceChildren(editor.node);section.dispatchEvent(new Event('input',{bubbles:true}));};
-        const reset=()=>{loaded=null;if(selectedTest)selectedTest.disabled=true;name.value='';draw(category==='groups'?[]:category==='persons'
+        // autoId: last suggested alias; a different value means the admin typed an own ID.
+        let loaded=null,selectedTest=null,autoId='';
+        const draw=value=>{editor=this.fieldEditor(value,{defaults:this.fieldDefaults(kind),routes:category==='groups'});editorBox.replaceChildren(editor.node);section.dispatchEvent(new Event('input',{bubbles:true}));};
+        const reset=()=>{loaded=null;autoId='';if(selectedTest)selectedTest.disabled=true;name.value='';display.value='';draw(category==='groups'?[]:category==='persons'
           ?{entity:'',channels:{},preferred:{}}:{action:'notify.send_message',target_entity:'',data:{}});};
         reset();
+        display.addEventListener('input',()=>{if(!loaded&&name.value===autoId){autoId=rnSlug(display.value);name.value=autoId;name.dispatchEvent(new Event('input',{bubbles:true}));}});
         const result=this.element('p');result.setAttribute('role','status');
         for(const id of Object.keys(data.routes[category]||{})){
           const item=this.element('div',null,'route-item');const testResult=this.element('p');testResult.setAttribute('role','status');
           const test=this.actionButton(this.t('Test senden'),'mdi:bell-ring-outline','test');
           test.addEventListener('click',()=>this.testTarget(category,id,test,testResult));
-          const button=this.actionButton(id,'mdi:pencil-outline');button.addEventListener('click',()=>this.run(result,async()=>{
+          const button=this.actionButton(rnRouteLabel(labels,id),'mdi:pencil-outline');button.dataset.route=id;
+          button.addEventListener('click',()=>this.run(result,async()=>{
             const response=await this.call('route_definition',{category,name:id});
-            name.value=id;loaded=id;draw(response.definition);selectedTest.disabled=false;
+            name.value=id;display.value=labels[id]||'';loaded=id;draw(response.definition);selectedTest.disabled=false;
           }));item.append(button,test,testResult);inventory.append(item);
         }
         const fresh=this.actionButton(category==='recipients'?this.t('Neues Ziel anlegen'):category==='groups'?this.t('Neue Gruppe anlegen'):this.t('Neue Person anlegen'),'mdi:plus','primary');fresh.addEventListener('click',()=>{reset();selectedTest.disabled=true;});inventory.append(fresh);
         section.append(this.element('p',this.t('Test senden verschickt eine echte Nachricht über die gespeicherte Konfiguration. Testmodus und Ruhezeiten bleiben aktiv. Bei Gruppen und Personen können mehrere Empfänger erreicht werden.'),'test-hint'));
-        section.append(rnDecorate(this.element('label','Name'),'mdi:tag-text-outline','slate'),name,hint,editorBox);
+        const displayLabel=rnDecorate(this.element('label',this.t('Anzeigename (Klarname)')),'mdi:card-account-details-outline','slate');displayLabel.htmlFor=display.id;
+        const nameLabel=rnDecorate(this.element('label',this.t('Interner Name (ID)')),'mdi:tag-text-outline','slate');nameLabel.htmlFor=name.id;
+        section.append(displayLabel,display,displayHint,nameLabel,name,hint,editorBox);
         const save=this.actionButton(this.t('Speichern'),'mdi:content-save-outline','primary');save.addEventListener('click',()=>this.run(result,async()=>{
           name.value=name.value.trim();
           if(!/^[a-z][a-z0-9_]{0,63}$/.test(name.value)){
-            const example=name.value.toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^[^a-z]+/,'').slice(0,64)||'rn_kw_telegram';
+            const example=rnSlug(name.value)||'rn_kw_telegram';
             name.setAttribute('aria-invalid','true');name.focus();
             throw Error(this.t('Ungültiger interner Name „{name}“. Nur Kleinbuchstaben, Ziffern und Unterstriche; mit einem Buchstaben beginnen, maximal 64 Zeichen. Beispiel: {example}.',{name:name.value,example}));
           }
           name.removeAttribute('aria-invalid');
+          const shown=display.value.trim();
+          if(shown.length>100)throw Error(this.t('Anzeigename: höchstens 100 Zeichen.'));
           if(loaded&&name.value!==loaded)throw Error(this.t('Zum Umbenennen neuen Eintrag anlegen und den alten gezielt löschen.'));
-          await this.call('set_route',{category,name:name.value,definition:editor.read()});
-          loaded=name.value;selectedTest.disabled=false;this.status(result,this.t('Gespeichert. Zum Aktualisieren der Liste diesen Bereich erneut öffnen.'));
+          await this.call('set_route',{category,name:name.value,definition:editor.read(),label:shown});
+          this._routeChoices=null;
+          loaded=name.value;labels[name.value]=shown;selectedTest.disabled=false;this.status(result,this.t('Gespeichert. Zum Aktualisieren der Liste diesen Bereich erneut öffnen.'));
         }));
         const remove=this.actionButton(this.t('Eintrag löschen'),'mdi:delete-outline','danger');remove.addEventListener('click',()=>this.run(result,async()=>{
           if(!confirm(this.t('UI-Eintrag ')+name.value+this.t(' löschen?')))return;
-          await this.call('set_route',{category,name:name.value,delete:true});reset();
+          await this.call('set_route',{category,name:name.value,delete:true});this._routeChoices=null;reset();
         }));
         selectedTest=this.actionButton(this.t('Gespeichertes Ziel testen'),'mdi:bell-ring-outline','test');selectedTest.disabled=true;
         selectedTest.addEventListener('click',()=>this.testTarget(category,loaded,selectedTest,result));
         name.addEventListener('input',()=>{selectedTest.disabled=!loaded||name.value!==loaded;});
-        section.append(save,selectedTest,remove,result);this.yamlView(section,()=>({[category]:{[name.value||'neuer_eintrag']:editor.read()}}));box.append(section);
+        section.append(save,selectedTest,remove,result);this.yamlView(section,()=>{
+          const id=name.value||rnSlug(display.value)||'neuer_eintrag',shown=display.value.trim();
+          return {[category]:{[id]:editor.read()},...(shown&&shown!==id?{labels:{[id]:shown}}:{})};
+        });box.append(section);
       }
     }catch(e){this.status(status,e.message,true);if(!status.parentNode)box.append(status);}
   }
@@ -384,7 +435,7 @@ class ReliableNotifyPanel extends HTMLElement {
       list.replaceChildren();
       for(const item of d.acknowledgements||[]){
         const row=this.element('div',null,'panel');
-        row.append(this.element('b',(item.title||item.ack_key)+' • '+item.priority));
+        row.append(this.element('b',(item.title||item.ack_key)+' • '+rnValueLabel(this._hass,'priority',item.priority)));
         row.append(this.element('p',this.t('ID: ')+item.ack_key+this.t(' | Eskalationsstufe: ')+item.next_step));
         const status=this.element('p');
         for(const [action,label] of [['ack',this.t('Bestätigen')],['snooze',this.t('15 Min. verschieben')],['escalate',this.t('Sofort eskalieren')]]){
@@ -400,9 +451,11 @@ class ReliableNotifyPanel extends HTMLElement {
       if(!(d.acknowledgements||[]).length)list.textContent=this.t('Keine offenen Bestätigungen.');
     }catch(e){list.textContent=e.message;}
     const wizard=this.element('div',null,'panel');wizard.append(this.heading(this.t('Testbare Eskalationskette anlegen'),'mdi:timeline-alert-outline','orange','h2'));
-    const key=this.element('input');key.placeholder='alarm_kennung';
-    const target=this.element('input');target.placeholder='initial_recipient';
-    const delayed=this.element('input');delayed.placeholder='fallback_recipient';
+    await this.loadRouteChoices();
+    const key=this.element('input');key.placeholder=this.t('z. B. fenster_offen');
+    const target=this.element('input');target.placeholder=this.t('Interner Zielname, z. B. telegram_wolfgang');
+    const delayed=this.element('input');delayed.placeholder=this.t('Interner Zielname, z. B. telegram_wolfgang');
+    wizard.append(this.routeList(target),this.routeList(delayed));
     const delay=this.element('input');delay.type='number';delay.value='300';
     const message=this.element('textarea');message.placeholder=this.t('Alarmtext');
     for(const [label,field] of [[this.t('Dedup-Schlüssel'),key],[this.t('Erster Empfänger'),target],
@@ -426,11 +479,11 @@ class ReliableNotifyPanel extends HTMLElement {
     const telegram=this.element('div',null,'panel');
     telegram.append(this.heading(this.t('Telegram: gesendete Nachricht bearbeiten / entfernen'),'mdi:send-circle-outline','blue','h2'));
     telegram.append(this.element('p',this.t('Erfordert bekannte telegram_sent-Nachrichtenkennung und passenden konfigurierten Chat. Direktaufruf ohne Queue-Retry.'),'muted'));
-    const route=this.element('input');route.placeholder=this.t('z.B. telegram_wolfgang');
+    const route=this.element('input');route.placeholder=this.t('z.B. telegram_wolfgang');telegram.append(this.routeList(route));
     const keyInput=this.element('input');keyInput.placeholder=this.t('Dedup-Schlüssel der versendeten Meldung');
     const edit=this.element('select');for(const action of ['edit','delete']){
-      const opt=this.element('option',action);opt.value=action;edit.append(opt);}
-    const msg=this.element('textarea');msg.placeholder=this.t('Neuer Nachrichtentext (nur bei edit)');
+      const opt=this.element('option',rnValueLabel(this._hass,'operation',action));opt.value=action;edit.append(opt);}
+    const msg=this.element('textarea');msg.placeholder=this.t('Neuer Nachrichtentext (nur beim Bearbeiten)');
     telegram.append(this.element('label',this.t('Reliable-Notify-Telegram-Empfänger')),route,
       this.element('label',this.t('Dedup-Schlüssel')),keyInput,
       this.element('label',this.t('Aktion')),edit,this.element('label',this.t('Neue Nachricht')),msg);
@@ -448,6 +501,7 @@ class ReliableNotifyPanel extends HTMLElement {
   async simulation(box){
     const wrapper=this.element('div',null,'panel');wrapper.append(this.heading(this.t('Simulation ohne Versand'),'mdi:flask-outline','purple','h2'));
     wrapper.append(this.element('p',this.t('Zeigt Routing, Aufbewahrung und Ruhezeiten an. Keine Queue-Einträge oder Push-Nachrichten.'),'muted'));
+    await this.loadRouteChoices();
     const editor=this.fieldEditor({recipients:['wolfgang_phone'],priority:'warning',
       message_type:'windows',message:this.t('Fenster seit 90 Minuten offen')},{defaults:this.fieldDefaults('template')});
     const result=this.element('pre');
@@ -513,6 +567,7 @@ class ReliableNotifyPanel extends HTMLElement {
     const status=this.element('p',this.t('Lade …'));section.append(status);
     try{
       const data=await this.call(load);
+      await this.loadRouteChoices();
       const defaults=this.fieldDefaults(kind);
       const rows=[];const body=this.element('div');section.append(body);
       const add=(name,value)=>{

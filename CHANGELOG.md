@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.3.0
+- Add optional display names (Klarnamen) for targets, groups and people: free text up to 100 characters, edited in the admin panel or under `labels` in `reliable_notify_routes.yaml`. The internal name is suggested from the display name when creating an entry and stays the routing key.
+- Show display names in the target list, in group/person/profile/escalation pickers, in the card's staged-message assignment, in real test notifications and as the friendly name of route notify entities. Entity IDs stay `notify.reliable_<internal name>`.
+- Localize the remaining backend texts: Companion/Telegram action buttons and Telegram callback answers follow the HA system language (German for `de`, otherwise English).
+- Translate select values in HA forms and actions (priority, media, archive, strategy, test mode, Telegram operation, log level) and in the panel/card (including message status), keeping stored values unchanged.
+- Show admin-panel backend errors in German or English based on their error codes, keeping technical details.
+- Make the Python test suite pass on Windows (test-only SQLite handles, `os.fchmod` fallback).
+
 ## 3.2.1
 - Add semantic icons and section colours to all nine navigation entries, plus an explicit active-page marker and keyboard focus styling.
 - Add icons to panel headings, form groups, YAML previews and every action, preserving German/English labels and user-defined values.

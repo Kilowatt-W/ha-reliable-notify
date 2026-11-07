@@ -390,5 +390,54 @@
         }
       }
     }
+  },
+  "selector": {
+    "priority": {
+      "options": {
+        "info": "Information",
+        "warning": "Warnung",
+        "critical": "Kritisch"
+      }
+    },
+    "media": {
+      "options": {
+        "text": "Text",
+        "photo": "Foto"
+      }
+    },
+    "archive": {
+      "options": {
+        "keep": "Im Archiv behalten",
+        "delete_after_send": "Nach Zustellung löschen"
+      }
+    },
+    "strategy": {
+      "options": {
+        "always": "Immer senden",
+        "replace": "Wartende Nachricht ersetzen",
+        "digest": "Zu Sammelnachricht bündeln"
+      }
+    },
+    "test_mode": {
+      "options": {
+        "off": "Aus (normal zustellen)",
+        "stage": "Nur zurückstellen (nicht senden)"
+      }
+    },
+    "operation": {
+      "options": {
+        "edit": "Bearbeiten",
+        "delete": "Löschen"
+      }
+    },
+    "log_level": {
+      "options": {
+        "off": "Aus",
+        "error": "Fehler",
+        "warning": "Warnungen",
+        "info": "Information",
+        "debug": "Debug"
+      }
+    }
   }
 }

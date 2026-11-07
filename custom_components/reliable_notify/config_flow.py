@@ -18,6 +18,13 @@ def number(low, high):
     return vol.All(vol.Coerce(int), vol.Range(min=low, max=high))
 
 
+def choice(options, translation_key, multiple=False):
+    """Dropdown whose option labels come from the 'selector' translations (DE/EN)."""
+    return selector.SelectSelector(selector.SelectSelectorConfig(
+        options=list(options), multiple=multiple, translation_key=translation_key,
+        mode=selector.SelectSelectorMode.DROPDOWN))
+
+
 def optional_target(value=None):
     """Do not suggest an invalid empty entity to HA's form control."""
     description = {'suggested_value': value} if value else {}
@@ -99,8 +106,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Required('enabled', default=smart['enabled']): bool,
             vol.Required('start', default=smart['start']): str,
             vol.Required('end', default=smart['end']): str,
-            vol.Required('allow_priorities', default=smart['allow_priorities']): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=['info', 'warning', 'critical'], multiple=True)),
+            vol.Required('allow_priorities', default=smart['allow_priorities']): choice(
+                ['info', 'warning', 'critical'], 'priority', multiple=True),
             vol.Required('rate_limit_per_minute', default=smart['rate_limit_per_minute']): number(1, 1000),
             vol.Required('digest_window_seconds', default=smart['digest_window_seconds']): number(10, 3600),
         })
@@ -115,14 +122,14 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         add('retention', {vol.Required(key, default=value): number(0, 365) for key, value in retention.items()})
         testing = {**current, **submitted.get('testing', {})}
         add('testing', {
-            vol.Required('test_mode', default=testing.get('test_mode', 'off')): vol.In(['off', 'stage']),
+            vol.Required('test_mode', default=testing.get('test_mode', 'off')): choice(['off', 'stage'], 'test_mode'),
             vol.Optional('test_recipients', default=(testing.get('test_recipients', '') if 'testing' in submitted
                 else ','.join(current.get('test_recipients', [])))): str,
             vol.Required('backup_enabled', default=testing.get('backup_enabled', True)): bool,
             vol.Required('backup_keep', default=testing.get('backup_keep', 3)): number(1, 20),
         })
         logs = {**current.get('transport_logging', {}), **submitted.get('logging', {})}
-        add('logging', {vol.Required(key, default=logs.get(key, 'warning')): vol.In(LEVELS) for key in TRANSPORTS})
+        add('logging', {vol.Required(key, default=logs.get(key, 'warning')): choice(LEVELS, 'log_level') for key in TRANSPORTS})
         schema[vol.Optional('show_yaml', default=False)] = bool
         return self.async_show_form(step_id='init', errors=errors, data_schema=vol.Schema(schema))
 

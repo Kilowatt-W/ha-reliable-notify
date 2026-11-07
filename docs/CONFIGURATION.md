@@ -6,14 +6,20 @@
 2. Install the latest published release and restart HA Core.
 3. Add Reliable Notify under Settings → Devices & services. **Default Notify is optional**.
 4. Open the **Reliable Notify** sidebar panel (admin only).
-5. Open **Ziele & Personen → Ziele / Empfänger → Neues Ziel anlegen**. Enter a unique alias, HA action and (if required) target entity or transport parameters, then click **Speichern**. Use this alias in `recipients`. The **Einstellungen** tab also has a direct **Neues Ziel anlegen** button.
+5. Open **Ziele & Personen → Ziele / Empfänger → Neues Ziel anlegen** (English: **Targets & people → Targets / recipients → Create new target**). Enter a free **display name** (Klarname, e.g. `Telegram Wölfi – Büro`); the **internal name (ID)** is suggested from it (`telegram_woelfi_buero`) and can be adjusted before the first save. Then choose the HA action and (if required) target entity or transport parameters and click **Speichern / Save**. Use the internal name in `recipients`; the display name appears in lists, pickers and as the name of the notify entity `notify.reliable_<ID>`. The **Einstellungen** tab also has a direct **Neues Ziel anlegen** button.
 6. The default notify entity remains optional in setup and options; clear the selection to remove an existing fallback.
 7. Set up recipients. The panel lists Companion notify services and `person.*` entities detected by HA.
 8. To migrate existing automations, replace direct notify actions with `reliable_notify.enqueue` and explicitly list recipient aliases.
 
 ## Recipient examples
 
-The optional `/config/reliable_notify_routes.yaml` supports `recipients`, `groups` and `persons`. UI-managed definitions override names in the YAML file; do not store the same name in several categories.
+The optional `/config/reliable_notify_routes.yaml` supports `recipients`, `groups`, `persons` and optional `labels` (display names, 1–100 characters, no line breaks). UI-managed definitions and display names override names in the YAML file; do not store the same name in several categories. Display names never change routing: automations always use the internal name, and the entity ID stays `notify.reliable_<internal name>` when the display name changes.
+
+```yaml
+labels:
+  telegram: "Telegram Wölfi – Büro"
+  family: "Familie & Freunde"
+```
 
 ```yaml
 recipients:
