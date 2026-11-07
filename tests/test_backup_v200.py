@@ -1,5 +1,6 @@
 """Online backup integrity, WAL capture, retention tests."""
 import importlib.util
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -24,7 +25,7 @@ class BackupTests(unittest.IsolatedAsyncioTestCase):
             saved=Path(td)/"backups"/result["filename"]
             self.assertTrue(saved.is_file())
             self.assertEqual(result["integrity"],"ok")
-            with sqlite3.connect(saved) as db:
+            with closing(sqlite3.connect(saved)) as db, db:
                 self.assertEqual(db.execute("SELECT message FROM messages WHERE id=?",(ident,)).fetchone()[0],"queued alert")
                 self.assertEqual(db.execute("PRAGMA quick_check(1)").fetchone()[0],"ok")
 

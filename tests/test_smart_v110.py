@@ -1,5 +1,6 @@
 """v1.1 smart notification regression tests."""
 import importlib.util
+from contextlib import closing
 import tempfile
 import time
 import unittest
@@ -64,7 +65,7 @@ class DigestTests(unittest.IsolatedAsyncioTestCase):
             [ident]=await q.enqueue_many([source],100)
             await q.enqueue_many([{**source,"message":"latest"}],100)
             import sqlite3
-            with sqlite3.connect(q.path) as db:
+            with closing(sqlite3.connect(q.path)) as db, db:
                 row=db.execute("SELECT payload_json FROM messages WHERE id=?",(ident,)).fetchone()
             data=json.loads(row[0])
             self.assertIn("rn_message="+str(ident),data["data"]["clickAction"])

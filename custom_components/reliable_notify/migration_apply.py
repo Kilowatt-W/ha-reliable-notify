@@ -108,7 +108,11 @@ def _apply_sync(config_dir,filename,file_hash,node_path,routes,confirmation):
     fd,temp=tempfile.mkstemp(prefix="."+path.name+".",dir=path.parent)
     try:
         with os.fdopen(fd,"wb") as f:
-            os.fchmod(f.fileno(),path.stat().st_mode & 0o777)
+            mode=path.stat().st_mode & 0o777
+            if hasattr(os,"fchmod"):
+                os.fchmod(f.fileno(),mode)
+            else:  # Windows (development only); HA itself runs on POSIX.
+                os.chmod(temp,mode)
             f.write(new.encode("utf8"))
             f.flush();os.fsync(f.fileno())
         # Revalidate checksum immediately before atomic replacement.

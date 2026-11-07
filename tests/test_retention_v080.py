@@ -1,5 +1,6 @@
 """Archive retention v0.8.0 regression tests."""
 import importlib.util
+from contextlib import closing
 import tempfile
 import time
 import unittest
@@ -70,7 +71,7 @@ class ArchiveStoreRetentionTests(unittest.IsolatedAsyncioTestCase):
             await queue.succeeded(message_id)
             self.assertEqual((await queue.archive_detail(message_id))["message_type"],"windows")
             self.assertEqual((await queue.archive_detail(message_id))["retention_days"],2)
-            with sqlite3.connect(queue.path) as db:
+            with closing(sqlite3.connect(queue.path)) as db, db:
                 db.execute("UPDATE message_archive SET updated_at=? WHERE id=?",
                            (time.time()-3*86400,message_id))
                 db.commit()
@@ -100,7 +101,7 @@ class ArchiveStoreRetentionTests(unittest.IsolatedAsyncioTestCase):
     async def test_legacy_archive_migration(self):
         with tempfile.TemporaryDirectory() as td:
             path=Path(td)/"q.db"
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("""CREATE TABLE message_archive (
                     id INTEGER PRIMARY KEY,title TEXT,message TEXT,target TEXT,
                     action TEXT,priority TEXT,status TEXT,created_at REAL,

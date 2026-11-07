@@ -1,5 +1,6 @@
 """Maintenance checks: noncritical expiry, critical preservation and DB probes."""
 import importlib.util
+from contextlib import closing
 import tempfile
 import unittest
 import sqlite3
@@ -23,7 +24,7 @@ class MaintenanceTest(unittest.IsolatedAsyncioTestCase):
                     priority=priority,ttl=0,payload={})],100)
                 await q.failed(ident,1,"authentication",10,permanent=True)
                 ids.append(ident)
-            with sqlite3.connect(q.path) as con:
+            with closing(sqlite3.connect(q.path)) as con, con:
                 con.execute("UPDATE dead_letters SET failed_at=?",(time.time()-45*86400,))
             result=await q.maintenance(30)
             self.assertEqual(result["removed_dead_letters"],2)

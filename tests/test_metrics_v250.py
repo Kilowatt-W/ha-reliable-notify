@@ -1,5 +1,6 @@
 """Long term delivery series and SQLite query index tests."""
 import importlib.util
+from contextlib import closing
 import sqlite3
 import tempfile
 import time
@@ -24,7 +25,7 @@ class MetricTests(unittest.IsolatedAsyncioTestCase):
             recent=await q.long_term_statistics()
             self.assertTrue(recent)
             self.assertEqual(recent[0]["sent"],1)
-            with sqlite3.connect(q.path) as db:
+            with closing(sqlite3.connect(q.path)) as db, db:
                 db.execute("DELETE FROM delivery_history")
             q=module.QueueStore(q.path)
             retained=await q.long_term_statistics()
@@ -35,7 +36,7 @@ class MetricTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as td:
             q=module.QueueStore(Path(td)/"q.db")
             await q.count()  # Database schema/indexes are created lazily.
-            with sqlite3.connect(q.path) as db:
+            with closing(sqlite3.connect(q.path)) as db, db:
                 names={row[1] for row in db.execute("PRAGMA index_list(messages)")}
                 self.assertIn("idx_queue_dedup_route",names)
             with self.assertRaises(ValueError):

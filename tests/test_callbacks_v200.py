@@ -1,6 +1,8 @@
 """Reliable Notify v2.0 signed actions and crash-safe escalation tests."""
 import asyncio
 import importlib.util
+import sqlite3
+from contextlib import closing
 import tempfile
 import time
 import unittest
@@ -58,7 +60,7 @@ class EscalationTransactionTest(unittest.IsolatedAsyncioTestCase):
             jobs=await store.due_escalations(now=time.time()+20)
             self.assertEqual(len(jobs),1)
             # Force the time condition without waiting for 15 seconds.
-            with __import__("sqlite3").connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("UPDATE acknowledgements SET created_at=created_at-60")
             store=QueueStore(path)
             prepared=[("fallback",{"action":"notify.mobile_app_phone","data":{}})]
@@ -85,7 +87,7 @@ class EscalationTransactionTest(unittest.IsolatedAsyncioTestCase):
             path=Path(tmp)/"queue.db"
             q=QueueStore(path)
             await q.enqueue_many([incident()],100)
-            with __import__("sqlite3").connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("UPDATE acknowledgements SET created_at=created_at-60")
             [escalation_id]=await q.enqueue_escalation_atomic(
                 "critical_alarm",0,[("fallback",{"action":"notify.mobile_app_phone","data":{}})])
@@ -116,7 +118,7 @@ class EscalationTransactionTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store=QueueStore(Path(tmp)/"queue.db")
             await store.enqueue_many([incident()],100)
-            with __import__("sqlite3").connect(store.path) as db:
+            with closing(sqlite3.connect(store.path)) as db, db:
                 db.execute("UPDATE acknowledgements SET created_at=created_at-60")
             with self.assertRaises(ValueError):
                 await store.enqueue_escalation_atomic("critical_alarm",0,

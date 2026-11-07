@@ -1,5 +1,6 @@
 """Standalone tests (no HA runtime) for queue lanes, photo cache and migration."""
 import importlib.util
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -54,7 +55,7 @@ class ReliableNotifyV04Tests(unittest.IsolatedAsyncioTestCase):
 
     async def test_upgrade_old_db(self):
         await self.db.enqueue('old',None,'t','info',0,None,'always',10)
-        with sqlite3.connect(self.db.path) as con:
+        with closing(sqlite3.connect(self.db.path)) as con, con:
             self.assertIn('media_path', [row[1] for row in con.execute('PRAGMA table_info(messages)')])
             self.assertIn('media_path', [row[1] for row in con.execute('PRAGMA table_info(dead_letters)')])
 

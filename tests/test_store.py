@@ -1,5 +1,6 @@
 """Run: python -m unittest discover -s tests -v (from repo root)."""
 import importlib.util
+from contextlib import closing
 import tempfile
 import unittest
 from pathlib import Path
@@ -94,7 +95,7 @@ class QueueStoreTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_schema_migration(self):
         import sqlite3
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute('''CREATE TABLE messages (
               id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL,
               title TEXT, target TEXT NOT NULL, priority TEXT NOT NULL,
