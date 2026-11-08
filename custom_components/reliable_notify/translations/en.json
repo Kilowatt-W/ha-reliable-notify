@@ -108,7 +108,8 @@
       }
     },
     "error": {
-      "invalid_options": "Invalid settings: check numeric ranges, times and retry delays."
+      "invalid_options": "Invalid settings: check numeric ranges, times and retry delays.",
+      "own_entity": "A Reliable Notify entity cannot be the default target – it would send every message back into the queue. Choose the notify entity of the real device or service."
     }
   },
   "entity": {

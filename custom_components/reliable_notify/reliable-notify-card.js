@@ -950,6 +950,11 @@ RN_TRANSLATIONS.push(...[
   ['Aktion wurde in der Datei nicht gefunden – bitte erneut analysieren.','The action was not found in the file – please analyse again.'],
   ['Diese Stelle ist keine einzelne Notify-Aktion.','This location is not a single notify action.'],
   ['YAML-Syntaxfehler in der Datei.','YAML syntax error in the file.'],
+  ['Eine Reliable-Notify-Entität kann kein Ziel sein (Endlosschleife). Bitte die Notify-Entität des eigentlichen Geräts wählen.','A Reliable Notify entity cannot be a target (endless loop). Please choose the notify entity of the actual device.'],
+  ['Buttons, Bilder und Zusatzdaten je Transport','Buttons, images and extra data per transport'],
+  ['Kopieren','Copy'],
+  ['Kopiert','Copied'],
+  ['Kopieren nicht möglich – Text markieren','Copy not possible – select the text'],
 ]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
@@ -989,7 +994,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.3.1 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.3.2 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

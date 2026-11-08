@@ -357,6 +357,37 @@ test('automation check shows translated reasons, skipped files and file errors',
   }
 });
 
+test('own Reliable Notify entities and services are never offered as targets',()=>{
+  const {panel,box}=setup();
+  panel._hass.states={'notify.mail':{attributes:{friendly_name:'Mail'}},'notify.reliable_mail':{attributes:{friendly_name:'Reliable mail'}},
+    'notify.renamed':{attributes:{friendly_name:'Renamed'}},'notify.registry_own':{attributes:{friendly_name:'Own'}}};
+  panel._hass.entities={'notify.registry_own':{platform:'reliable_notify'},'notify.mail':{platform:'smtp'}};
+  panel._hass.services={notify:{reliable_mail:{name:'Reliable'},mobile_app_phone:{name:'Phone'}}};
+  panel.setRouteChoices({routes:{recipients:{},groups:{},persons:{}},own_entities:['notify.renamed']});
+  const editor=panel.fieldEditor({action:'notify.send_message',target_entity:''});box.append(editor.node);
+  assert.deepEqual([...control(box,'Notify-Zielentität').options].map(o=>o.value),['','notify.mail']);
+  assert.deepEqual([...box.querySelectorAll('datalist option')].map(o=>o.value),['notify.mobile_app_phone']);
+});
+
+test('target help explains buttons and images per transport with copyable examples',async()=>{
+  for(const [language,notes,example,copy] of [['de','Buttons, Bilder und Zusatzdaten je Transport','Telegram: Kamerabild senden','Kopieren'],
+    ['en','Buttons, images and extra data per transport','Telegram: send a camera picture','Copy']]){
+    const {panel}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}}});
+    panel._hass.language=language;panel._section='routes';panel.render();await tick();
+    const help=panel.shadowRoot.querySelector('details.rn-help');
+    assert.equal(help.querySelector('h4').textContent,notes);
+    assert.ok([...help.querySelectorAll('.rn-example-title')].some(p=>p.textContent.startsWith(example)));
+    const codes=[...help.querySelectorAll('.rn-code pre')].map(p=>p.textContent);
+    assert.ok(codes.some(c=>/inline_keyboard/.test(c)));assert.ok(codes.some(c=>/actions:\n\s+- action: TUER_OEFFNEN/.test(c)));
+    assert.ok(codes.some(c=>/media: photo/.test(c)&&/file: \/media\/haustuer\.jpg/.test(c)));
+    assert.ok(codes.some(c=>/image: \/media\/local\//.test(c)));
+    const buttons=[...help.querySelectorAll('.rn-code button')];
+    assert.equal(buttons.length,codes.length);assert.equal(buttons[0].textContent,copy);
+    buttons[0].click();await tick();
+    assert.notEqual(buttons[0].textContent,copy); // clipboard is unavailable in jsdom: a hint replaces the label
+  }
+});
+
 test('saved-target test is disabled until saving and uses persisted alias in English',async()=>{
   const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
     test_route:{ids:[7],not_before:0},archive_detail:{id:7,status:'sent'}});

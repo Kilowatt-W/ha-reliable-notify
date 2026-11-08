@@ -19,6 +19,18 @@ def valid_label(value):
             and not any(ord(char) < 32 or ord(char) == 127 for char in value))
 
 
+OWN_ENTITY_PREFIX = "notify.reliable_"
+
+
+def is_own_entity(entity_id, own=()):
+    """True for notify entities created by Reliable Notify itself.
+
+    Sending to them would enqueue the message again (endless loop). ``own``
+    holds registry entity IDs, so renamed entities are recognised as well.
+    """
+    return isinstance(entity_id, str) and (entity_id.startswith(OWN_ENTITY_PREFIX) or entity_id in own)
+
+
 def merge_routes(file_routes, ui_routes):
     """UI-defined routes and display names override YAML; labels only for existing routes."""
     merged = {kind: {**(file_routes.get(kind) or {}), **(ui_routes.get(kind) or {})}

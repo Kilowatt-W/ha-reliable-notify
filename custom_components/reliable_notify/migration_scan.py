@@ -34,7 +34,7 @@ def _failure(path, code, **extra):
     return {"file": path.name, "error_code": code, "error": ERRORS[code], "proposals": [], **extra}
 
 
-def _inspect_one(path, routes):
+def _inspect_one(path, routes, own_entities=frozenset()):
     if path.is_symlink():
         return _failure(path, "symlink")
     if not path.is_file():
@@ -57,7 +57,7 @@ def _inspect_one(path, routes):
     if not isinstance(parsed,(dict,list)):
         return _failure(path, "not_automation_yaml")
     try:
-        proposals=analyze(parsed,routes)
+        proposals=analyze(parsed,routes,own_entities=own_entities)
         for entry in proposals:
             if entry["status"]=="proposed":
                 old={"action":entry["source"]}
@@ -90,11 +90,11 @@ def _candidate_paths(root):
     return candidates[:200]
 
 
-async def scan_automation_files(config_dir, routes):
+async def scan_automation_files(config_dir, routes, own_entities=frozenset()):
     """Read-only package-aware analyzer, bounded to fixed user config locations."""
     root=Path(config_dir)
     reports=await asyncio.gather(*[
-        asyncio.to_thread(_inspect_one,path,routes)
+        asyncio.to_thread(_inspect_one,path,routes,frozenset(own_entities))
         for path in _candidate_paths(root)
     ])
     for result in reports:

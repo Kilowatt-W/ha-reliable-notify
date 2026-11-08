@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.3.2
+- Recognise Reliable Notify's own notify entities (entity registry platform, so also after renaming, plus the `notify.reliable_` prefix) and never use them as targets: hidden in the panel's target picker and action list, refused when saving a target or a default target, and rejected when queueing. Sending to them would queue the message again (endless loop).
+- The automation check ignores actions that already deliver through Reliable Notify, including `notify.send_message` to its entities (previously listed for manual review).
+- Help for **Targets & people** explains buttons, images and extra data per transport, with copyable examples for Companion app actions and images, Telegram inline keyboards and photos, and automations reacting to button presses.
+- Document transport capabilities in `docs/TRANSPORTS.md`.
+
 ## 3.3.1
 - Fix the automation check on real Home Assistant installations: files are parsed with a safe, read-only loader that returns plain values. Previously HA's YAML node types made every file with a suggestion fail, and `!secret` values made whole files fail.
 - `!secret`, `!include`, `!input` and similar tags are never resolved; affected actions are listed for manual review and secrets never reach the panel.

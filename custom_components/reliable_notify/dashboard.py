@@ -13,7 +13,7 @@ from .retention import validate_retention
 from .smart import validate_quiet_hours
 from .i18n import text as i18n_text
 from .routing import (display_name, merge_routes, validate_config, valid_label,
-                      ROUTE_KINDS, MAX_LABEL)
+                      is_own_entity, ROUTE_KINDS, MAX_LABEL)
 
 
 def register_dashboard(hass):
@@ -240,13 +240,16 @@ def register_dashboard(hass):
                       if name.startswith("mobile_app_"))
         # Never expose per-recipient transport credentials/chat IDs.
         routes=manager.routes
+        own=manager.own_notify_entities()
         recipients={name:{"action":record.get("action","notify.send_message"),
                           "target_entity":record.get("target_entity","")}
                     for name,record in routes.get("recipients",{}).items()}
         connection.send_result(msg["id"],{
             "companion_actions":phones,
             "people":sorted(hass.states.async_entity_ids("person")),
-            "notify_entities":sorted(hass.states.async_entity_ids("notify")),
+            # Own entities are excluded as targets: sending to them would loop.
+            "notify_entities":sorted(e for e in hass.states.async_entity_ids("notify") if not is_own_entity(e,own)),
+            "own_entities":sorted(own),
             "routes":{"recipients":recipients,"groups":routes.get("groups",{}),
                       "persons":routes.get("persons",{})},
             # Display names only; routing keeps using the internal aliases.
@@ -347,7 +350,12 @@ def register_dashboard(hass):
             if "definition" not in msg:
                 connection.send_error(msg["id"],"bad_input","Missing route definition")
                 return
-            updated[category][name]=msg["definition"]
+            definition=msg["definition"]
+            if isinstance(definition,dict) and is_own_entity(definition.get("target_entity"),manager.own_notify_entities()):
+                connection.send_error(msg["id"],"own_entity",
+                    "A Reliable Notify entity cannot be a target; use its recipient name instead")
+                return
+            updated[category][name]=definition
             if "label" in msg:
                 label=(msg["label"] or "").strip()
                 if label and not valid_label(label):
@@ -460,7 +468,8 @@ def register_dashboard(hass):
             connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
             return
         from .migration_scan import scan_automation_files
-        report=await scan_automation_files(hass.config.config_dir,manager.routes)
+        report=await scan_automation_files(hass.config.config_dir,manager.routes,
+                                           manager.own_notify_entities())
         connection.send_result(msg["id"],report)
 
     @websocket_api.websocket_command({
@@ -593,7 +602,8 @@ def register_dashboard(hass):
         try:
             result=await apply_single_package_change(
                 hass.config.config_dir,msg["file"],msg["sha256"],
-                msg["path"],manager.routes,msg["confirmation"])
+                msg["path"],manager.routes,msg["confirmation"],
+                manager.own_notify_entities())
         except MigrationError as err:
             # The message is a stable code; the panel shows it in German or English.
             connection.send_error(msg["id"],"migration_failed",err.code)

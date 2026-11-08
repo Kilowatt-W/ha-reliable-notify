@@ -93,7 +93,7 @@ def _patch(source,path,replacement):
     return candidate
 
 
-def _apply_sync(config_dir,filename,file_hash,node_path,routes,confirmation):
+def _apply_sync(config_dir,filename,file_hash,node_path,routes,confirmation,own_entities=frozenset()):
     if confirmation!="APPLY_SINGLE_CHANGE":
         raise MigrationError("approval_required","explicit approval required")
     root=Path(config_dir).resolve()
@@ -110,7 +110,7 @@ def _apply_sync(config_dir,filename,file_hash,node_path,routes,confirmation):
     if hashlib.sha256(old_bytes).hexdigest()!=file_hash:
         raise MigrationError("file_changed","file changed since scan; rescan required")
     text=old_bytes.decode("utf8")
-    report=analyze(load_automation_yaml(path) or [],routes)
+    report=analyze(load_automation_yaml(path) or [],routes,own_entities=own_entities)
     matches=[x for x in report if x["status"]=="proposed" and x["path"]==node_path]
     if len(matches)!=1:
         raise MigrationError("not_unique","migration proposal is no longer unique")
@@ -146,5 +146,6 @@ def _apply_sync(config_dir,filename,file_hash,node_path,routes,confirmation):
         if os.path.exists(temp):os.unlink(temp)
 
 
-async def apply_single_package_change(config_dir,filename,file_hash,node_path,routes,confirmation):
-    return await asyncio.to_thread(_apply_sync,config_dir,filename,file_hash,node_path,routes,confirmation)
+async def apply_single_package_change(config_dir,filename,file_hash,node_path,routes,confirmation,own_entities=frozenset()):
+    return await asyncio.to_thread(_apply_sync,config_dir,filename,file_hash,node_path,routes,confirmation,
+                                   frozenset(own_entities))

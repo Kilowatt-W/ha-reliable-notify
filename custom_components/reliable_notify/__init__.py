@@ -19,7 +19,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
-from .routing import resolve, validate_config, valid_action, merge_routes
+from .routing import resolve, validate_config, valid_action, merge_routes, is_own_entity
 from .i18n import ha_text
 from .notify_compat import async_register_compat, async_unregister_compat
 from .templates import validate_templates, validate_parameters
@@ -128,6 +128,16 @@ class ReliableNotifyManager:
             free = None
         return {'free_bytes': free, 'minimum_free_bytes': self.min_free_bytes,
                 'healthy': free is not None and free >= self.min_free_bytes}
+
+    def own_notify_entities(self):
+        """Notify entities of this integration, also after a user renamed their entity ID."""
+        try:
+            from homeassistant.helpers import entity_registry as er
+            registry = er.async_get(self.hass)
+            return frozenset(item.entity_id for item in registry.entities.values()
+                             if item.platform == DOMAIN and item.domain == "notify")
+        except Exception:  # registry unavailable (tests/startup): prefix check still applies
+            return frozenset()
 
     async def reload_routes(self):
         # UI-defined routes override YAML names; invalid reload leaves previous mapping intact.
@@ -308,6 +318,10 @@ class ReliableNotifyManager:
                 target = rec.get("target_entity", "") if action in ("notify.send_message", "smtp.send_message") else ("(staged)" if action == "reliable_notify.staged" else name or action)
                 if action in ("notify.send_message", "smtp.send_message") and not str(target).startswith("notify."):
                     raise ValueError("notify.send_message requires a notify entity")
+                if action in ("notify.send_message", "smtp.send_message") and is_own_entity(
+                        target, self.own_notify_entities()):
+                    # Delivering to our own entity would enqueue the message again.
+                    raise ValueError("target is a Reliable Notify entity; use the recipient name instead")
                 if action in NATIVE_ACTIONS:
                     if not name:
                         raise ValueError("native transports require a named recipient")
@@ -588,7 +602,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.3.1",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.3.2",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

@@ -108,7 +108,8 @@
       }
     },
     "error": {
-      "invalid_options": "Ungültige Eingaben: Zahlenbereiche, Zeiten und Wiederholungsabstände prüfen."
+      "invalid_options": "Ungültige Eingaben: Zahlenbereiche, Zeiten und Wiederholungsabstände prüfen.",
+      "own_entity": "Eine Reliable-Notify-Entität kann nicht Standardziel sein – jede Nachricht würde wieder in die Warteschlange geschickt. Bitte die Notify-Entität des eigentlichen Geräts oder Dienstes wählen."
     }
   },
   "entity": {

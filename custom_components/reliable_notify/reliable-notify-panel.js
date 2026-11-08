@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.3.1 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.3.1';
+/* Reliable Notify Admin Panel 3.3.2 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.3.2';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -105,6 +105,40 @@ const RN_HELP={
       'New targets are created under “Targets & people”, not in the HA dialog.']}},
 };
 
+// Buttons and images per transport (help of "Targets & people"). YAML stays untranslated except sample texts.
+RN_HELP.routes.notes={
+  de:['Companion-App (Ziel mit HA-Aktion notify.mobile_app_…): Buttons über actions und Bilder über image – beides unter data → data.',
+    'Telegram (telegram_bot.send_message): Buttons über inline_keyboard, Fotos mit media: photo und file (lokale Datei) oder url.',
+    'Notify-Entitäten (notify.send_message), ntfy, Gotify und Webhook übertragen nur Titel und Text.',
+    'Die Entität notify.reliable_<ID> überträgt nur Titel und Text. Für Buttons und Bilder die Aktion reliable_notify.enqueue verwenden.',
+    'Eigene Buttons bleiben erhalten, auch wenn eine Bestätigung (acknowledgement) eigene Knöpfe ergänzt. strategy: digest funktioniert nur mit reinem Text.',
+    'Zusatzdaten gelten für alle Ziele eines Aufrufs. Bei Gruppen mit gemischten Transporten (z. B. App und Telegram) je Transport einen eigenen Aufruf verwenden.'],
+  en:['Companion app (target with HA action notify.mobile_app_…): buttons via actions and images via image – both under data → data.',
+    'Telegram (telegram_bot.send_message): buttons via inline_keyboard, photos with media: photo and file (local file) or url.',
+    'Notify entities (notify.send_message), ntfy, Gotify and webhook only transmit title and text.',
+    'The entity notify.reliable_<ID> only transmits title and text. Use the action reliable_notify.enqueue for buttons and images.',
+    'Your own buttons are kept even when an acknowledgement adds its buttons. strategy: digest works with plain text only.',
+    'Extra data applies to every target of a call. For groups with mixed transports (e.g. app and Telegram) use one call per transport.']};
+RN_HELP.routes.examples=[
+  {de:'Companion-App: Nachricht mit Buttons',en:'Companion app: notification with buttons',
+   code:'action: reliable_notify.enqueue\ndata:\n  recipients: [handy_wolfgang]\n  title: Haustür\n  message: "Es hat geläutet"\n  data:\n    data:\n      actions:\n        - action: TUER_OEFFNEN\n          title: Tür öffnen\n        - action: IGNORIEREN\n          title: Ignorieren'},
+  {de:'Companion-App: auf einen Button reagieren (eigene Automation)',en:'Companion app: react to a button (separate automation)',
+   code:'triggers:\n  - trigger: event\n    event_type: mobile_app_notification_action\n    event_data:\n      action: TUER_OEFFNEN\nactions:\n  - action: lock.unlock\n    target:\n      entity_id: lock.haustuer'},
+  {de:'Companion-App: Bild anzeigen (/media/garten.jpg ist als /media/local/garten.jpg erreichbar; das Bild wird erst beim Anzeigen geladen)',
+   en:'Companion app: show an image (/media/garden.jpg is served as /media/local/garden.jpg; the image is loaded when displayed)',
+   code:'action: reliable_notify.enqueue\ndata:\n  recipients: [handy_wolfgang]\n  message: "Bewegung im Garten"\n  data:\n    data:\n      image: /media/local/garten.jpg'},
+  {de:'Telegram: Nachricht mit Buttons',en:'Telegram: message with buttons',
+   code:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_wolfgang]\n  message: "Waschmaschine fertig"\n  data:\n    inline_keyboard:\n      - "Erledigt:/waesche_erledigt, Später:/waesche_spaeter"'},
+  {de:'Telegram: auf einen Button reagieren (eigene Automation; Reliable Notify verarbeitet nur seine eigenen Bestätigungsknöpfe)',
+   en:'Telegram: react to a button (separate automation; Reliable Notify only handles its own acknowledgement buttons)',
+   code:'triggers:\n  - trigger: event\n    event_type: telegram_callback\n    event_data:\n      data: /waesche_erledigt\nactions:\n  - action: input_boolean.turn_off\n    target:\n      entity_id: input_boolean.waesche_fertig'},
+  {de:'Telegram: Kamerabild senden (Reliable Notify kopiert die Datei beim Einreihen, ein späterer Schnappschuss überschreibt sie nicht)',
+   en:'Telegram: send a camera picture (Reliable Notify copies the file when queueing, so a later snapshot does not overwrite it)',
+   code:'- action: camera.snapshot\n  target:\n    entity_id: camera.haustuer\n  data:\n    filename: /media/haustuer.jpg\n- action: reliable_notify.enqueue\n  data:\n    recipients: [telegram_wolfgang]\n    media: photo\n    message: "Es hat geläutet"\n    data:\n      file: /media/haustuer.jpg'},
+  {de:'Telegram: Bild aus dem Internet senden',en:'Telegram: send an image from the internet',
+   code:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_wolfgang]\n  media: photo\n  message: "Wetterradar"\n  data:\n    url: https://example.com/radar.png'},
+];
+
 class ReliableNotifyPanel extends HTMLElement {
   constructor() {
     super();
@@ -127,6 +161,17 @@ class ReliableNotifyPanel extends HTMLElement {
     if(toggle){toggle.setAttribute('aria-expanded',String(open));
       toggle.lastChild.textContent=open?this.t('Hilfe ausblenden'):this.t('Hilfe einblenden');}
   }
+  // YAML example with a copy button; clipboard access may be blocked (http, permissions).
+  codeBlock(code){
+    const wrap=this.element('div',null,'rn-code');const pre=this.element('pre',code);
+    const copy=this.actionButton(this.t('Kopieren'),'mdi:content-copy');copy.type='button';
+    copy.addEventListener('click',async()=>{
+      try{await navigator.clipboard.writeText(code);copy.lastChild.textContent=this.t('Kopiert');}
+      catch(_){copy.lastChild.textContent=this.t('Kopieren nicht möglich – Text markieren');}
+      setTimeout(()=>{copy.lastChild.textContent=this.t('Kopieren');},2500);
+    });
+    wrap.append(pre,copy);return wrap;
+  }
   helpBox(section){
     const help=RN_HELP[section];if(!help)return null;
     const text=help[rnLanguage(this._hass)==='de'?'de':'en'];
@@ -134,7 +179,13 @@ class ReliableNotifyPanel extends HTMLElement {
     box.append(this.heading(this.t('Hilfe zu diesem Bereich'),'mdi:help-circle-outline','cyan','summary'));
     box.append(this.element('p',text.intro));
     const steps=this.element('ol');for(const step of text.steps)steps.append(this.element('li',step));box.append(steps);
-    if(help.example){box.append(this.element('p',this.t('Beispiel für eine Automation:'),'muted'),this.element('pre',help.example));}
+    const lang=rnLanguage(this._hass)==='de'?'de':'en';
+    if(help.example)box.append(this.element('p',this.t('Beispiel für eine Automation:'),'muted'),this.codeBlock(help.example));
+    if(help.notes){
+      box.append(this.heading(this.t('Buttons, Bilder und Zusatzdaten je Transport'),'mdi:image-multiple-outline','cyan','h4'));
+      const notes=this.element('ul');for(const note of help.notes[lang])notes.append(this.element('li',note));box.append(notes);
+    }
+    for(const example of help.examples||[])box.append(this.element('p',example[lang],'rn-example-title'),this.codeBlock(example.code));
     const link=rnDecorate(this.element('a',this.t('Ausführliche Anleitung auf GitHub (Englisch)')),'mdi:book-open-variant','cyan');
     link.href=RN_DOCS+help.doc;link.target='_blank';link.rel='noopener noreferrer';box.append(link);
     box.addEventListener('toggle',()=>{if(box.open!==this.helpOpen)this.setHelpOpen(box.open);});
@@ -213,7 +264,8 @@ class ReliableNotifyPanel extends HTMLElement {
       invalid_route:'Ungültige Zielkonfiguration:',invalid_label:'Anzeigename: 1–100 Zeichen, keine Steuerzeichen.',
       invalid_profiles:'Ungültige Profile:',invalid_templates:'Ungültige Vorlagen:',invalid_recipients:'Ungültige Empfänger:',
       invalid_policy:'Ungültige Wiederholungsregeln:',migration_failed:'Migration fehlgeschlagen:',
-      test_failed:'Test fehlgeschlagen. Zielkonfiguration und Diagnose prüfen.'};
+      test_failed:'Test fehlgeschlagen. Zielkonfiguration und Diagnose prüfen.',
+      own_entity:'Eine Reliable-Notify-Entität kann kein Ziel sein (Endlosschleife). Bitte die Notify-Entität des eigentlichen Geräts wählen.'};
     const text=texts[e?.code];
     if(!text)return e?.message||String(e);
     return text.endsWith(':')&&e.message?this.t(text)+' '+e.message:this.t(text);
@@ -226,10 +278,14 @@ class ReliableNotifyPanel extends HTMLElement {
     }catch(e){this.status(node,this.errorText(e),true);}
   }
   // Known route aliases with display names, for pickers in groups, people, profiles and wizards.
+  isOwnEntity(id){
+    return id.startsWith('notify.reliable_')||this._hass?.entities?.[id]?.platform==='reliable_notify'||(this._ownEntities||[]).includes(id);
+  }
   setRouteChoices(data){
     const labels=data?.labels||{},names=new Set();
     for(const kind of ['recipients','groups','persons'])for(const id of Object.keys(data?.routes?.[kind]||{}))names.add(id);
     this._routeLabels=labels;this._routeChoices=[...names].sort().map(id=>[id,labels[id]||'']);
+    if(Array.isArray(data?.own_entities))this._ownEntities=data.own_entities;
   }
   async loadRouteChoices(){
     if(this._routeChoices)return;
@@ -296,7 +352,8 @@ class ReliableNotifyPanel extends HTMLElement {
         strategy:['always','replace','digest'],test_mode:['off','stage']};
       const kind=valueKind||(Object.hasOwn(enums,key)?key:null);
       const entityDomain=key==='target_entity'?'notify':key==='entity'?'person':null;
-      const entities=entityDomain?Object.keys(this._hass?.states||{}).filter(id=>id.startsWith(entityDomain+'.')).sort():[];
+      // Reliable Notify's own notify entities are never offered as targets (loop).
+      const entities=entityDomain?Object.keys(this._hass?.states||{}).filter(id=>id.startsWith(entityDomain+'.')&&!this.isOwnEntity(id)).sort():[];
       const options=entityDomain?['',...new Set([...entities,...(initial?[initial]:[])])]:choices||enums[key];
       const input=this.element(options?'select':key==='message'||(typeof initial==='string'&&initial.includes('\n'))?'textarea':'input');
       if(options){for(const value of new Set([...options,initial])){
@@ -323,6 +380,7 @@ class ReliableNotifyPanel extends HTMLElement {
         for(const [domain,services] of Object.entries(this._hass?.services||{})){
           if(!['notify','telegram_bot','reliable_notify','smtp'].includes(domain))continue;
           for(const [service,definition] of Object.entries(services)){
+            if(domain==='notify'&&service.startsWith('reliable_'))continue;
             const option=this.element('option');option.value=domain+'.'+service;option.label=definition.name||option.value;list.append(option);
           }
         }host.append(list);
@@ -451,6 +509,9 @@ class ReliableNotifyPanel extends HTMLElement {
       details.rn-help ol{margin:6px 0 10px;padding-left:22px;line-height:1.5}details.rn-help li{margin:4px 0}
       details.rn-help pre{background:var(--secondary-background-color);border-radius:8px;padding:10px;font-size:13px}
       details.rn-help a{display:inline-flex;margin-top:4px;color:var(--primary-color)}
+      details.rn-help h4{margin:16px 0 6px}details.rn-help ul{margin:4px 0 10px;padding-left:22px;line-height:1.5}
+      .rn-example-title{font-weight:600;margin:14px 0 4px}.rn-code{position:relative}
+      .rn-code pre{margin:0 0 6px}.rn-code button{font-size:12px;min-height:30px;padding:4px 10px}
       nav.tabs{padding:8px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);gap:7px}
       nav.tabs button{flex:1 1 145px;justify-content:flex-start;padding:12px 13px;line-height:1.25;border-radius:10px;min-height:47px}
       nav.tabs button.active{background:color-mix(in srgb,var(--rn-accent) 17%,var(--card-background-color));color:var(--primary-text-color);

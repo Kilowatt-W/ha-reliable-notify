@@ -8,6 +8,20 @@
 - `smtp.send_message` through existing HA services where configured.
 - `rest_command.<name>` for a Home Assistant configured HTTP command. The credentials and destination are managed by HA; this is a safe generic escape hatch.
 
+Reliable Notify's own notify entities (`notify.reliable_<name>`, also after renaming their entity ID) are never accepted as a target or default target: delivering to them would queue the message again. The panel hides them from target pickers, saving such a target is refused, and the automation check ignores actions that already use them.
+
+## Buttons, images and extra data
+
+Extra data in `reliable_notify.enqueue` (`data:`) is passed to the transport of every resolved target. The panel help under **Ziele & Personen / Targets & people** contains copyable examples.
+
+| Transport | Buttons | Images |
+| --- | --- | --- |
+| Companion app (`notify.mobile_app_*`) | `data: {data: {actions: [...]}}`; react with the `mobile_app_notification_action` event | `data: {data: {image: /media/local/...}}` (loaded when displayed) |
+| Telegram (`telegram_bot.send_message`) | `data: {inline_keyboard: ["Text:/command, ..."]}`; react with the `telegram_callback` event | `media: photo` with `data: {file: /media/...}` (copied when queued) or `data: {url: https://...}` |
+| `notify.send_message`, ntfy, Gotify, webhook | – | – (title and text only) |
+
+The entity `notify.reliable_<name>` transmits title and text only; use `reliable_notify.enqueue` for buttons and images. For groups with mixed transports send one call per transport, because the extra data applies to every target.
+
 **Telegram and Companion are provider actions, not proof the phone displayed a push.** All transports use retry and dead-letter policies. Unsupported or invalid actions are rejected while enqueueing.
 
 ## Native ntfy HTTPS

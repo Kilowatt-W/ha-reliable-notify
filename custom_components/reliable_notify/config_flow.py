@@ -11,6 +11,7 @@ from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN
 from .retry import validate_policies, DEFAULT_POLICIES
 from .retention import validate_retention, DEFAULT_RETENTION
 from .smart import validate_quiet_hours, DEFAULT_QUIET_HOURS
+from .routing import is_own_entity
 from .logging_utils import validate_transport_logging, TRANSPORTS, LEVELS
 
 
@@ -25,11 +26,18 @@ def choice(options, translation_key, multiple=False):
         mode=selector.SelectSelectorMode.DROPDOWN))
 
 
-def optional_target(value=None):
-    """Do not suggest an invalid empty entity to HA's form control."""
+def optional_target(value=None, exclude=()):
+    """Do not suggest an invalid empty entity to HA's form control.
+
+    Reliable Notify's own notify entities are excluded: as default target
+    they would enqueue every fallback message again (endless loop).
+    """
     description = {'suggested_value': value} if value else {}
+    config = {'domain': 'notify', 'multiple': False}
+    if exclude:
+        config['exclude_entities'] = sorted(exclude)
     return {vol.Optional(CONF_TARGET, description=description): selector.EntitySelector(
-        selector.EntitySelectorConfig(domain='notify', multiple=False))}
+        selector.EntitySelectorConfig(**config))}
 
 
 class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -53,9 +61,19 @@ class ReliableNotifyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
     """All settings are visible together; routes are edited in the admin panel."""
 
+    def _own_entities(self):
+        try:
+            from homeassistant.helpers import entity_registry as er
+            registry = er.async_get(self.hass)
+            return frozenset(item.entity_id for item in registry.entities.values()
+                             if item.platform == DOMAIN and item.domain == 'notify')
+        except Exception:  # registry unavailable: the prefix check still applies
+            return frozenset()
+
     async def async_step_init(self, user_input=None):
         current = {**self.config_entry.data, **self.config_entry.options}
         errors = {}
+        own = self._own_entities()
         if user_input is not None:
             try:
                 general = user_input['general']
@@ -75,13 +93,16 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                     'test_recipients': recipients,
                 }
                 opts[CONF_TARGET] = general.get(CONF_TARGET) or ''
+                if is_own_entity(opts[CONF_TARGET], own):
+                    errors['base'] = 'own_entity'
+                    raise ValueError('own entity as default target')
                 opts['archive_url'] = general.get('archive_url', '').strip()
                 if user_input.get('show_yaml'):
                     self._pending = opts
                     return await self.async_step_yaml()
                 return self.async_create_entry(title='', data=opts)
             except (ValueError, TypeError, KeyError):
-                errors['base'] = 'invalid_options'
+                errors.setdefault('base', 'invalid_options')
         # Rebuild from submitted values on validation failures, keeping the user's edits.
         submitted = user_input or {}
         schema = {}
@@ -92,7 +113,7 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
         general = {**current, **submitted.get('general', {})}
         target = submitted['general'].get(CONF_TARGET) if 'general' in submitted else current.get(CONF_TARGET)
         add('general', {
-            **optional_target(target),
+            **optional_target(target, own),
             vol.Required(CONF_INTERVAL, default=general.get(CONF_INTERVAL, DEFAULT_INTERVAL)): number(10, 3600),
             vol.Optional('archive_url', default=general.get('archive_url', '')): str,
             vol.Required('dead_letter_days', default=general.get('dead_letter_days', 30)): number(1, 365),

@@ -171,7 +171,7 @@ class SetRouteLabelTests(unittest.IsolatedAsyncioTestCase):
         mod = load('dashboard', 'rn_v330_dash')
         self.options = {'routes': {'recipients': {}, 'groups': {}, 'persons': {}}, 'other': 1}
         self.entry = types.SimpleNamespace(options=self.options)
-        self.manager = types.SimpleNamespace(entry=self.entry, route_path='unused',
+        self.manager = types.SimpleNamespace(entry=self.entry, route_path='unused', own_notify_entities=lambda: frozenset({'notify.renamed_reliable'}),
             routes={'recipients': {}, 'groups': {}, 'persons': {}, 'labels': {}})
 
         def update(entry, options):

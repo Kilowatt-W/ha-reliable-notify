@@ -106,8 +106,22 @@ def route_targets(routes):
     return index
 
 
-def inspect_action(node,index):
-    """Return safe migration metadata or reason it requires manual review."""
+def _already_reliable(destination,own_entities):
+    """Static target(s) that are Reliable Notify's own notify entities.
+
+    Same rule as routing.is_own_entity; kept local so the advisor has no imports.
+    """
+    targets=destination if isinstance(destination,list) else [destination]
+    return bool(targets) and all(isinstance(item,str) and (item.startswith("notify.reliable_")
+                                 or item in own_entities) for item in targets)
+
+
+def inspect_action(node,index,own_entities=frozenset()):
+    """Return safe migration metadata or reason it requires manual review.
+
+    Actions that already deliver through Reliable Notify (classic
+    notify.reliable_* services or its notify entities) are ignored.
+    """
     action=node.get("action",node.get("service"))
     if not isinstance(action,str) or TEMPLATE.search(action):
         return None
@@ -134,6 +148,8 @@ def inspect_action(node,index):
         if "entity_id" in body:
             return _manual("entity_in_data",action)
         destination=target.get("entity_id","")
+        if _already_reliable(destination,own_entities):
+            return None
         if isinstance(destination,list) and len(destination)==1:
             destination=destination[0]
     elif action.startswith("telegram_bot."):
@@ -178,7 +194,7 @@ def inspect_action(node,index):
             "reason_code":"unambiguous","reason":REASONS["unambiguous"]}
 
 
-def analyze(root,routes,limit=300):
+def analyze(root,routes,limit=300,own_entities=frozenset()):
     """Inspect nested sequences/choose/repeat/parallel without mutating YAML."""
     if not isinstance(root,(dict,list)) or not 1<=limit<=2000:
         raise ValueError("invalid automation document or suggestion limit")
@@ -198,7 +214,7 @@ def analyze(root,routes,limit=300):
                 walk(item,f"{path}[{idx}]",automation,depth+1)
         elif isinstance(obj,dict):
             label=str(obj.get("alias") or obj.get("id") or automation)
-            inspection=inspect_action(obj,index)
+            inspection=inspect_action(obj,index,own_entities)
             if inspection:
                 results.append({"path":path,"automation":label,**inspection})
             for key,value in obj.items():
