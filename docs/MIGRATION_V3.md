@@ -8,7 +8,7 @@ For direct `packages/*.yaml` files only, the admin panel presents a button to ap
 
 1. Requires explicit per-action confirmation.
 2. Re-reads the file, verifies SHA-256 against the scan, reanalyzes the selected action.
-3. Rejects action blocks containing comments or YAML anchors/aliases, or more complex transport data.
+3. Rejects action blocks containing comments or YAML anchors/aliases, `!secret`/`!include` values, or more complex transport data. Refusals return a stable code (for example `file_changed`, `manual_edit`, `not_unique`) that the panel shows in German or English.
 4. Parses the patched YAML before writing anything.
 5. Creates a restricted-permission backup in `.storage/reliable_notify_migrations/`.
 6. Uses an atomic file replacement and returns the backup and new SHA-256.

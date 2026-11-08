@@ -902,6 +902,55 @@ RN_TRANSLATIONS.push(...[
   ['Persistente Benachrichtigungswarteschlange mit Verwaltung','Persistent notification queue and interactive administration'],
   ['Neuer Nachrichtentext (nur beim Bearbeiten)','New message text (only when editing)'],
 ]);
+// 3.3.1: in-panel help and translated automation check.
+RN_TRANSLATIONS.push(...[
+  ['Hilfe einblenden','Show help'],
+  ['Hilfe ausblenden','Hide help'],
+  ['Hilfe zu diesem Bereich','Help for this section'],
+  ['Beispiel für eine Automation:','Example for an automation:'],
+  ['Ausführliche Anleitung auf GitHub (Englisch)','Detailed guide on GitHub'],
+  ['Liest automations.yaml, scripts.yaml sowie YAML-Dateien in packages/, automations/ und scripts/ ausschließlich lesend. Es werden keine Dateien verändert, solange du nicht ausdrücklich eine einzelne Paket-Änderung übernimmst.','Reads automations.yaml, scripts.yaml and YAML files in packages/, automations/ and scripts/ read-only. No files are changed unless you explicitly apply a single package change.'],
+  ['{proposed} direkte Vorschläge • {manual} manuell zu prüfen • {files} Dateien geprüft','{proposed} direct suggestions • {manual} to review manually • {files} files checked'],
+  ['Nicht vorhanden – übersprungen','Not present – skipped'],
+  ['{count} Treffer','{count} matches'],
+  ['Keine Benachrichtigungsaktionen gefunden.','No notification actions found.'],
+  ['in Zeile {line}','on line {line}'],
+  ['Tipp: Unter „Ziele & Personen“ ein passendes Ziel anlegen und erneut analysieren.','Tip: create a matching target under “Targets & people” and analyse again.'],
+  ['Vorschlag im HA-Automationseditor übernehmen (diese Datei wird von HA verwaltet).','Apply the suggestion in the HA automation editor (this file is managed by HA).'],
+  ['Aktion oder Daten mit Vorlage (service_template/data_template)','Action or data uses a template (service_template/data_template)'],
+  ['Die Daten der Aktion sind keine Feldliste','The action data is not a set of fields'],
+  ['Ziel nutzt Bereiche, Geräte oder ist dynamisch','Target uses areas, devices or is dynamic'],
+  ['Aktion enthält erweiterte Felder (z. B. response_variable)','Action contains advanced fields (e.g. response_variable)'],
+  ['Notify-Entität steht in data statt in target','Notify entity is in data instead of target'],
+  ['Telegram-Ziel nicht eindeutig (keine oder mehrere Chat-Angaben)','Telegram destination is ambiguous (none or several chat fields)'],
+  ['Telegram-Aktion hat zusätzlich ein target','Telegram action also has a separate target'],
+  ['Klassische Notify-Aktion hat zusätzlich ein target','Classic notify action also has a target'],
+  ['Kein eindeutiges festes Ziel (z. B. notify.notify)','No unique fixed destination (e.g. notify.notify)'],
+  ['Ziel ist dynamisch (Vorlage) oder hat mehrere Empfänger','Destination is dynamic (template) or has several recipients'],
+  ['Für dieses Ziel ist noch kein Reliable-Notify-Ziel angelegt','No Reliable Notify target is configured for this destination yet'],
+  ['Mehrere Reliable-Notify-Ziele passen zu diesem Ziel','Several Reliable Notify targets match this destination'],
+  ['Zusätzliche Transportdaten (z. B. Bilder, Buttons) müssen geprüft werden','Extra transport data (e.g. images, buttons) must be reviewed'],
+  ['Aktion enthält keine Nachricht','Action has no message'],
+  ['Verwendet !secret, !include o. Ä. – bitte manuell übernehmen','Uses !secret, !include or similar – please migrate manually'],
+  ['Eindeutiges festes Ziel – Vorschlag kann übernommen werden','Unique fixed destination – the suggestion can be applied'],
+  ['Symbolischer Link – aus Sicherheitsgründen nicht geprüft','Symbolic link – not checked for safety reasons'],
+  ['Datei größer als 4 MiB – nicht geprüft','File larger than 4 MiB – not checked'],
+  ['YAML-Syntaxfehler','YAML syntax error'],
+  ['Keine UTF-8-Textdatei','Not a UTF-8 text file'],
+  ['Enthält keine Automationen, Skripte oder Pakete','Contains no automations, scripts or packages'],
+  ['Datei konnte nicht gelesen werden','File could not be read'],
+  ['Ausdrückliche Bestätigung fehlt.','Explicit confirmation is missing.'],
+  ['Diese Datei kann nicht automatisch geändert werden.','This file cannot be changed automatically.'],
+  ['Automatische Änderungen nur für packages/*.yaml.','Automatic changes only for packages/*.yaml.'],
+  ['Datei zu groß.','File too large.'],
+  ['Datei wurde seit der Analyse geändert – bitte erneut analysieren.','The file changed since the analysis – please analyse again.'],
+  ['Vorschlag ist nicht mehr eindeutig – bitte erneut analysieren.','The suggestion is no longer unique – please analyse again.'],
+  ['Keine Änderung nötig.','No change needed.'],
+  ['Kommentare oder YAML-Anker in dieser Aktion – bitte manuell ändern.','Comments or YAML anchors in this action – please change it manually.'],
+  ['Aktion wurde in der Datei nicht gefunden – bitte erneut analysieren.','The action was not found in the file – please analyse again.'],
+  ['Diese Stelle ist keine einzelne Notify-Aktion.','This location is not a single notify action.'],
+  ['YAML-Syntaxfehler in der Datei.','YAML syntax error in the file.'],
+]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
   priority:{info:['Information','Information'],warning:['Warnung','Warning'],critical:['Kritisch','Critical']},
@@ -940,7 +989,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.3.0 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.3.1 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

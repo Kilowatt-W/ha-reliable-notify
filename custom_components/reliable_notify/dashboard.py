@@ -589,13 +589,17 @@ def register_dashboard(hass):
         if manager is None:
             connection.send_error(msg["id"],"not_loaded","Integration unavailable")
             return
-        from .migration_apply import apply_single_package_change
+        from .migration_apply import apply_single_package_change, MigrationError
         try:
             result=await apply_single_package_change(
                 hass.config.config_dir,msg["file"],msg["sha256"],
                 msg["path"],manager.routes,msg["confirmation"])
+        except MigrationError as err:
+            # The message is a stable code; the panel shows it in German or English.
+            connection.send_error(msg["id"],"migration_failed",err.code)
+            return
         except (ValueError,TypeError,KeyError,OSError) as err:
-            connection.send_error(msg["id"],"migration_failed",type(err).__name__+": "+str(err))
+            connection.send_error(msg["id"],"migration_failed",type(err).__name__)
             return
         connection.send_result(msg["id"],result)
 

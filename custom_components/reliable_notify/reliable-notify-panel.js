@@ -1,5 +1,109 @@
-/* Reliable Notify Admin Panel 3.3.0 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.3.0';
+/* Reliable Notify Admin Panel 3.3.1 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.3.1';
+
+/* In-panel help per section (German/English). Technical names in examples stay untranslated. */
+const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
+const RN_HELP={
+  messages:{doc:'OPERATIONS.md',
+    de:{intro:'Überblick über alle Nachrichten, die Reliable Notify zustellt, wiederholt oder archiviert.',steps:[
+      'Die Kacheln zeigen wartende und fehlgeschlagene Nachrichten, Versand, Fehler und freien Speicher.',
+      '„Queue“ zeigt wartende Nachrichten, „Dead letters“ endgültig fehlgeschlagene. Einzelne Einträge lassen sich erneut versuchen oder löschen.',
+      '„Zurückgestellt“ enthält Nachrichten ohne Empfänger oder aus dem Testmodus. Dort einem Ziel zuweisen und senden.',
+      'Im Archiv nach Nachrichtentext suchen. Die Aufbewahrung je Nachrichtentyp wird unter Einstellungen festgelegt.',
+      '„Gesendet“ bedeutet: vom Transport angenommen. Ob die Nachricht auf dem Gerät angezeigt oder gelesen wurde, ist damit nicht bestätigt.']},
+    en:{intro:'Overview of all notifications Reliable Notify delivers, retries or archives.',steps:[
+      'The tiles show queued and failed notifications, sent messages, failures and free disk space.',
+      '“Queue” lists waiting notifications, “Dead letters” the ones that finally failed. Single entries can be retried or deleted.',
+      '“Staged” holds notifications without recipients or from test mode. Assign them to a target there and send.',
+      'Search the archive by message text. Retention per message type is set under Settings.',
+      '“Sent” means accepted by the transport. It does not confirm that the device displayed or read the notification.']}},
+  routes:{doc:'CONFIGURATION.md',example:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_wolfgang]\n  message: "Fenster im Bad seit 30 Minuten offen"\n  priority: warning',
+    de:{intro:'Hier legst du fest, wohin Nachrichten gehen: einzelne Ziele, Gruppen und Personen.',steps:[
+      '„Neues Ziel anlegen“ klicken und einen Anzeigenamen (Klarname) eingeben, z. B. „Telegram Wolfgang“. Die interne ID wird daraus vorgeschlagen.',
+      'HA-Aktion wählen: notify.send_message mit einer Notify-Entität, notify.mobile_app_… für die Companion-App oder telegram_bot.send_message mit chat_id unter Transportparameter.',
+      'Speichern und mit „Test senden“ prüfen. Der Test verschickt eine echte Nachricht; Testmodus und Ruhezeiten gelten.',
+      'Gruppen fassen mehrere Ziele zusammen. Personen wählen je Priorität und Zone (person.*) passende Kanäle.',
+      'In Automationen die interne ID unter recipients verwenden (Beispiel unten) oder die Entität notify.reliable_<ID>.']},
+    en:{intro:'Define where notifications go: single targets, groups and people.',steps:[
+      'Click “Create new target” and enter a display name, e.g. “Telegram Wolfgang”. The internal ID is suggested from it.',
+      'Choose the HA action: notify.send_message with a notify entity, notify.mobile_app_… for the Companion app, or telegram_bot.send_message with chat_id under transport parameters.',
+      'Save and check with “Send test”. The test sends a real notification; test mode and quiet hours apply.',
+      'Groups combine several targets. People pick channels per priority and zone (person.*).',
+      'In automations, use the internal ID under recipients (example below) or the entity notify.reliable_<ID>.']}},
+  incidents:{doc:'CONFIGURATION.md',example:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_wolfgang]\n  message: "Wasseralarm Keller"\n  priority: critical\n  dedup_key: water_cellar\n  acknowledgement:\n    required: true\n    escalation:\n      - after: 300\n        recipients: [family]',
+    de:{intro:'Kritische Meldungen können auf eine Bestätigung warten und sonst stufenweise eskalieren.',steps:[
+      'Eine Nachricht mit dedup_key und acknowledgement wartet auf Bestätigung (Beispiel unten).',
+      'Ohne Bestätigung wird nach der eingestellten Zeit an die nächste Stufe gesendet.',
+      'Offene Alarme hier bestätigen, um 15 Minuten verschieben oder sofort eskalieren. Empfänger können auch direkt per Companion-App- oder Telegram-Knopf bestätigen.',
+      'Mit dem Assistenten eine Kette zuerst nur simulieren. „Alarm wirklich einreihen“ sendet echt.',
+      'Bereits gesendete Telegram-Nachrichten lassen sich über ihren dedup_key bearbeiten oder löschen.']},
+    en:{intro:'Critical notifications can wait for an acknowledgement and otherwise escalate step by step.',steps:[
+      'A notification with dedup_key and acknowledgement waits for confirmation (example below).',
+      'Without acknowledgement it is sent to the next step after the configured time.',
+      'Acknowledge open alarms here, snooze them for 15 minutes or escalate immediately. Recipients can also acknowledge with the Companion app or Telegram button.',
+      'Use the wizard to simulate a chain first. “Really queue alarm” sends for real.',
+      'Telegram messages that were already sent can be edited or deleted via their dedup_key.']}},
+  simulation:{doc:'API_V2.md',example:'action: reliable_notify.simulate\ndata:\n  recipients: [family]\n  message: Test\n  priority: warning\nresponse_variable: preview',
+    de:{intro:'Zeigt, was mit einer Nachricht passieren würde – ohne Versand und ohne Eintrag in der Warteschlange.',steps:[
+      'Empfänger, Priorität und Text eintragen und „Versand simulieren“ klicken.',
+      'Das Ergebnis zeigt die aufgelösten Ziele, Ruhezeiten-Verschiebung und Aufbewahrung.',
+      'In Automationen steht dieselbe Prüfung als Aktion reliable_notify.simulate mit response_variable zur Verfügung.']},
+    en:{intro:'Shows what would happen to a notification – without sending and without queueing.',steps:[
+      'Enter recipients, priority and text and click “Simulate delivery”.',
+      'The result lists resolved targets, quiet-hour delays and retention.',
+      'In automations the same check is available as the action reliable_notify.simulate with response_variable.']}},
+  analytics:{doc:'OPERATIONS.md',
+    de:{intro:'Zustellstatistik je Transport und Tag sowie Systemzustand.',steps:[
+      'Zeitraum wählen und „Aktualisieren“ klicken.',
+      'Der Balkenverlauf zeigt die täglich versendeten Nachrichten der letzten 30 Tage.',
+      'Der Diagnose-Export enthält keine Nachrichtentexte und eignet sich für Fehlermeldungen.']},
+    en:{intro:'Delivery statistics per transport and day plus system health.',steps:[
+      'Choose a period and click “Refresh”.',
+      'The bar chart shows notifications sent per day over the last 30 days.',
+      'The diagnostics export contains no message texts and is suitable for bug reports.']}},
+  templates:{doc:'CONFIGURATION.md',example:'action: reliable_notify.send_template\ndata:\n  template: window_open\n  variables:\n    room: Bad\n  recipients: [family]',
+    de:{intro:'Wiederverwendbare Nachrichten mit Platzhaltern.',steps:[
+      '„Neu anlegen“, einen Namen (Kleinbuchstaben, Ziffern, _) und den Nachrichtentext eingeben. Jinja-Platzhalter wie {{ room }} sind erlaubt.',
+      'Optional Titel, Priorität, Empfänger und Aufbewahrung vorgeben und speichern.',
+      'Senden mit der Aktion reliable_notify.send_template und Variablen (Beispiel unten).']},
+    en:{intro:'Reusable notifications with placeholders.',steps:[
+      'Click “Create”, enter a name (lowercase letters, digits, _) and the message text. Jinja placeholders such as {{ room }} are allowed.',
+      'Optionally preset title, priority, recipients and retention, then save.',
+      'Send with the action reliable_notify.send_template and variables (example below).']}},
+  profiles:{doc:'PROFILES.md',example:'action: reliable_notify.enqueue\ndata:\n  profile: window\n  recipients: [family]\n  message: "Fenster offen"',
+    de:{intro:'Profile bündeln Vorgaben wie Priorität, Gültigkeit, Bedingung oder Bestätigung.',steps:[
+      'Profil anlegen und nur die gewünschten Felder hinzufügen.',
+      'In Automationen mit profile: <name> verwenden; Angaben im Aufruf haben Vorrang.',
+      'Externe API: nur für HA-Administratoren mit Bearer-Token und nur an ausdrücklich freigegebene Empfänger.']},
+    en:{intro:'Profiles bundle defaults such as priority, validity, condition or acknowledgement.',steps:[
+      'Create a profile and add only the fields you need.',
+      'Use it in automations with profile: <name>; values in the call take precedence.',
+      'External API: only for HA administrators with a bearer token and only to explicitly allowed recipients.']}},
+  migration:{doc:'NOTIFY_MIGRATION.md',
+    de:{intro:'Findet Benachrichtigungen in bestehenden Automationen und Skripten und schlägt die Umstellung auf Reliable Notify vor.',steps:[
+      'Zuerst die benötigten Ziele unter „Ziele & Personen“ anlegen, z. B. mit derselben Notify-Entität oder Telegram-chat_id wie in der Automation.',
+      '„Benachrichtigungen analysieren“ klicken. Es wird nur gelesen; !secret und !include werden nicht aufgelöst.',
+      'Grüne Einträge sind eindeutige Vorschläge. Gelbe Einträge müssen manuell geprüft werden; die Begründung steht darunter.',
+      'automations.yaml und scripts.yaml verwaltet HA: Vorschlag im Automationseditor übernehmen. Nur packages/*.yaml kann hier einzeln mit Backup geändert werden.',
+      'Nach einer Änderung Automationen bzw. YAML in HA neu laden.']},
+    en:{intro:'Finds notifications in existing automations and scripts and suggests moving them to Reliable Notify.',steps:[
+      'First create the required targets under “Targets & people”, e.g. with the same notify entity or Telegram chat_id as in the automation.',
+      'Click “Analyse notifications”. Files are only read; !secret and !include are not resolved.',
+      'Green entries are unique suggestions. Yellow entries need manual review; the reason is shown below them.',
+      'automations.yaml and scripts.yaml are managed by HA: apply the suggestion in the automation editor. Only packages/*.yaml can be changed here, one entry at a time with a backup.',
+      'After a change, reload automations or YAML in HA.']}},
+  settings:{doc:'CONFIGURATION.md',
+    de:{intro:'Betriebseinstellungen der Integration.',steps:[
+      'Alle Optionen gibt es gesammelt im HA-Dialog „Alle Integrationsoptionen öffnen“: optionales Standardziel, Wiederholungen, Ruhezeiten, Testmodus, Logging und Backups.',
+      'Hier direkt änderbar: Wiederholungen je Priorität, Archiv-Aufbewahrung, Ruhezeiten mit Limits sowie Testmodus und Logging.',
+      'Testmodus „Nur zurückstellen“ hält Nachrichten zurück, statt sie zu senden – ideal zum Ausprobieren.',
+      'Neue Ziele werden unter „Ziele & Personen“ angelegt, nicht im HA-Dialog.']},
+    en:{intro:'Operating settings of the integration.',steps:[
+      'All options are collected in the HA dialog “Open all integration options”: optional default target, retries, quiet hours, test mode, logging and backups.',
+      'Directly editable here: retries per priority, archive retention, quiet hours with limits, and test mode and logging.',
+      'Test mode “Stage only” holds notifications back instead of sending – ideal for trying things out.',
+      'New targets are created under “Targets & people”, not in the HA dialog.']}},
+};
 
 class ReliableNotifyPanel extends HTMLElement {
   constructor() {
@@ -10,6 +114,32 @@ class ReliableNotifyPanel extends HTMLElement {
     this._hass=null;
   }
   t(text, values={}) { return rnTranslate(this._hass,text,values); }
+  // Help visibility is a per-browser convenience; storage may be unavailable.
+  get helpOpen(){
+    if(this._helpOpen===undefined){try{this._helpOpen=localStorage.getItem('reliable-notify-help')==='open';}catch(_){this._helpOpen=false;}}
+    return this._helpOpen;
+  }
+  setHelpOpen(open){
+    this._helpOpen=open;
+    try{localStorage.setItem('reliable-notify-help',open?'open':'closed');}catch(_){/* private mode */}
+    for(const box of this.shadowRoot.querySelectorAll('details.rn-help'))if(box.open!==open)box.open=open;
+    const toggle=this.shadowRoot.querySelector('button.rn-help-toggle');
+    if(toggle){toggle.setAttribute('aria-expanded',String(open));
+      toggle.lastChild.textContent=open?this.t('Hilfe ausblenden'):this.t('Hilfe einblenden');}
+  }
+  helpBox(section){
+    const help=RN_HELP[section];if(!help)return null;
+    const text=help[rnLanguage(this._hass)==='de'?'de':'en'];
+    const box=this.element('details',null,'rn-help panel');box.open=this.helpOpen;
+    box.append(this.heading(this.t('Hilfe zu diesem Bereich'),'mdi:help-circle-outline','cyan','summary'));
+    box.append(this.element('p',text.intro));
+    const steps=this.element('ol');for(const step of text.steps)steps.append(this.element('li',step));box.append(steps);
+    if(help.example){box.append(this.element('p',this.t('Beispiel für eine Automation:'),'muted'),this.element('pre',help.example));}
+    const link=rnDecorate(this.element('a',this.t('Ausführliche Anleitung auf GitHub (Englisch)')),'mdi:book-open-variant','cyan');
+    link.href=RN_DOCS+help.doc;link.target='_blank';link.rel='noopener noreferrer';box.append(link);
+    box.addEventListener('toggle',()=>{if(box.open!==this.helpOpen)this.setHelpOpen(box.open);});
+    return box;
+  }
   set hass(value) {
     const changedLanguage=this._hass && rnLanguage(this._hass)!==rnLanguage(value);
     this._hass=value;
@@ -267,6 +397,7 @@ class ReliableNotifyPanel extends HTMLElement {
     const container=this.shadowRoot.querySelector('#content');
     if(!container)return;
     container.replaceChildren();
+    const help=this.helpBox(this._section);if(help)container.append(help);
     ({messages:()=>this.messages(container),routes:()=>this.routes(container),
       incidents:()=>this.incidents(container),simulation:()=>this.simulation(container),
       analytics:()=>this.analytics(container),templates:()=>this.templates(container),profiles:()=>this.profiles(container),migration:()=>this.migration(container),settings:()=>this.settings(container)
@@ -315,6 +446,11 @@ class ReliableNotifyPanel extends HTMLElement {
       .hero{border:1px solid var(--divider-color);border-top:4px solid var(--rn-accent);border-radius:16px;
         padding:18px 20px;background:linear-gradient(110deg,color-mix(in srgb,var(--rn-accent) 13%,var(--card-background-color)),var(--card-background-color));margin-bottom:16px}
       .hero h1{font-size:25px;gap:12px}.hero h1 ha-icon{--mdc-icon-size:30px}.hero p{margin:8px 0 0}
+      .hero .rn-help-toggle{margin-top:12px}
+      details.rn-help{border-left:4px solid var(--rn-cyan);background:color-mix(in srgb,var(--rn-cyan) 7%,var(--card-background-color))}
+      details.rn-help ol{margin:6px 0 10px;padding-left:22px;line-height:1.5}details.rn-help li{margin:4px 0}
+      details.rn-help pre{background:var(--secondary-background-color);border-radius:8px;padding:10px;font-size:13px}
+      details.rn-help a{display:inline-flex;margin-top:4px;color:var(--primary-color)}
       nav.tabs{padding:8px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);gap:7px}
       nav.tabs button{flex:1 1 145px;justify-content:flex-start;padding:12px 13px;line-height:1.25;border-radius:10px;min-height:47px}
       nav.tabs button.active{background:color-mix(in srgb,var(--rn-accent) 17%,var(--card-background-color));color:var(--primary-text-color);
@@ -333,7 +469,11 @@ class ReliableNotifyPanel extends HTMLElement {
     const shell=this.element('div',null,'shell');
     shell.dataset.tone=RN_SECTIONS[this._section]?.tone||'blue';
     const hero=this.element('header',null,'hero');hero.append(this.heading('Reliable Notify','mdi:bell-check-outline',RN_SECTIONS[this._section]?.tone||'blue','h1'),
-      this.element('p',this.t('Benachrichtigungen • Zustellung • Eskalation • Diagnose'),'muted'));shell.append(hero);
+      this.element('p',this.t('Benachrichtigungen • Zustellung • Eskalation • Diagnose'),'muted'));
+    const helpToggle=this.actionButton(this.helpOpen?this.t('Hilfe ausblenden'):this.t('Hilfe einblenden'),'mdi:help-circle-outline','rn-help-toggle');
+    helpToggle.dataset.tone='cyan';helpToggle.setAttribute('aria-expanded',String(this.helpOpen));
+    helpToggle.addEventListener('click',()=>this.setHelpOpen(!this.helpOpen));
+    hero.append(helpToggle);shell.append(hero);
     const tabs=this.element('nav',null,'tabs');tabs.setAttribute('aria-label',this.t('Hauptnavigation'));
     for(const [id,name] of [['messages',this.t('Nachrichten')],['routes',this.t('Ziele & Personen')],
        ['incidents',this.t('Eskalationen')],['simulation','Simulation'],['analytics',this.t('Statistik')],['templates',this.t('Vorlagen')],['profiles',this.t('Profile & API')],['migration',this.t('Automation-Migration')],['settings',this.t('Einstellungen')]]){
@@ -610,49 +750,93 @@ class ReliableNotifyPanel extends HTMLElement {
     api.append(editor.node,save,status);this.yamlView(api,editor.read);box.append(api);
   }
 
+  // Codes from migration_advisor/migration_scan/migration_apply; English originals stay in the JSON export.
+  migrationText(kind,code){
+    const texts={
+      reason:{templated:'Aktion oder Daten mit Vorlage (service_template/data_template)',non_object_data:'Die Daten der Aktion sind keine Feldliste',
+        complex_target:'Ziel nutzt Bereiche, Geräte oder ist dynamisch',advanced_fields:'Aktion enthält erweiterte Felder (z. B. response_variable)',
+        entity_in_data:'Notify-Entität steht in data statt in target',telegram_ambiguous:'Telegram-Ziel nicht eindeutig (keine oder mehrere Chat-Angaben)',
+        telegram_target:'Telegram-Aktion hat zusätzlich ein target',legacy_target:'Klassische Notify-Aktion hat zusätzlich ein target',
+        no_static_destination:'Kein eindeutiges festes Ziel (z. B. notify.notify)',dynamic_destination:'Ziel ist dynamisch (Vorlage) oder hat mehrere Empfänger',
+        no_route:'Für dieses Ziel ist noch kein Reliable-Notify-Ziel angelegt',multiple_routes:'Mehrere Reliable-Notify-Ziele passen zu diesem Ziel',
+        transport_data:'Zusätzliche Transportdaten (z. B. Bilder, Buttons) müssen geprüft werden',missing_message:'Aktion enthält keine Nachricht',
+        yaml_tags:'Verwendet !secret, !include o. Ä. – bitte manuell übernehmen',unambiguous:'Eindeutiges festes Ziel – Vorschlag kann übernommen werden'},
+      file:{symlink:'Symbolischer Link – aus Sicherheitsgründen nicht geprüft',too_large:'Datei größer als 4 MiB – nicht geprüft',
+        yaml_syntax:'YAML-Syntaxfehler',encoding:'Keine UTF-8-Textdatei',not_automation_yaml:'Enthält keine Automationen, Skripte oder Pakete',
+        read_failed:'Datei konnte nicht gelesen werden'},
+      apply:{approval_required:'Ausdrückliche Bestätigung fehlt.',not_eligible:'Diese Datei kann nicht automatisch geändert werden.',
+        packages_only:'Automatische Änderungen nur für packages/*.yaml.',too_large:'Datei zu groß.',
+        file_changed:'Datei wurde seit der Analyse geändert – bitte erneut analysieren.',not_unique:'Vorschlag ist nicht mehr eindeutig – bitte erneut analysieren.',
+        no_change:'Keine Änderung nötig.',manual_edit:'Kommentare oder YAML-Anker in dieser Aktion – bitte manuell ändern.',
+        invalid_path:'Aktion wurde in der Datei nicht gefunden – bitte erneut analysieren.',not_action:'Diese Stelle ist keine einzelne Notify-Aktion.',
+        yaml_syntax:'YAML-Syntaxfehler in der Datei.'}};
+    const text=texts[kind]?.[code];
+    return text?this.t(text):null;
+  }
   async migration(box){
     const wrapper=this.element('div',null,'panel');
     wrapper.append(this.heading(this.t('Bestehende Automationen prüfen'),'mdi:source-branch','orange','h2'));
-    wrapper.append(this.element('p',this.t('Liest automations.yaml und scripts.yaml ausschließlich lesend. Es werden keine Dateien, Automationen oder Skripte verändert. Vorschläge bei Mehrdeutigkeiten sind ausdrücklich zu prüfen.'),'muted'));
+    wrapper.append(this.element('p',this.t('Liest automations.yaml, scripts.yaml sowie YAML-Dateien in packages/, automations/ und scripts/ ausschließlich lesend. Es werden keine Dateien verändert, solange du nicht ausdrücklich eine einzelne Paket-Änderung übernimmst.'),'muted'));
     const button=this.actionButton(this.t('Benachrichtigungen analysieren'),'mdi:file-search-outline','primary');
-    const result=this.element('div');
+    const result=this.element('div');result.setAttribute('role','status');
     const download=this.actionButton(this.t('Vorschläge als JSON herunterladen'),'mdi:download-outline');
     download.disabled=true;
     let last=null;
     button.addEventListener('click',()=>this.run(result,async()=>{
-      const report=await this.call('migration_scan');
+      this.status(result,this.t('Lade …'));
+      const [report]=await Promise.all([this.call('migration_scan'),this.loadRouteChoices()]);
+      const labels=this._routeLabels||{};
       last=report;download.disabled=false;
-      result.replaceChildren();
-      result.append(this.element('p',report.proposed+this.t(' direkte Vorschläge • ')+report.manual+this.t(' manuell zu prüfen')));
-      for(const file of report.files||[]){
+      result.replaceChildren();result.className='';
+      const files=report.files||[];
+      result.append(this.element('p',this.t('{proposed} direkte Vorschläge • {manual} manuell zu prüfen • {files} Dateien geprüft',
+        {proposed:report.proposed||0,manual:report.manual||0,files:files.filter(f=>!f.skipped).length})));
+      const skipped=files.filter(f=>f.skipped);
+      if(skipped.length)result.append(this.element('p',this.t('Nicht vorhanden – übersprungen')+': '+skipped.map(f=>f.file).join(', '),'muted'));
+      for(const file of files.filter(f=>!f.skipped)){
         const section=this.element('div',null,'panel');
-        section.append(this.heading(file.file+' — '+(file.error||((file.proposals||[]).length+this.t(' Treffer'))),'mdi:file-document-outline','orange','h3'));
-        for(const item of file.proposals||[]){
+        const name=file.relative_file||file.file;
+        const proposals=file.proposals||[];
+        const failed=Boolean(file.error_code||file.error);
+        let summary;
+        if(failed)summary=(this.migrationText('file',file.error_code)||file.error)+(file.line?' '+this.t('in Zeile {line}',{line:file.line}):'');
+        else summary=proposals.length?this.t('{count} Treffer',{count:proposals.length}):this.t('Keine Benachrichtigungsaktionen gefunden.');
+        section.append(this.heading(name+' — '+summary,failed?'mdi:file-alert-outline':'mdi:file-document-outline',failed?'red':'orange','h3'));
+        const editable=Boolean(file.sha256&&/^packages\/[^/]+\.ya?ml$/.test(file.relative_file||''));
+        for(const item of proposals){
+          const proposed=item.status==='proposed';
           const details=this.element('details');
-          const name=this.element('summary',(item.automation||item.path)+' • '+item.source+
-            ' → '+(item.route||item.suggested_route||this.t('manuelle Prüfung')));
-          rnDecorate(name,'mdi:source-pull','orange');details.append(name,this.element('p',item.reason));
+          const route=item.route||item.suggested_route;
+          const title=this.element('summary',(item.automation||item.path)+' • '+item.source+
+            ' → '+(route?rnRouteLabel(labels,route):this.t('manuelle Prüfung')));
+          rnDecorate(title,proposed?'mdi:check-circle-outline':'mdi:alert-circle-outline',proposed?'teal':'amber');
+          details.append(title,this.element('p',this.migrationText('reason',item.reason_code)||item.reason));
+          if(item.reason_code==='no_route')details.append(this.element('p',this.t('Tipp: Unter „Ziele & Personen“ ein passendes Ziel anlegen und erneut analysieren.'),'muted'));
           if(item.replacement){
-            details.append(this.element('pre',JSON.stringify(item.replacement,null,2)));
             if(item.preview_diff){
               const diff=this.element('pre',item.preview_diff);
               diff.style.whiteSpace='pre-wrap';details.append(diff);
-            }
-            if(file.relative_file?.startsWith('packages/')&&file.sha256){
+            }else details.append(this.element('pre',JSON.stringify(item.replacement,null,2)));
+            if(editable){
               const apply=this.actionButton(this.t('Einzelne Änderung mit Backup übernehmen'),'mdi:content-save-check-outline','primary');
-              const status=this.element('p');
+              const status=this.element('p');status.setAttribute('role','status');
               apply.addEventListener('click',()=>this.run(status,async()=>{
                 if(!confirm(this.t('Nur dieser EINE Paket-Eintrag wird geändert. Backup wird erstellt. Keine automatische HA-Neuladung. Fortfahren?')))return;
-                const response=await this.call('migration_apply',{
-                  file:file.relative_file,sha256:file.sha256,
-                  path:item.path,confirmation:'APPLY_SINGLE_CHANGE'
-                });
-                status.textContent=this.t('Geändert. Backup: ')+response.backup+
-                   this.t(' — Paket-Automationen über HA neu laden.');
-                apply.disabled=true;
+                try{
+                  const response=await this.call('migration_apply',{
+                    file:file.relative_file,sha256:file.sha256,
+                    path:item.path,confirmation:'APPLY_SINGLE_CHANGE'
+                  });
+                  status.textContent=this.t('Geändert. Backup: ')+response.backup+
+                     this.t(' — Paket-Automationen über HA neu laden.');
+                  apply.disabled=true;
+                }catch(e){
+                  const text=e?.code==='migration_failed'?this.migrationText('apply',e.message):null;
+                  throw text?Error(this.t('Migration fehlgeschlagen:')+' '+text):e;
+                }
               }));
               details.append(apply,status);
-            }
+            }else details.append(this.element('p',this.t('Vorschlag im HA-Automationseditor übernehmen (diese Datei wird von HA verwaltet).'),'muted'));
           }
           section.append(details);
         }

@@ -30,7 +30,7 @@ If two aliases target the same Telegram chat ID, the migration tool will mark th
 
 ## Automation migration advisor
 
-The admin sidebar contains **Automation-Migration**. Press **Benachrichtigungen analysieren** to inspect HA's `automations.yaml` and `scripts.yaml`. This is **read-only** and does not alter or reload your automations. A bounded scanner traverses nested `choose`, `if`, `parallel` and `repeat` sequences.
+The admin sidebar contains **Automation-Migration**. Press **Benachrichtigungen analysieren / Analyse notifications** to inspect HA's `automations.yaml`, `scripts.yaml` and YAML files in `packages/`, `automations/` and `scripts/`. This is **read-only** and does not alter or reload your automations. Files are parsed with a safe loader: `!secret`, `!include`, `!input` and similar tags are never resolved, so secrets never reach the panel; actions using such values are listed for manual review. Missing default files are shown as skipped, not as errors; YAML syntax errors are reported with their line number. A bounded scanner traverses nested `choose`, `if`, `parallel` and `repeat` sequences.
 
 It suggests a classic `notify.reliable_<alias>` action only when a static destination matches exactly one configured recipient and the original action uses only `message` and optionally `title` (plus its static destination). Extra Telegram buttons, multiple targets, template expressions, complex services, and unknown destinations require manual review.
 
@@ -53,7 +53,7 @@ Suggested alternative:
 
 **Always verify title/message formatting, recipients, notification tags and platform-specific data**. The scan report contains JSON snippets for review or download. Apply accepted changes through Home Assistant's Automation Editor, not by modifying `automations.yaml` from a separate integration.
 
-Unsupported sources include packages, custom included directories and Jinja-computed targets until an explicit user-supplied file scan is implemented. For those, use manual review or add them to a separate migration process. Scripts and automation packages may have differing include/file structures.
+Each manual-review entry carries a stable `reason_code` (shown in German or English in the panel; the English `reason` stays in the JSON download). Unsupported sources include custom included directories and Jinja-computed targets. For those, use manual review or add them to a separate migration process. Scripts and automation packages may have differing include/file structures.
 
 ## Why no automatic file rewrites?
 

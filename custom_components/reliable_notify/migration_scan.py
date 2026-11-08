@@ -12,24 +12,52 @@ import difflib
 import json
 from pathlib import Path
 
-from homeassistant.util.yaml import load_yaml
 import yaml
 
-from .migration_advisor import analyze
+from .migration_advisor import analyze, load_automation_yaml
 
 MAX_BYTES = 4 * 1024 * 1024
 
 
+# Stable error codes (translated in the panel); English text kept for JSON exports.
+ERRORS = {
+    "symlink": "symlinks not scanned",
+    "too_large": "file exceeds 4 MiB limit",
+    "yaml_syntax": "YAML syntax error",
+    "encoding": "file is not UTF-8 text",
+    "not_automation_yaml": "file does not contain automations, scripts or packages",
+    "read_failed": "file could not be read",
+}
+
+
+def _failure(path, code, **extra):
+    return {"file": path.name, "error_code": code, "error": ERRORS[code], "proposals": [], **extra}
+
+
 def _inspect_one(path, routes):
     if path.is_symlink():
-        return {"file":path.name,"error":"symlinks not scanned","proposals":[]}
+        return _failure(path, "symlink")
     if not path.is_file():
-        return {"file":path.name,"error":"file not present","proposals":[]}
+        # A missing default file (e.g. no scripts.yaml) is normal, not an error.
+        return {"file": path.name, "skipped": "not_present", "proposals": []}
     if path.stat().st_size>MAX_BYTES:
-        return {"file":path.name,"error":"file exceeds 4 MiB limit","proposals":[]}
+        return _failure(path, "too_large")
     try:
-        parsed=load_yaml(path)
-        proposals=analyze(parsed or [],routes)
+        # Own safe loader: plain values, !secret/!include never resolved.
+        parsed=load_automation_yaml(path)
+    except yaml.YAMLError as err:
+        mark=getattr(err, "problem_mark", None) or getattr(err, "context_mark", None)
+        return _failure(path, "yaml_syntax", **({"line": mark.line+1} if mark else {}))
+    except UnicodeDecodeError:
+        return _failure(path, "encoding")
+    except OSError:
+        return _failure(path, "read_failed")
+    if parsed is None:
+        parsed=[]
+    if not isinstance(parsed,(dict,list)):
+        return _failure(path, "not_automation_yaml")
+    try:
+        proposals=analyze(parsed,routes)
         for entry in proposals:
             if entry["status"]=="proposed":
                 old={"action":entry["source"]}
@@ -40,12 +68,12 @@ def _inspect_one(path, routes):
                     original.splitlines(True),updated.splitlines(True),
                     fromfile="before",tofile="suggested"))
         digest=hashlib.sha256(path.read_bytes()).hexdigest()
-        return {"file":str(path),"sha256":digest,"proposals":proposals,
-                "proposed":sum(x["status"]=="proposed" for x in proposals),
-                "manual":sum(x["status"]=="manual" for x in proposals)}
     except Exception as err:
         # Avoid dumping YAML values/secret-bearing exception content into UI.
-        return {"file":path.name,"error":type(err).__name__,"proposals":[]}
+        return _failure(path, "read_failed", detail=type(err).__name__)
+    return {"file":str(path),"sha256":digest,"proposals":proposals,
+            "proposed":sum(x["status"]=="proposed" for x in proposals),
+            "manual":sum(x["status"]=="manual" for x in proposals)}
 
 
 def _candidate_paths(root):

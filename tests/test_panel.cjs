@@ -301,6 +301,62 @@ test('card shows translated priorities and target display names without changing
   }
 });
 
+test('help can be shown per section, follows the language and stays open across sections',async()=>{
+  const {panel}=setup({dashboard:{policies:{},retention:{},smart:{}},statistics:{},admin_inventory:{routes:{recipients:{},groups:{},persons:{}}}});
+  panel._section='settings';panel.render();await tick();
+  const root=panel.shadowRoot;
+  const toggle=root.querySelector('button.rn-help-toggle');
+  assert.equal(toggle.textContent,'Hilfe einblenden');assert.equal(toggle.getAttribute('aria-expanded'),'false');
+  let help=root.querySelector('#content details.rn-help');
+  assert.equal(help.open,false);assert.equal(help.querySelector('summary').textContent,'Hilfe zu diesem Bereich');
+  assert.match(help.textContent,/Alle Optionen gibt es gesammelt/);
+  assert.match(help.querySelector('a').href,/docs\/CONFIGURATION\.md$/);
+  toggle.click();
+  assert.equal(help.open,true);assert.equal(toggle.textContent,'Hilfe ausblenden');assert.equal(toggle.getAttribute('aria-expanded'),'true');
+  click(root.querySelector('nav'),'Ziele & Personen');await tick();
+  help=root.querySelector('#content details.rn-help');
+  assert.equal(help.open,true);assert.match(help.textContent,/Neues Ziel anlegen/);assert.match(help.querySelector('pre').textContent,/reliable_notify\.enqueue/);
+  panel.hass={...panel._hass,language:'en'};await tick();
+  help=root.querySelector('#content details.rn-help');
+  assert.equal(help.querySelector('summary').textContent,'Help for this section');
+  assert.match(help.textContent,/Create new target/);assert.equal(help.open,true);
+  assert.equal(root.querySelector('button.rn-help-toggle').textContent,'Hide help');
+});
+
+test('automation check shows translated reasons, skipped files and file errors',async()=>{
+  const report={proposed:1,manual:1,files:[
+    {file:'scripts.yaml',skipped:'not_present',proposals:[]},
+    {file:'/config/packages/windows.yaml',relative_file:'packages/windows.yaml',sha256:'a'.repeat(64),proposed:1,manual:1,proposals:[
+      {path:'root.automation[0].actions[0]',automation:'Fenster',status:'proposed',source:'telegram_bot.send_message',route:'tg_buero',
+       reason_code:'unambiguous',reason:'Unambiguous static destination',replacement:{action:'notify.reliable_tg_buero',data:{message:'Hi'}},preview_diff:'+action: notify.reliable_tg_buero'},
+      {path:'root.automation[0].actions[1]',automation:'Fenster',status:'manual',source:'notify.send_message',reason_code:'no_route',reason:'No configured matching route'}]},
+    {file:'/config/automations.yaml',relative_file:'automations.yaml',sha256:'b'.repeat(64),proposals:[
+      {path:'root[0].actions[0]',automation:'Licht',status:'proposed',source:'notify.mobile_app_x',route:'tg_buero',reason_code:'unambiguous',
+       replacement:{action:'notify.reliable_tg_buero',data:{message:'x'}}}]},
+    {file:'broken.yaml',error_code:'yaml_syntax',error:'YAML syntax error',line:4,proposals:[]}]};
+  for(const [language,analyse,reason,skipped,error,manualHint,tip,failed] of [
+    ['de','Benachrichtigungen analysieren','Eindeutiges festes Ziel','Nicht vorhanden – übersprungen: scripts.yaml','broken.yaml — YAML-Syntaxfehler in Zeile 4','HA-Automationseditor','Tipp:','Datei wurde seit der Analyse geändert'],
+    ['en','Analyse notifications','Unique fixed destination','Not present – skipped: scripts.yaml','broken.yaml — YAML syntax error on line 4','HA automation editor','Tip:','The file changed since the analysis']]){
+    const {panel,box,calls}=setup({migration_scan:report,admin_inventory:{routes:{recipients:{tg_buero:{}},groups:{},persons:{}},labels:{tg_buero:'Telegram Büro'}}});
+    panel._hass.language=language;
+    const original=panel._hass.callWS;
+    panel._hass.callWS=async msg=>{if(msg.type.endsWith('/migration_apply')){calls.push(msg);throw {code:'migration_failed',message:'file_changed'};}return original(msg);};
+    await panel.migration(box);
+    const button=[...box.querySelectorAll('button')].find(b=>b.textContent.startsWith(analyse));assert.ok(button,analyse);
+    button.click();await tick();await tick();
+    assert.match(box.textContent,new RegExp(reason));assert.match(box.textContent,new RegExp(skipped));
+    assert.ok([...box.querySelectorAll('h3')].some(h=>h.textContent===error));
+    assert.match(box.textContent,new RegExp(manualHint));assert.match(box.textContent,new RegExp(tip));
+    assert.match(box.querySelector('summary').textContent,/Telegram Büro \(tg_buero\)/);
+    // Only the root packages file offers the single-change button.
+    const applies=[...box.querySelectorAll('button.primary')].filter(b=>b!==button);
+    assert.equal(applies.length,1);
+    applies[0].click();await tick();await tick();
+    assert.equal(calls.filter(c=>c.type.endsWith('/migration_apply')).length,1);
+    assert.match(box.textContent,new RegExp(failed));
+  }
+});
+
 test('saved-target test is disabled until saving and uses persisted alias in English',async()=>{
   const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
     test_route:{ids:[7],not_before:0},archive_detail:{id:7,status:'sent'}});

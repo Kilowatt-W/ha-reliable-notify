@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.3.1
+- Fix the automation check on real Home Assistant installations: files are parsed with a safe, read-only loader that returns plain values. Previously HA's YAML node types made every file with a suggestion fail, and `!secret` values made whole files fail.
+- `!secret`, `!include`, `!input` and similar tags are never resolved; affected actions are listed for manual review and secrets never reach the panel.
+- Missing default files (e.g. no `scripts.yaml`) are shown as skipped instead of errors; YAML syntax errors show the line number.
+- Fix applying a single package change when the action is not the last one in its list (the following list item was merged into the replacement and the change was refused).
+- Reasons, file errors and refusals of the automation check use stable codes and are shown in German or English; route display names are shown in suggestions.
+- Add in-panel help for every section (German/English) with steps, automation examples and links to the documentation; a header button shows or hides help and remembers the choice per browser.
+
 ## 3.3.0
 - Add optional display names (Klarnamen) for targets, groups and people: free text up to 100 characters, edited in the admin panel or under `labels` in `reliable_notify_routes.yaml`. The internal name is suggested from the display name when creating an entry and stays the routing key.
 - Show display names in the target list, in group/person/profile/escalation pickers, in the card's staged-message assignment, in real test notifications and as the friendly name of route notify entities. Entity IDs stay `notify.reliable_<internal name>`.
