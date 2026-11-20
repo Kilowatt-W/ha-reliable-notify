@@ -247,7 +247,7 @@
         },
         "incident": {
           "name": "Alarmfenster",
-          "description": "Vorfall sichtbar halten, bis er quittiert ist: display_text (Anzeige im Dashboard), area (Filter), escalate_while_resolved (Erinnerungen auch nach behobener Ursache, Standard true). Benötigt dedup_key."
+          "description": "Vorfall sichtbar halten, bis er quittiert ist: display_text (Anzeige im Dashboard), area (Filter), escalate_while_resolved (Erinnerungen auch nach behobener Ursache, Standard true), source_entity + problem_state(s) (Reliable Notify beobachtet die Ursache selbst), resolve_after (Sekunden, die die Ursache weg sein muss), auto_close_after (behobenen, nicht quittierten Vorfall nach Sekunden schließen; nicht bei critical). Benötigt dedup_key."
         }
       }
     },

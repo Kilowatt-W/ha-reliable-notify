@@ -1012,6 +1012,8 @@ RN_TRANSLATIONS.push(...[
   ['Alarmfenster nicht verfügbar:','Alarm window unavailable:'],
   ['Aktion nicht möglich:','Action not possible:'],
   ['Offene Vorfälle mit Quittieren und Schlummern','Open incidents with acknowledge and snooze'],
+  ['Ursache: {name}','Cause: {name}'],
+  ['Verlauf','History'],
 ]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
@@ -1021,6 +1023,9 @@ export const RN_VALUE_LABELS = {
   test_mode:{off:['Aus (normal zustellen)','Off (deliver normally)'],stage:['Nur zurückstellen (nicht senden)','Stage only (do not send)']},
   level:{off:['Aus','Off'],error:['Fehler','Errors'],warning:['Warnungen','Warnings'],info:['Information','Information'],debug:['Debug','Debug']},
   operation:{edit:['Bearbeiten','Edit'],delete:['Löschen','Delete']},
+  incident_action:{created:['gemeldet','reported'],acknowledged:['quittiert','acknowledged'],snoozed:['geschlummert','snoozed'],
+    escalated:['eskaliert','escalated'],resolved:['behoben','resolved'],reopened:['wieder geöffnet','reopened'],
+    reactivated:['wieder aktiv (Ursache erneut)','active again (cause returned)'],closed:['automatisch erledigt','closed automatically']},
   status:{queued:['Wartend','Queued'],retry:['Erneuter Versuch','Retrying'],sent:['Gesendet','Sent'],dead:['Fehlgeschlagen','Failed'],
     expired:['Abgelaufen','Expired'],dead_expired:['Abgelaufen (fehlgeschlagen)','Expired (failed)'],cancelled:['Abgebrochen','Cancelled'],
     suppressed:['Unterdrückt','Suppressed'],replaced:['Ersetzt','Replaced'],cleared:['Geleert','Cleared'],deleted:['Gelöscht','Deleted'],
@@ -1051,7 +1056,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.6.0 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.7.0 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

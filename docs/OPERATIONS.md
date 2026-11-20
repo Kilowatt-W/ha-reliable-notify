@@ -80,6 +80,9 @@ An acknowledged notification with an `incident` mapping becomes an incident that
 - Entities: sensor *Open incidents* (count, attribute `incidents`) and binary sensor *Critical incident open*.
 - Card `custom:reliable-notify-alarm-card` (loaded automatically for all users): options `areas`, `message_types`, `min_priority`, `show_acknowledged`, `snooze_minutes` (up to three), `confirm_acknowledge`, `compact`. Live updates via WebSocket subscription; without open incidents the card hides itself. Every signed-in user may acknowledge and snooze (option *Only administrators may acknowledge or snooze incidents*); escalating, resolving and reopening need an administrator.
 - Open incidents are kept regardless of priority; closed ones are removed after 30 days.
+- Watching the cause (3.7.0): `source_entity` (entity ID) with `problem_state` or `problem_states` (default `on`). Reliable Notify follows the entity itself: when it leaves the problem state for `resolve_after` seconds (default 0) the incident is resolved; when the problem returns while it is still unacknowledged it becomes active again (event action `reactivated`). `unavailable`/`unknown` never resolve anything. The waiting period is stored, and all watched entities are subscribed again and re-evaluated after an HA restart.
+- `auto_close_after` (seconds): a resolved incident that nobody acknowledged within this time is closed (event action `closed`). Not allowed for `critical` incidents.
+- Each incident keeps a history (created, acknowledged, snoozed, escalated, resolved, reactivated, reopened, closed) for 90 days; the admin panel shows it under *Escalations → History*. A re-report with the same key after acknowledgement starts a new episode of the same incident.
 
 ## Troubleshooting checklist
 

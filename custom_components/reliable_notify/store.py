@@ -25,7 +25,10 @@ def _ensure_companion_tag(payload, key):
 PRIORITY_ORDER = "CASE priority WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END"
 
 
-INCIDENT_ACTIONS = ("ack", "snooze", "escalate", "resolve", "reopen")
+INCIDENT_ACTIONS = ("ack", "snooze", "escalate", "resolve", "reopen", "reactivate", "close")
+# Store action -> action name in history and in the reliable_notify_incident event.
+INCIDENT_EVENTS = {"ack": "acknowledged", "snooze": "snoozed", "escalate": "escalated", "resolve": "resolved",
+                   "reopen": "reopened", "reactivate": "reactivated", "close": "closed"}
 # Open, unacknowledged, not snoozed, and (if resolved) still configured to remind.
 ESCALATING = ("acknowledged_at IS NULL AND closed_at IS NULL AND (snoozed_until IS NULL OR snoozed_until<=?) "
               "AND (resolved_at IS NULL OR escalate_while_resolved=1)")
@@ -56,6 +59,10 @@ def incident_record(row, now=None):
         "acknowledged_by": row["acknowledged_by"], "closed_at": row["closed_at"], "snoozed_until": snoozed,
         "escalation_step": row["next_step"], "escalation_steps": len(steps),
         "escalate_while_resolved": bool(row["escalate_while_resolved"]),
+        "source_entity": row["source_entity"],
+        "problem_states": json.loads(row["problem_states_json"]) if row["problem_states_json"] else None,
+        "resolve_after": row["resolve_after"], "auto_close_after": row["auto_close_after"],
+        "clear_since": row["clear_since"],
     }
 
 
@@ -113,7 +120,11 @@ class QueueStore:
                                      ("resolved_at", "REAL"), ("resolved_by", "TEXT"),
                                      ("closed_at", "REAL"), ("incident", "INTEGER NOT NULL DEFAULT 0"),
                                      ("display_text", "TEXT"), ("area", "TEXT"), ("message_type", "TEXT"),
-                                     ("escalate_while_resolved", "INTEGER NOT NULL DEFAULT 1")):
+                                     ("escalate_while_resolved", "INTEGER NOT NULL DEFAULT 1"),
+                                     # 3.7.0: watched cause and timers
+                                     ("source_entity", "TEXT"), ("problem_states_json", "TEXT"),
+                                     ("resolve_after", "INTEGER NOT NULL DEFAULT 0"),
+                                     ("auto_close_after", "INTEGER NOT NULL DEFAULT 0"), ("clear_since", "REAL")):
                 if name not in cols_ack:
                     con.execute(f"ALTER TABLE acknowledgements ADD COLUMN {name} {definition}")
                     if name == "opened_at":
@@ -126,6 +137,10 @@ class QueueStore:
                 digest=hashlib.sha256(key.encode("utf8")).hexdigest()[:16]
                 con.execute("UPDATE acknowledgements SET action_id=? WHERE ack_key=?",(digest,key))
             con.execute("CREATE INDEX IF NOT EXISTS idx_ack_action ON acknowledgements(action_id)")
+            con.execute("""CREATE TABLE IF NOT EXISTS incident_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT, ack_key TEXT NOT NULL,
+                action TEXT NOT NULL, by TEXT, state TEXT NOT NULL, occurred_at REAL NOT NULL)""")
+            con.execute("CREATE INDEX IF NOT EXISTS idx_incident_events_key ON incident_events(ack_key,occurred_at)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_ack_active ON acknowledgements(acknowledged_at,created_at)")
             con.execute("""CREATE TABLE IF NOT EXISTS send_rate_windows (
                 bucket TEXT PRIMARY KEY, window_start REAL NOT NULL,
@@ -320,8 +335,9 @@ class QueueStore:
                     ack_key,message_id,title,message,priority,created_at,steps_json,
                     next_step,acknowledged_at,acknowledged_by,action_id,opened_at,
                     snoozed_until,resolved_at,resolved_by,closed_at,incident,display_text,
-                    area,message_type,escalate_while_resolved)
-                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?,?,NULL,NULL,NULL,NULL,?,?,?,?,?)
+                    area,message_type,escalate_while_resolved,source_entity,problem_states_json,
+                    resolve_after,auto_close_after,clear_since)
+                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?,?,NULL,NULL,NULL,NULL,?,?,?,?,?,?,?,?,?,NULL)
                     ON CONFLICT(ack_key) DO UPDATE SET
                     message_id=excluded.message_id,title=excluded.title,
                     message=excluded.message,priority=excluded.priority,
@@ -335,13 +351,21 @@ class QueueStore:
                     snoozed_until=NULL,resolved_at=NULL,resolved_by=NULL,closed_at=NULL,
                     incident=excluded.incident,display_text=excluded.display_text,
                     area=excluded.area,message_type=excluded.message_type,
-                    escalate_while_resolved=excluded.escalate_while_resolved""",
+                    escalate_while_resolved=excluded.escalate_while_resolved,
+                    source_entity=excluded.source_entity,problem_states_json=excluded.problem_states_json,
+                    resolve_after=excluded.resolve_after,auto_close_after=excluded.auto_close_after,
+                    clear_since=NULL""",
                     (ack["key"],ids[0],items[0].get("title"),items[0]["message"],
                      items[0]["priority"],now,json.dumps(ack["steps"]),
                      hashlib.sha256(ack["key"].encode("utf8")).hexdigest()[:16],now,
                      1 if ack.get("incident") is not None else 0,incident.get("display_text"),
                      incident.get("area"),ack.get("message_type"),
-                     0 if incident.get("escalate_while_resolved") is False else 1))
+                     0 if incident.get("escalate_while_resolved") is False else 1,
+                     incident.get("source_entity"),
+                     json.dumps(incident["problem_states"]) if incident.get("problem_states") else None,
+                     int(incident.get("resolve_after") or 0),int(incident.get("auto_close_after") or 0)))
+                con.execute("""INSERT INTO incident_events(ack_key,action,by,state,occurred_at)
+                    VALUES(?,'created','enqueue','active',?)""",(ack["key"],now))
             return ids
         return await self._run(op)
 
@@ -601,6 +625,8 @@ class QueueStore:
             con.execute("""DELETE FROM acknowledgements
                 WHERE closed_at IS NOT NULL AND closed_at<?""",
                 (now-30*86400,))
+            con.execute("""DELETE FROM incident_events WHERE occurred_at<?
+                OR ack_key NOT IN (SELECT ack_key FROM acknowledgements)""",(now-90*86400,))
             # Unacknowledged critical incidents are retained; stale noncritical
             # records are not allowed to accumulate indefinitely.
             con.execute("""DELETE FROM acknowledgements
@@ -776,18 +802,29 @@ class QueueStore:
             closed=row["closed_at"] is not None
             acked=row["acknowledged_at"] is not None
             resolved=row["resolved_at"] is not None
-            if action=="reopen":
+            if action=="reactivate":
+                # The watched cause is back while nobody acknowledged: active again, same episode.
+                if closed or acked or not resolved:
+                    return None
+                con.execute("""UPDATE acknowledgements SET resolved_at=NULL,resolved_by=NULL,clear_since=NULL
+                    WHERE ack_key=?""",(key,))
+            elif action=="close":
+                # auto_close_after: resolved and nobody acknowledged within the period.
+                if closed or acked or not resolved:
+                    return None
+                con.execute("UPDATE acknowledgements SET closed_at=?,clear_since=NULL WHERE ack_key=?",(now,key))
+            elif action=="reopen":
                 if not (closed or acked or resolved):
                     return None
                 con.execute("""UPDATE acknowledgements SET acknowledged_at=NULL,acknowledged_by=NULL,
-                    resolved_at=NULL,resolved_by=NULL,closed_at=NULL,snoozed_until=NULL,
+                    resolved_at=NULL,resolved_by=NULL,closed_at=NULL,snoozed_until=NULL,clear_since=NULL,
                     opened_at=?,created_at=?,next_step=0 WHERE ack_key=?""",(now,now,key))
             elif closed:
                 return None
             elif action=="resolve":
                 if resolved:
                     return None
-                con.execute("""UPDATE acknowledgements SET resolved_at=?,resolved_by=?,
+                con.execute("""UPDATE acknowledgements SET resolved_at=?,resolved_by=?,clear_since=NULL,
                     escalate_while_resolved=CASE WHEN ? THEN 0 ELSE escalate_while_resolved END,
                     closed_at=CASE WHEN acknowledged_at IS NOT NULL THEN ? ELSE NULL END
                     WHERE ack_key=?""",(now,who,1 if stop_escalation else 0,now,key))
@@ -817,7 +854,46 @@ class QueueStore:
                 con.execute("UPDATE acknowledgements SET created_at=?,snoozed_until=NULL WHERE ack_key=?",
                             (now-required-1,key))
             updated=con.execute("SELECT * FROM acknowledgements WHERE ack_key=?",(key,)).fetchone()
-            return incident_record(updated,now)
+            record=incident_record(updated,now)
+            con.execute("""INSERT INTO incident_events(ack_key,action,by,state,occurred_at)
+                VALUES(?,?,?,?,?)""",(key,INCIDENT_EVENTS[action],who,record["state"],now))
+            return record
+        return await self._run(op)
+
+    async def set_clear_since(self, key, value):
+        """Start (time) or reset (None) the resolve_after waiting period of a watched cause."""
+        await self._run(lambda con: con.execute(
+            "UPDATE acknowledgements SET clear_since=? WHERE ack_key=? AND closed_at IS NULL", (value, key)))
+
+    async def watched_incidents(self):
+        """Open incidents whose cause entity Reliable Notify watches."""
+        def op(con):
+            con.row_factory=sqlite3.Row
+            now=time.time()
+            return [incident_record(row,now) for row in con.execute(
+                "SELECT * FROM acknowledgements WHERE closed_at IS NULL AND source_entity IS NOT NULL")]
+        return await self._run(op)
+
+    async def due_incident_timers(self, now=None):
+        """(to_resolve, to_close): resolve_after elapsed / auto_close_after elapsed."""
+        now=now or time.time()
+        def op(con):
+            con.row_factory=sqlite3.Row
+            resolve=[incident_record(row,now) for row in con.execute("""SELECT * FROM acknowledgements
+                WHERE closed_at IS NULL AND resolved_at IS NULL AND clear_since IS NOT NULL
+                AND clear_since+resolve_after<=?""",(now,))]
+            close=[incident_record(row,now) for row in con.execute("""SELECT * FROM acknowledgements
+                WHERE closed_at IS NULL AND acknowledged_at IS NULL AND resolved_at IS NOT NULL
+                AND auto_close_after>0 AND resolved_at+auto_close_after<=?""",(now,))]
+            return resolve,close
+        return await self._run(op)
+
+    async def incident_history(self, key, limit=50):
+        """Episodes and actions of one incident, newest first."""
+        def op(con):
+            con.row_factory=sqlite3.Row
+            return [dict(row) for row in con.execute("""SELECT action,by,state,occurred_at FROM incident_events
+                WHERE ack_key=? ORDER BY occurred_at DESC,event_id DESC LIMIT ?""",(key,min(200,max(1,int(limit)))))]
         return await self._run(op)
 
     async def incidents(self, include_closed=False, limit=200):

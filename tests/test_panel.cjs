@@ -487,6 +487,23 @@ test('alarm card options: compact, acknowledged state, admin escalation and inva
   card.remove();
 });
 
+test('alarm card names the watched cause and opens it on tap',async()=>{
+  const payload={permissions:{ack:true,snooze:true},incidents:[{dedup_key:'brenner',title:'Brennerstörung',text:'Entstören',
+    priority:'critical',state:'resolved',opened_at:Date.now()/1000-60,resolved_at:Date.now()/1000,escalation_step:0,escalation_steps:0,
+    source_entity:'binary_sensor.brenner'}]};
+  for(const [language,cause] of [['de','Ursache: Brenner Störung'],['en','Cause: Brenner Störung']]){
+    const {card,hass,dom}=alarmSetup(language,payload);
+    hass.states={'binary_sensor.brenner':{attributes:{friendly_name:'Brenner Störung'}}};
+    card.setConfig({});card.hass=hass;await tick();
+    assert.match(card.shadowRoot.querySelector('.meta').textContent,new RegExp(cause));
+    const opened=[];card.addEventListener('hass-more-info',event=>opened.push(event.detail.entityId));
+    card.shadowRoot.querySelector('.source').click();
+    card.shadowRoot.querySelector('.source').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter'}));
+    assert.deepEqual(opened,['binary_sensor.brenner','binary_sensor.brenner']);
+    card.remove();
+  }
+});
+
 test('saved-target test is disabled until saving and uses persisted alias in English',async()=>{
   const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
     test_route:{ids:[7],not_before:0},archive_detail:{id:7,status:'sent'}});

@@ -6,6 +6,34 @@ PRIORITY_RANK = {"info": 0, "warning": 1, "critical": 2}
 RESIDENT_ACTIONS = frozenset(("ack", "snooze"))
 
 
+UNDECIDED_STATES = frozenset(("unavailable", "unknown"))
+
+
+def source_decision(state, problem_states):
+    """'problem', 'clear' or None (entity missing/unavailable: never resolve on that)."""
+    if state is None or state in UNDECIDED_STATES:
+        return None
+    return "problem" if state in (problem_states or ["on"]) else "clear"
+
+
+def plan_incident(record, state, timer_due=False):
+    """Next step for a watched incident given the cause entity's current state.
+
+    Returns 'reactivate', 'resolve', 'start_wait', 'reset_wait' or None.
+    ``timer_due``: resolve_after has elapsed (resolve if the cause is still gone).
+    """
+    decision = source_decision(state, record.get("problem_states"))
+    if decision == "problem":
+        if record["state"] == "resolved":
+            return "reactivate"
+        return "reset_wait" if record.get("clear_since") else None
+    if decision == "clear" and record["state"] in ("active", "acknowledged"):
+        if timer_due or not record.get("resolve_after"):
+            return "resolve"
+        return None if record.get("clear_since") else "start_wait"
+    return None
+
+
 def visible_incidents(records, areas=None, message_types=None, min_priority="info",
                       include_acknowledged=False):
     """Open incidents for a view, highest priority first, newest first within a priority."""
@@ -32,7 +60,7 @@ def public_incident(record, is_admin=False):
     view = {key: record.get(key) for key in (
         "dedup_key", "title", "priority", "area", "message_type", "state", "opened_at",
         "resolved_at", "acknowledged_at", "acknowledged_by", "snoozed_until",
-        "escalation_step", "escalation_steps")}
+        "escalation_step", "escalation_steps", "source_entity")}
     view["text"] = record.get("display_text") or record.get("message") or ""
     if is_admin:
         view["message"] = record.get("message")

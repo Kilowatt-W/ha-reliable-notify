@@ -172,9 +172,10 @@ class ViewTests(unittest.TestCase):
 
     def test_incident_field_validation(self):
         self.assertEqual(ack_module.validate_incident({"area": "heizraum"}),
-                         {"display_text": None, "area": "heizraum", "escalate_while_resolved": True})
-        for bad in ({"source_entity": "binary_sensor.x"}, {"area": "Heizraum"}, {"display_text": "x" * 501},
-                    {"escalate_while_resolved": "yes"}, "text"):
+                         {"display_text": None, "area": "heizraum", "escalate_while_resolved": True,
+                          "source_entity": None, "problem_states": None, "resolve_after": 0, "auto_close_after": 0})
+        for bad in ({"source_entity": "Binary Sensor"}, {"area": "Heizraum"}, {"display_text": "x" * 501},
+                    {"escalate_while_resolved": "yes"}, "text", {"watch": "x"}):
             with self.assertRaises(ValueError):
                 ack_module.validate_incident(bad)
 

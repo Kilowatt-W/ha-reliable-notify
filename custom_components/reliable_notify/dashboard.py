@@ -192,6 +192,20 @@ def register_dashboard(hass):
                 "permissions": {action: may_act(action, user.is_admin, admin_only)
                                 for action in ("ack", "snooze", "escalate", "resolve", "reopen")}}
 
+    @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/incident_history",
+                                      vol.Required("key"): vol.All(str, vol.Length(min=1, max=128))})
+    @websocket_api.async_response
+    async def incident_history(hass, connection, msg):
+        """Episodes and actions of one incident (admin panel)."""
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"], "unauthorized", "Administrator required")
+            return
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
+            return
+        connection.send_result(msg["id"], {"events": await manager.store.incident_history(msg["key"])})
+
     # Alarm window: readable by every signed-in user (residents' dashboards).
     @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/incidents", **INCIDENT_FILTERS})
     @websocket_api.async_response
@@ -221,8 +235,9 @@ def register_dashboard(hass):
                 return
             connection.send_message(websocket_api.event_message(msg["id"], payload))
 
-        connection.subscriptions[msg["id"]] = hass.bus.async_listen(
-            "reliable_notify_incident", lambda event: hass.async_create_task(push(event)))
+        # A coroutine listener runs in the event loop (a plain lambda would run in a
+        # worker thread, where creating tasks is not allowed).
+        connection.subscriptions[msg["id"]] = hass.bus.async_listen("reliable_notify_incident", push)
         connection.send_result(msg["id"])
         await push()
 
@@ -686,6 +701,7 @@ def register_dashboard(hass):
     websocket_api.async_register_command(hass, set_smart)
     websocket_api.async_register_command(hass, acknowledge_command)
     websocket_api.async_register_command(hass, list_incidents)
+    websocket_api.async_register_command(hass, incident_history)
     websocket_api.async_register_command(hass, subscribe_incidents)
     websocket_api.async_register_command(hass, set_retention)
     websocket_api.async_register_command(hass, archive_search)

@@ -1,5 +1,5 @@
-/* Reliable Notify Alarm Card 3.6.0 — open incidents for every dashboard (residents). No external dependencies. */
-import { rnTranslate, rnLanguage, rnIcon } from './reliable-notify-card.js?v=3.6.0';
+/* Reliable Notify Alarm Card 3.7.0 — open incidents for every dashboard (residents). No external dependencies. */
+import { rnTranslate, rnLanguage, rnIcon } from './reliable-notify-card.js?v=3.7.0';
 
 const RN_ALARM_PRIORITIES=['info','warning','critical'];
 const RN_ALARM_STYLES=`
@@ -13,6 +13,7 @@ const RN_ALARM_STYLES=`
   .band[data-state=acknowledged]{--rn-band:var(--secondary-text-color,#727272);opacity:.85}
   .head{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;line-height:1.3}
   .head ha-icon{color:var(--rn-band);--mdc-icon-size:24px;flex:none}
+  .source{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
   .text{margin:6px 0 0;line-height:1.45;overflow-wrap:anywhere}
   .meta{margin:6px 0 0;font-size:13px;color:var(--secondary-text-color)}
   .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -109,9 +110,19 @@ class ReliableNotifyAlarmCard extends HTMLElement {
     const head=document.createElement('div');head.className='head';
     const icon=incident.state==='resolved'?'mdi:check-circle-outline':incident.state==='acknowledged'?'mdi:check':'mdi:alarm-light-outline';
     const title=document.createElement('span');title.textContent=incident.title||incident.dedup_key;
+    if(incident.source_entity){
+      // Tap on the title opens the cause entity (HA more-info dialog).
+      title.className='source';title.tabIndex=0;title.setAttribute('role','button');
+      const open=()=>this.dispatchEvent(new CustomEvent('hass-more-info',{detail:{entityId:incident.source_entity},bubbles:true,composed:true}));
+      title.addEventListener('click',open);title.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();open();}});
+    }
     head.append(rnIcon(icon),title);band.append(head);
     if(incident.text&&!this._config.compact){const text=document.createElement('p');text.className='text';text.textContent=incident.text;band.append(text);}
     const meta=[this.t('seit {time}',{time:this.time(incident.opened_at)})];
+    if(incident.source_entity){
+      const cause=this._hass?.states?.[incident.source_entity];
+      meta.push(this.t('Ursache: {name}',{name:cause?.attributes?.friendly_name||incident.source_entity}));
+    }
     if(incident.state==='resolved'&&incident.resolved_at)meta.push(this.t('behoben um {time}',{time:this.time(incident.resolved_at)}));
     if(incident.state==='acknowledged')meta.push(this.t('quittiert von {name}, besteht noch',{name:incident.acknowledged_by||'?'}));
     if(incident.snoozed_until)meta.push(this.t('Erinnerungen pausiert bis {time}',{time:this.time(incident.snoozed_until)}));

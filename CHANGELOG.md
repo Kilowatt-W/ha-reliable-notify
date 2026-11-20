@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.7.0
+- Alarm window phase 2: `incident.source_entity` with `problem_state`/`problem_states` (default `on`) – Reliable Notify watches the cause itself. When the entity leaves the problem state for `resolve_after` seconds the incident is resolved; if the problem returns before anyone acknowledged, it becomes active again (`reactivated`). `unavailable`/`unknown` never resolve. Waiting periods are stored and all watched entities are re-subscribed and re-evaluated after an HA restart.
+- `incident.auto_close_after`: close a resolved, unacknowledged incident after a period (not for `critical`).
+- Incident history (created, acknowledged, snoozed, escalated, resolved, reactivated, reopened, closed) kept for 90 days and shown in the admin panel under *Escalations → History*.
+- Alarm card shows the cause entity ("Cause: …") and opens it on tap.
+- Fix: Telegram button presses, Companion app actions and Telegram message receipts are processed in the event loop again. Without `@callback`, HA ran these handlers in a worker thread where creating tasks is not allowed, so presses could be lost. The alarm card's live subscription had the same issue and is fixed.
+
 ## 3.6.0
 - Alarm window (phase 1): acknowledged notifications with `incident` (`display_text`, `area`, `escalate_while_resolved`) become incidents that stay visible until acknowledged, also after the cause is gone. States active → resolved / acknowledged → closed.
 - New services `reliable_notify.resolve` (optionally stopping reminders), `reliable_notify.snooze` (minutes) and `reliable_notify.reopen`. Snoozing and escalating no longer move the incident's opening time.

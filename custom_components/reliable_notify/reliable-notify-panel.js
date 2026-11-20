@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.6.0 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.6.0';
+/* Reliable Notify Admin Panel 3.7.0 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.7.0';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -122,7 +122,10 @@ const RN_HELP={
 RN_HELP.incidents.examples=[
   {de:'Störung melden, bis zum Quittieren sichtbar halten und erinnern',en:'Report a fault, keep it visible until acknowledged and send reminders',
    code:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_technik]\n  title: Brennerstörung\n  message: "Der Brenner hat auf Störung geschaltet."\n  priority: critical\n  message_type: heizraum\n  dedup_key: heizraum_brenner\n  acknowledgement:\n    required: true\n    escalation:\n      - {after: 1800, recipients: [telegram_technik]}\n  incident:\n    display_text: "An der Ecomatic prüfen und entstören."\n    area: heizraum'},
-  {de:'Ursache ist weg (eigene Automation, wenn der Sensor wieder normal ist)',en:'Cause is gone (own automation when the sensor is back to normal)',
+  {de:'Ursache selbst beobachten: behoben, wenn der Sensor 2 Minuten nicht mehr auf Störung steht; tritt sie erneut auf, wieder aktiv (keine Aus-Automation nötig)',
+   en:'Watch the cause: resolved once the sensor has left the fault state for 2 minutes; active again if it returns (no off automation needed)',
+   code:'  incident:\n    display_text: "An der Ecomatic prüfen und entstören."\n    area: heizraum\n    source_entity: binary_sensor.brennerstoerung\n    problem_state: "on"\n    resolve_after: 120'},
+  {de:'Ohne source_entity: Ursache per Dienst als behoben melden',en:'Without source_entity: report the cause as gone with the service',
    code:'action: reliable_notify.resolve\ndata:\n  dedup_key: heizraum_brenner'},
   {de:'Alarm-Karte für Bewohner (ohne offenen Vorfall unsichtbar)',en:'Alarm card for residents (invisible without open incidents)',
    code:'type: custom:reliable-notify-alarm-card\nareas: [heizraum]\nmin_priority: warning\nsnooze_minutes: [15, 60]\nshow_acknowledged: false'},
@@ -688,7 +691,17 @@ class ReliableNotifyPanel extends HTMLElement {
           }));
           row.append(button);
         }
-        row.append(status);list.append(row);
+        // History of episodes and actions (created, reactivated, resolved, closed, ...).
+        const history=this.element('details');history.append(this.heading(this.t('Verlauf'),'mdi:history','slate','summary'));
+        history.addEventListener('toggle',async()=>{
+          if(!history.open||history.dataset.loaded)return;history.dataset.loaded='1';
+          try{const data=await this.call('incident_history',{key:item.ack_key});const entries=this.element('ul');
+            for(const event of data.events||[])entries.append(this.element('li',new Date(event.occurred_at*1000).toLocaleString(rnLanguage(this._hass))+' · '+
+              rnValueLabel(this._hass,'incident_action',event.action)+(event.by?' · '+event.by:'')));
+            history.append(entries);}
+          catch(e){history.append(this.element('p',this.errorText(e),'error'));}
+        });
+        row.append(status,history);list.append(row);
       }
       if(!(d.acknowledgements||[]).length)list.textContent=this.t('Keine offenen Bestätigungen.');
     }catch(e){list.textContent=e.message;}

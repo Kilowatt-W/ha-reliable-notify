@@ -11,7 +11,7 @@ from pathlib import Path
 
 import voluptuous as vol
 from homeassistant.util.yaml import load_yaml
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
@@ -38,13 +38,14 @@ from .lifecycle import notification_tag
 from .smart import (DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp,
                     scheduled_timestamp, validate_route_quiet_hours)
 from .simulation import simulate
+from .incidents import plan_incident
 from .callbacks import make_token, read_token
 from .logging_utils import validate_transport_logging, transport_for
 from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliver_native
 
 LANES = ("telegram", "smtp", "notify", "notify")
 PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
-ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.6.0"
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.7.0"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ REOPEN_SCHEMA = vol.Schema({
 })
 # Incident action -> action name in the reliable_notify_incident event.
 INCIDENT_EVENTS = {"ack": "acknowledged", "snooze": "snoozed", "escalate": "escalated",
-                   "resolve": "resolved", "reopen": "reopened"}
+                   "resolve": "resolved", "reopen": "reopened", "reactivate": "reactivated", "close": "closed"}
 
 
 def _load_routes(path):
@@ -129,6 +130,8 @@ class ReliableNotifyManager:
         self.min_free_bytes = 100 * 1024 * 1024
         self.callback_secret = None
         self._event_unsubscribers = []
+        self._incident_unsub = None          # state listener for watched incident causes
+        self._watched_entities = frozenset()
 
     @property
     def settings(self):
@@ -189,10 +192,15 @@ class ReliableNotifyManager:
         self.tasks.append(self.hass.async_create_task(self.backup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.escalation_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.report_loop(), eager_start=False))
+        self.tasks.append(self.hass.async_create_task(self.incident_timer_loop(), eager_start=False))
+        self.hass.async_create_task(self.reconcile_incidents())
         self.hass.async_create_task(self.update_dead_letter_issue())
 
     async def stop(self):
         self.stopping = True
+        if self._incident_unsub:
+            self._incident_unsub()
+            self._incident_unsub = None
         for unsubscribe in self._event_unsubscribers:
             unsubscribe()
         self._event_unsubscribers.clear()
@@ -242,9 +250,83 @@ class ReliableNotifyManager:
         record = await self.store.act_on_incident(key, action, by, **options)
         if record:
             self._fire_incident(record, INCIDENT_EVENTS[action], by)
-            if action in ("escalate", "reopen"):
+            if action in ("escalate", "reopen", "reactivate"):
                 self.wakeup.set()
+            await self.watch_incidents()
+            if action == "reopen" and record.get("source_entity"):
+                await self.evaluate_incident(record)
         return record
+
+    async def watch_incidents(self):
+        """(Re)subscribe to the cause entities of all open incidents."""
+        try:
+            entities = frozenset(r["source_entity"] for r in await self.store.watched_incidents())
+        except Exception:
+            _LOGGER.warning("Reliable Notify could not read watched incidents", exc_info=True)
+            return
+        if entities == self._watched_entities and (self._incident_unsub or not entities):
+            return
+        if self._incident_unsub:
+            self._incident_unsub()
+            self._incident_unsub = None
+        self._watched_entities = entities
+        if entities and not self.stopping:
+            from homeassistant.helpers.event import async_track_state_change_event
+            self._incident_unsub = async_track_state_change_event(
+                self.hass, sorted(entities), self._on_source_state)
+
+    @callback
+    def _on_source_state(self, event):
+        self.hass.async_create_task(self.evaluate_entity(event.data.get("entity_id")))
+
+    async def evaluate_entity(self, entity_id):
+        for record in await self.store.watched_incidents():
+            if record["source_entity"] == entity_id:
+                await self.evaluate_incident(record)
+
+    async def _apply_plan(self, record, step):
+        key, by = record["dedup_key"], "source:" + record["source_entity"]
+        if step in ("reactivate", "resolve"):
+            await self.incident_action(key, step, by)
+        elif step == "start_wait":
+            # Waiting period is stored, so it survives an HA restart.
+            await self.store.set_clear_since(key, time.time())
+        elif step == "reset_wait":
+            await self.store.set_clear_since(key, None)
+
+    async def evaluate_incident(self, record, timer_due=False):
+        """Apply the current state of the cause: reactivate, resolve or start resolve_after."""
+        try:
+            state = self.hass.states.get(record["source_entity"])
+            step = plan_incident(record, state.state if state is not None else None, timer_due)
+            if step:
+                await self._apply_plan(record, step)
+        except Exception:
+            _LOGGER.warning("Reliable Notify could not evaluate incident %s", record.get("dedup_key"), exc_info=True)
+
+    async def process_incident_timers(self):
+        """resolve_after elapsed -> resolve (if still clear); auto_close_after elapsed -> close."""
+        to_resolve, to_close = await self.store.due_incident_timers()
+        for record in to_resolve:
+            await self.evaluate_incident(record, timer_due=True)
+        for record in to_close:
+            await self.incident_action(record["dedup_key"], "close", "auto_close")
+
+    async def reconcile_incidents(self):
+        """After start: watch causes again and apply states that changed while HA was down."""
+        await self.watch_incidents()
+        for record in await self.store.watched_incidents():
+            await self.evaluate_incident(record)
+
+    async def incident_timer_loop(self):
+        while not self.stopping:
+            try:
+                await asyncio.sleep(15)
+                await self.process_incident_timers()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.exception("Reliable Notify incident timer processing failed")
 
     async def _telegram_feedback(self,event,raw,actor):
         try:
@@ -264,6 +346,9 @@ class ReliableNotifyManager:
         except Exception:
             _LOGGER.warning("Reliable Notify: unable to process Telegram action feedback")
 
+    # @callback: run in the event loop. Without it HA runs plain functions in a worker
+    # thread, where hass.async_create_task is not allowed (button presses were lost).
+    @callback
     def _on_telegram_sent(self,event):
         # Only record messages carrying our own outgoing queue tag.
         # Telegram integration emits telegram_sent with chat/message IDs.
@@ -282,11 +367,13 @@ class ReliableNotifyManager:
                 _LOGGER.warning("Reliable Notify could not save Telegram receipt")
         self.hass.async_create_task(save())
 
+    @callback
     def _on_telegram_action(self,event):
         raw=event.data.get("data") or event.data.get("command")
         actor="telegram:" + str(event.data.get("user_id","unknown"))
         self.hass.async_create_task(self._telegram_feedback(event,raw,actor))
 
+    @callback
     def _on_mobile_action(self,event):
         raw=event.data.get("action")
         actor="companion:" + str(event.context.user_id or "unknown")
@@ -359,6 +446,8 @@ class ReliableNotifyManager:
             if ack_plan:
                 ack_plan["incident"] = incident
                 ack_plan["message_type"] = data.get("message_type")
+                if incident and incident["auto_close_after"] and data.get("priority") == "critical":
+                    raise ValueError("critical incidents are closed only by acknowledgement (no auto_close_after)")
             if ack_plan:
                 for step in ack_plan['steps']:
                     resolve(self.routes, step['recipients'])
@@ -496,6 +585,9 @@ class ReliableNotifyManager:
             for record in await self.store.incidents():
                 if record["dedup_key"] == ack_plan["key"]:
                     self._fire_incident(record, "created", "enqueue")
+                    await self.watch_incidents()
+                    if record.get("source_entity"):
+                        await self.evaluate_incident(record)  # cause may already be gone
                     break
         return result
 
@@ -789,7 +881,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.6.0",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.7.0",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

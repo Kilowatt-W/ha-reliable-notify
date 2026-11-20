@@ -247,7 +247,7 @@
         },
         "incident": {
           "name": "Alarm window",
-          "description": "Keep this incident visible until acknowledged: display_text (shown on dashboards), area (filter), escalate_while_resolved (reminders after the cause is gone, default true). Requires dedup_key."
+          "description": "Keep this incident visible until acknowledged: display_text (shown on dashboards), area (filter), escalate_while_resolved (reminders after the cause is gone, default true), source_entity + problem_state(s) (Reliable Notify watches the cause itself), resolve_after (seconds the cause must be gone), auto_close_after (close a resolved, unacknowledged incident after seconds; not for critical). Requires dedup_key."
         }
       }
     },
