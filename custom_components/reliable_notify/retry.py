@@ -17,10 +17,57 @@ class Failure:
     kind: str
     retryable: bool
     retry_after: int | None = None
+    # False: waiting for HA (service not loaded yet) does not use up an attempt.
+    counts: bool = True
+
+
+class ServiceNotLoaded(Exception):
+    """The HA action of a transport is not registered (yet), e.g. during HA start."""
+
+
+class TargetUnavailable(Exception):
+    """The notify entity is missing or unavailable; HA would silently skip it."""
+
+
+# HA/voluptuous validation errors: the call can never succeed unchanged.
+VALIDATION_ERRORS = frozenset(("Invalid", "MultipleInvalid", "ServiceValidationError",
+                               "ServiceNotSupported", "ServiceNotFound"))
+_REDACTIONS = (
+    (re.compile(r"https?://\S+", re.I), "<url>"),
+    (re.compile(r"\bbot\d+:[A-Za-z0-9_-]+"), "<secret>"),
+    (re.compile(r"(?i)\b(token|password|passwd|secret|api[_-]?key|authorization)(['\"]?\s*[:=]\s*)\S+"), r"\1\2<secret>"),
+    (re.compile(r"\b[A-Za-z0-9_-]{32,}\b"), "<secret>"),
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "<email>"),
+    (re.compile(r"-?\b\d{6,}\b"), "<id>"),
+)
+
+
+def sanitize_error(err: Exception, limit: int = 240) -> str:
+    """Exception class and message with URLs, tokens, e-mails and IDs masked.
+
+    Gives admins the reason of a failure without storing credentials or
+    chat/phone identifiers. HA translation keys are kept when present.
+    """
+    text = " ".join(str(err).split())
+    for pattern, replacement in _REDACTIONS:
+        text = pattern.sub(replacement, text)
+    key = getattr(err, "translation_key", None)
+    name = type(err).__name__
+    detail = f"{name}: {text}" if text else name
+    if isinstance(key, str) and key and key not in detail:
+        detail += f" ({key})"
+    return detail[:limit]
 
 
 def classify_error(err: Exception) -> Failure:
     """Categorize provider failures without persisting sensitive error text."""
+    names = {cls.__name__ for cls in type(err).__mro__}
+    if "ServiceNotLoaded" in names:
+        return Failure("service_not_loaded", True, 60, counts=False)
+    if "TargetUnavailable" in names:
+        return Failure("target_unavailable", True)
+    if names & VALIDATION_ERRORS:
+        return Failure("invalid_payload", False)
     if isinstance(err, ssl.SSLCertVerificationError):
         return Failure("tls_certificate", False)
     if isinstance(err, smtplib.SMTPAuthenticationError):
@@ -91,11 +138,30 @@ def classify_error(err: Exception) -> Failure:
     return Failure("unknown",True,retry_after)
 
 
+# max_attempts 0 = unlimited; max_hours = give up after this long in a failing state
+# (0 = never). A time limit survives longer outages better than an attempt count.
 DEFAULT_POLICIES = {
+    "info": {"max_attempts": 0, "base_seconds": 30, "max_delay": 1800, "max_hours": 6},
+    "warning": {"max_attempts": 0, "base_seconds": 30, "max_delay": 3600, "max_hours": 24},
+    "critical": {"max_attempts": 0, "base_seconds": 15, "max_delay": 3600, "max_hours": 0},
+}
+# Defaults up to 3.3.x. Stored policies identical to them were never customised
+# and move to the new time-based defaults.
+LEGACY_DEFAULTS = {
     "info": {"max_attempts": 8, "base_seconds": 30, "max_delay": 1800},
     "warning": {"max_attempts": 20, "base_seconds": 30, "max_delay": 3600},
-    "critical": {"max_attempts": 0, "base_seconds": 15, "max_delay": 3600},
 }
+
+
+def migrate_policies(raw):
+    """Replace untouched pre-3.4 defaults by the current defaults."""
+    if not isinstance(raw, dict):
+        return raw
+    migrated = dict(raw)
+    for priority, old in LEGACY_DEFAULTS.items():
+        if migrated.get(priority) == old:
+            migrated[priority] = dict(DEFAULT_POLICIES[priority])
+    return migrated
 
 
 def validate_policies(raw):
@@ -109,7 +175,8 @@ def validate_policies(raw):
         if set(custom) - set(default):
             raise ValueError(f"unknown policy keys for {priority}")
         policy = {**default, **custom}
-        for key, min_value, max_value in (("max_attempts", 0, 10000), ("base_seconds", 1, 3600), ("max_delay", 1, 86400)):
+        for key, min_value, max_value in (("max_attempts", 0, 10000), ("base_seconds", 1, 3600),
+                                          ("max_delay", 1, 86400), ("max_hours", 0, 720)):
             value = policy[key]
             if isinstance(value, bool) or not isinstance(value, int) or not min_value <= value <= max_value:
                 raise ValueError(f"{priority}.{key} out of range")

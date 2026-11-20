@@ -956,6 +956,49 @@ RN_TRANSLATIONS.push(...[
   ['Kopiert','Copied'],
   ['Kopieren nicht möglich – Text markieren','Copy not possible – select the text'],
 ]);
+// 3.4.0: failure analysis, time-based give-up and fallback targets.
+RN_TRANSLATIONS.push(...[
+  ['Aufgeben nach Stunden mit Fehlern (0 = nie)','Give up after hours of failures (0 = never)'],
+  ['Ausweichziel bei endgültigem Fehler','Fallback target after final failure'],
+  ['Fehleranalyse','Failure analysis'],
+  ['Keine Fehler im gewählten Zeitraum.','No failures in the selected period.'],
+  ['Endgültig fehlgeschlagene, abgelaufene und gerade wiederholte Nachrichten, gruppiert nach Ursache und Ziel. Der Fehlertext ist bereinigt (Adressen, Token und IDs sind maskiert).','Finally failed, expired and currently retried notifications, grouped by cause and target. The error text is sanitised (addresses, tokens and IDs are masked).'],
+  ['Ursache','Cause'],
+  ['Status','Status'],
+  ['Ziel','Target'],
+  ['Transport','Transport'],
+  ['Anzahl','Count'],
+  ['Zuletzt','Last seen'],
+  ['Letzter Fehler','Last error'],
+  ['Empfehlungen','Recommendations'],
+  ['Netzwerk / Zeitüberschreitung','Network / timeout'],
+  ['Dienst des Anbieters nicht erreichbar','Provider service unavailable'],
+  ['Zu viele Nachrichten (Drosselung)','Too many messages (rate limited)'],
+  ['Zugang abgelehnt','Access denied'],
+  ['Ungültiger Aufruf oder ungültige Daten','Invalid call or invalid data'],
+  ['Empfänger ungültig','Invalid recipient'],
+  ['TLS-Zertifikat ungültig','Invalid TLS certificate'],
+  ['Unerwartete Weiterleitung','Unexpected redirect'],
+  ['Unbekannter Fehler','Unknown error'],
+  ['HA-Aktion nicht geladen','HA action not loaded'],
+  ['Notify-Entität fehlt oder ist nicht verfügbar','Notify entity missing or unavailable'],
+  ['Gültigkeit (ttl) abgelaufen','Validity (ttl) expired'],
+  ['Netzwerk bzw. Internet prüfen. Längere Ausfälle deckt „Aufgeben nach Stunden mit Fehlern“ ab.','Check the network or internet connection. Longer outages are covered by “Give up after hours of failures”.'],
+  ['Der Anbieter war gestört. Nachrichten unter Nachrichten → Dead letters erneut senden.','The provider had an outage. Resend the notifications under Messages → Dead letters.'],
+  ['Weniger Nachrichten an dieses Ziel senden oder „Versuche pro Minute und Ziel“ senken.','Send fewer notifications to this target or lower “Attempts per minute and target”.'],
+  ['Token, Bot oder Chat prüfen: Bot im Chat gestartet und nicht blockiert? Zugangsdaten aktuell?','Check token, bot or chat: was the bot started in the chat and not blocked? Are the credentials current?'],
+  ['Den Text unter „Letzter Fehler“ lesen: meist passen Zusatzdaten, chat_id oder config_entry_id nicht zum Transport. Ziel korrigieren und erneut senden.','Read the text under “Last error”: usually extra data, chat_id or config_entry_id do not fit the transport. Fix the target and resend.'],
+  ['Empfängeradresse im Ziel korrigieren.','Correct the recipient address in the target.'],
+  ['Zertifikat des Servers erneuern oder die richtige HTTPS-Adresse eintragen.','Renew the server certificate or enter the correct HTTPS address.'],
+  ['Die Adresse des Dienstes im Ziel korrigieren (Weiterleitungen werden nicht verfolgt).','Correct the service address in the target (redirects are not followed).'],
+  ['Den Text unter „Letzter Fehler“ und das HA-Protokoll prüfen.','Check the text under “Last error” and the HA log.'],
+  ['Die Integration des Transports (z. B. Telegram, Companion-App) ist nicht geladen. Unter Einstellungen → Geräte & Dienste prüfen.','The transport integration (e.g. Telegram, Companion app) is not loaded. Check Settings → Devices & services.'],
+  ['Die Notify-Entität fehlt oder ist nicht verfügbar. Im Ziel eine vorhandene Entität wählen.','The notify entity is missing or unavailable. Choose an existing entity in the target.'],
+  ['Die Nachricht war zu lange unterwegs (z. B. Ruhezeiten oder Ausfall). ttl erhöhen oder weglassen.','The notification was pending too long (e.g. quiet hours or an outage). Increase or remove ttl.'],
+  ['Fehlgeschlagen','Failed'],
+  ['Abgelaufen','Expired'],
+  ['Wird wiederholt','Retrying'],
+]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
   priority:{info:['Information','Information'],warning:['Warnung','Warning'],critical:['Kritisch','Critical']},
@@ -994,7 +1037,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.3.2 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.4.0 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},
@@ -1231,11 +1274,11 @@ class ReliableNotifyCard extends HTMLElement {
       const row=document.createElement('div');row.style.margin='8px 0';
       const label=document.createElement('strong');label.textContent=rnValueLabel(this._hass,'priority',priority)+' ';row.append(label);
       policyFields[priority]={};
-      const fieldNames={max_attempts:'Maximale Versuche (0 = unbegrenzt)',base_seconds:'Basisabstand (Sekunden)',max_delay:'Maximaler Abstand (Sekunden)'};
+      const fieldNames={max_attempts:'Maximale Versuche (0 = unbegrenzt)',base_seconds:'Basisabstand (Sekunden)',max_delay:'Maximaler Abstand (Sekunden)',max_hours:'Aufgeben nach Stunden mit Fehlern (0 = nie)'};
       for(const [key,val] of Object.entries(values)) {
         const name=document.createElement('label');name.textContent=(fieldNames[key]?this.t(fieldNames[key]):key)+' ';
-        const input=document.createElement('input');input.type='number';input.min=key==='max_attempts'?'0':'1';
-        input.max=key==='max_attempts'?'10000':key==='max_delay'?'86400':'3600';
+        const input=document.createElement('input');input.type='number';input.min=key==='max_attempts'||key==='max_hours'?'0':'1';
+        input.max=key==='max_attempts'?'10000':key==='max_delay'?'86400':key==='max_hours'?'720':'3600';
         input.value=val;input.style.width='68px';input.style.marginRight='8px';
         policyFields[priority][key]=input;name.append(input);row.append(name);
       }

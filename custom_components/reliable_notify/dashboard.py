@@ -450,6 +450,7 @@ def register_dashboard(hass):
         storage=await manager.storage_status()
         connection.send_result(msg["id"],{
             **stats,"storage":storage,"maintenance":manager.maintenance_info,
+            "labels":dict(manager.routes.get("labels",{})),
             "test_mode":manager.settings.get("test_mode","off"),
             "test_recipients":manager.settings.get("test_recipients",[]),
             "transport_logging":manager.settings.get("transport_logging",{}),

@@ -19,7 +19,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
-from .routing import resolve, validate_config, valid_action, merge_routes, is_own_entity
+from .routing import resolve, validate_config, valid_action, merge_routes, is_own_entity, filter_extras
 from .i18n import ha_text
 from .notify_compat import async_register_compat, async_unregister_compat
 from .templates import validate_templates, validate_parameters
@@ -28,7 +28,8 @@ from .api import ReliableNotifyAPIView
 from .store import QueueStore
 from .transport import create_payload
 from .media import snapshot_file, cleanup_media, snapshot_attachments, free_disk_bytes
-from .retry import classify_error, validate_policies, DEFAULT_POLICIES
+from .retry import (classify_error, validate_policies, DEFAULT_POLICIES, migrate_policies,
+                    sanitize_error, ServiceNotLoaded, TargetUnavailable)
 from .retention import validate_retention, retention_for_message, DEFAULT_RETENTION
 from .dashboard import register_dashboard
 from .acknowledgement import validate_acknowledgement
@@ -119,7 +120,8 @@ class ReliableNotifyManager:
 
     @property
     def policies(self):
-        return validate_policies(self.settings.get('retry_policies', DEFAULT_POLICIES))
+        # Untouched pre-3.4 defaults (8/20 attempts) move to the time-based defaults.
+        return validate_policies(migrate_policies(self.settings.get('retry_policies', DEFAULT_POLICIES)))
 
     async def storage_status(self):
         try:
@@ -162,6 +164,7 @@ class ReliableNotifyManager:
         self.tasks.append(self.hass.async_create_task(self.maintenance_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.backup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.escalation_loop(), eager_start=False))
+        self.hass.async_create_task(self.update_dead_letter_issue())
 
     async def stop(self):
         self.stopping = True
@@ -309,6 +312,8 @@ class ReliableNotifyManager:
                 for step in ack_plan['steps']:
                     resolve(self.routes, step['recipients'])
             jobs = []
+            dropped_keys = {}
+            fallback_of = data.get("_fallback_of")  # internal: copy of a dead letter
             for name, rec in targets:
                 action = rec.get("action", "notify.send_message")
                 if data.get("media") == "photo" and action == "telegram_bot.send_message":
@@ -327,13 +332,22 @@ class ReliableNotifyManager:
                         raise ValueError("native transports require a named recipient")
                     payload=native_public_payload(action,rec.get("data",{}),extra)
                 else:
-                    payload = {**rec.get("data", {}), **extra}
+                    # Only keys this transport accepts; others would be rejected by HA.
+                    kept, dropped = filter_extras(action, extra)
+                    if dropped:
+                        dropped_keys.setdefault(action, set()).update(dropped)
+                    payload = {**rec.get("data", {}), **kept}
                 if ack_plan is not None:
                     payload=self._action_payload(action,payload,ack_plan["key"])
                 if data.get("only_if"):
                     payload["__rn_condition"]=dict(data["only_if"])
-                if any(k in payload for k in ("message", "title", "entity_id")):
-                    raise ValueError("transport data may not override message/title/entity_id")
+                blocked = ("message", "title") if action.startswith("telegram_bot.") else ("message", "title", "entity_id")
+                if any(k in payload for k in blocked):
+                    raise ValueError("transport data may not override " + "/".join(blocked))
+                if name:
+                    payload["__rn_route"] = name  # internal marker for fallback; removed before sending
+                if fallback_of:
+                    payload["__rn_fallback"] = fallback_of
                 if action.startswith("telegram_bot.") and not any(k in payload for k in ("chat_id", "entity_id", "config_entry_id")):
                     raise ValueError("Telegram bot requires data.chat_id, data.entity_id or data.config_entry_id")
                 if action == "telegram_bot.send_photo" and not any(k in payload for k in ("file", "url")):
@@ -346,6 +360,12 @@ class ReliableNotifyManager:
                     archive_url=self.settings.get('archive_url') or None,
                     archive_days=days,
                     message_type=data.get('message_type') or data.get('priority', 'info')))
+            if dropped_keys:
+                summary = "; ".join(f"{act}: {', '.join(sorted(keys))}" for act, keys in sorted(dropped_keys.items()))
+                if len(jobs) == 1:
+                    # A single target: tell the automation now instead of a dead letter later.
+                    raise ValueError(f"data keys not supported by the transport ({summary})")
+                _LOGGER.info("Reliable Notify: data keys not sent to transports that do not support them (%s)", summary)
             stage_all = data.get("test_mode")=="stage"
             configured_test = self.settings.get("test_mode","off")=="stage"
             test_targets = set(self.settings.get("test_recipients",[]))
@@ -419,6 +439,8 @@ class ReliableNotifyManager:
         except (TypeError,ValueError):
             raise ValueError("persisted transport payload is not JSON")
         requirement=saved_payload.pop("__rn_condition",None)
+        saved_payload.pop("__rn_route",None)      # internal markers never reach the transport
+        saved_payload.pop("__rn_fallback",None)
         if requirement:
             state=self.hass.states.get(requirement["entity_id"])
             if state is None or state.state!=requirement["state"]:
@@ -434,12 +456,58 @@ class ReliableNotifyManager:
         if item["action"]=="telegram_bot.send_message":
             payload.setdefault("message_tag",f"rn_{item['id']}")
         if not self.hass.services.has_service(domain, service):
-            raise HomeAssistantError(f"Service unavailable: {domain}.{service}")
+            # Typically during HA start: wait without using up attempts.
+            raise ServiceNotLoaded(f"{domain}.{service} is not loaded")
         target = {"entity_id": item["target"]} if item["action"] in ("notify.send_message", "smtp.send_message") else None
+        if target:
+            # HA silently skips missing/unavailable entities; that must not count as sent.
+            state = self.hass.states.get(item["target"])
+            if state is None or state.state == "unavailable":
+                raise TargetUnavailable(f"{item['target']} is {'missing' if state is None else 'unavailable'}")
         await asyncio.wait_for(
             self.hass.services.async_call(domain, service, payload, blocking=True, target=target),
             timeout=35)
         return True
+
+    async def _on_dead_letter(self, item, category):
+        """Announce a final failure and hand the message to the route's fallback."""
+        try:
+            payload = json.loads(item.get("payload_json") or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+        route = payload.get("__rn_route") or ""
+        self.hass.bus.async_fire("reliable_notify_dead_letter", {
+            "id": item["id"], "recipient": route, "target": item["target"],
+            "action": item["action"], "priority": item["priority"], "category": category,
+        })
+        fallback = None
+        if route and not payload.get("__rn_fallback"):  # a fallback copy never falls back again
+            fallback = (self.routes.get("recipients", {}).get(route) or {}).get("fallback")
+        if fallback:
+            try:
+                await self.enqueue({"recipients": [fallback], "message": item["message"],
+                                    "title": item.get("title") or None,
+                                    "priority": item["priority"], "_fallback_of": route})
+                _LOGGER.info("Reliable Notify #%s: %s failed (%s), sent to fallback %s",
+                             item["id"], route, category, fallback)
+            except Exception:
+                _LOGGER.warning("Reliable Notify #%s: fallback %s could not be queued", item["id"], fallback)
+        await self.update_dead_letter_issue()
+
+    async def update_dead_letter_issue(self):
+        """Repair issue while undeliverable notifications are waiting for the admin."""
+        try:
+            from homeassistant.helpers import issue_registry as ir
+            count = await self.store.dead_count()
+            if count:
+                ir.async_create_issue(self.hass, DOMAIN, "dead_letters", is_fixable=False,
+                                      is_persistent=False, severity=ir.IssueSeverity.WARNING,
+                                      translation_key="dead_letters",
+                                      translation_placeholders={"count": str(count)})
+            else:
+                ir.async_delete_issue(self.hass, DOMAIN, "dead_letters")
+        except Exception:
+            _LOGGER.debug("Reliable Notify could not update the dead-letter repair issue", exc_info=True)
 
     async def media_cleanup_loop(self):
         while not self.stopping:
@@ -460,6 +528,7 @@ class ReliableNotifyManager:
                 await asyncio.sleep(60 if not self.maintenance_info else 86400)
                 days=int(self.settings.get("dead_letter_days",30))
                 self.maintenance_info=await self.store.maintenance(days)
+                await self.update_dead_letter_issue()
                 if self.maintenance_info["integrity"]!="ok":
                     _LOGGER.error("Reliable Notify database integrity check failed")
             except asyncio.CancelledError:
@@ -533,8 +602,8 @@ class ReliableNotifyManager:
                     except asyncio.CancelledError:
                         raise
                     except Exception as err:
-                        self.last_error = f"{item['action']}: {classify_error(err).kind}"
                         classification = classify_error(err)
+                        self.last_error = f"{item['action']}: {classification.kind}"
                         policy = self.policies[item['priority']]
                         # Provider error messages may contain secrets; keep logs generic.
                         log_policy=validate_transport_logging(
@@ -546,14 +615,20 @@ class ReliableNotifyManager:
                             _LOGGER.log(levels[log_policy[channel]],
                                         "Reliable Notify #%s transport=%s category=%s",
                                         item["id"],channel,classification.kind)
-                        await self.store.failed(item["id"], item["attempts"] + 1,
-                                                f"{type(err).__name__}: {classification.kind}",
+                        # Waiting for HA to load a service does not use up an attempt;
+                        # max_hours still bounds the total time spent failing.
+                        attempts = item["attempts"] + (1 if classification.counts else 0)
+                        outcome = await self.store.failed(item["id"], attempts,
+                                                sanitize_error(err),
                                                 policy['base_seconds'],
                                                 max_attempts=policy['max_attempts'] or None,
                                                 permanent=not classification.retryable,
                                                 max_delay=policy['max_delay'],
                                                 retry_after=classification.retry_after,
-                                                category=classification.kind)
+                                                category=classification.kind,
+                                                max_hours=policy.get('max_hours', 0))
+                        if outcome == "dead":
+                            await self._on_dead_letter(item, classification.kind)
                     else:
                         if delivered:
                             await self.store.succeeded(item["id"])
@@ -602,7 +677,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.3.2",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.4.0",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
@@ -678,6 +753,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async def retry_dead(call: ServiceCall):
         await manager.store.retry_dead()
         manager.wakeup.set()
+        await manager.update_dead_letter_issue()
 
     async def clear(call: ServiceCall):
         await manager.store.clear()
@@ -686,10 +762,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if not await manager.store.retry_one(call.data["id"],call.data.get("dead",False)):
             raise HomeAssistantError("Message missing, expired or currently leased")
         manager.wakeup.set()
+        await manager.update_dead_letter_issue()
 
     async def delete_one(call: ServiceCall):
         if not await manager.store.delete_one(call.data["id"],call.data.get("dead",False)):
             raise HomeAssistantError("Message missing or currently leased")
+        await manager.update_dead_letter_issue()
 
     async def update_message(call: ServiceCall):
         await manager.enqueue({**call.data,"strategy":"replace"})
@@ -779,6 +857,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # WebSocket endpoints are HA-lifetime registrations; panel can be re-added on reload.
     if not hass.data.get(DOMAIN):
         frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
+        try:
+            from homeassistant.helpers import issue_registry as ir
+            ir.async_delete_issue(hass, DOMAIN, "dead_letters")
+        except Exception:
+            pass
         hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
                         'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup', 'send_template', 'telegram_lifecycle'):

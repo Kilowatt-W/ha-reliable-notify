@@ -19,6 +19,33 @@ def valid_label(value):
             and not any(ord(char) < 32 or ord(char) == 127 for char in value))
 
 
+# Extra call data (``reliable_notify.enqueue`` -> ``data``) each transport can accept.
+# Unsupported keys would make HA reject the call, i.e. a guaranteed dead letter.
+_EXTRA_ALLOW = {"notify.send_message": frozenset()}   # entity action: message/title only
+_EXTRA_DENY = {
+    "telegram_bot.send_message": frozenset(("file", "url", "caption", "data")),
+    "telegram_bot.send_photo": frozenset(("data",)),
+}
+_LEGACY_NOTIFY_KEYS = frozenset(("data", "target"))
+
+
+def filter_extras(action, extra):
+    """Split call data into (kept, dropped key names) for one transport."""
+    extra = dict(extra or {})
+    if action in _EXTRA_ALLOW:
+        allowed = _EXTRA_ALLOW[action]
+        kept = {k: v for k, v in extra.items() if k in allowed}
+    elif action in _EXTRA_DENY:
+        kept = {k: v for k, v in extra.items() if k not in _EXTRA_DENY[action]}
+    elif action.startswith("notify."):
+        # Classic notify services (Companion app, e-mail, ...): message, title, target, data.
+        kept = {k: v for k, v in extra.items() if k in _LEGACY_NOTIFY_KEYS}
+    else:
+        # smtp, rest_command and native transports define their own fields.
+        kept = extra
+    return kept, sorted(set(extra) - set(kept))
+
+
 OWN_ENTITY_PREFIX = "notify.reliable_"
 
 
@@ -81,6 +108,13 @@ def validate_config(config):
             raise ValueError(f"{name} requires a notify entity")
         if action.startswith("telegram_bot.") and not any(k in rec.get("data", {}) for k in ("chat_id", "entity_id", "config_entry_id")):
             raise ValueError(f"{name} requires Telegram chat_id, entity_id or config_entry_id")
+    for name, rec in recipients.items():
+        fallback = rec.get("fallback")
+        if fallback in (None, ""):
+            continue
+        if not isinstance(fallback, str) or fallback == name or not (
+                fallback in recipients or fallback in groups or fallback in persons):
+            raise ValueError(f"{name}: fallback must name another existing recipient, group or person")
     for group, members in groups.items():
         if not isinstance(group, str) or not isinstance(members, list) or any(not isinstance(x, str) for x in members):
             raise ValueError(f"invalid group: {group}")

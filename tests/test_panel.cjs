@@ -388,6 +388,45 @@ test('target help explains buttons and images per transport with copyable exampl
   }
 });
 
+test('failure analysis shows causes per target with advice in German and English',async()=>{
+  const stats={transports:[],timeline:[],labels:{tg_buero:'Telegram Büro'},failures:[
+    {category:'invalid_payload',status:'dead',action:'telegram_bot.send_message',target:'tg_buero',count:3,last_seen:1700000000,detail:'[invalid_payload] MultipleInvalid: extra keys not allowed'},
+    {category:'network',status:'retrying',action:'notify.mobile_app_phone',target:'phone',count:1,last_seen:1700000100,detail:'[network] OSError: down'}]};
+  for(const [language,heading,cause,status,advice] of [['de','Fehleranalyse','Ungültiger Aufruf oder ungültige Daten','Fehlgeschlagen','Zusatzdaten, chat_id oder config_entry_id'],
+    ['en','Failure analysis','Invalid call or invalid data','Failed','extra data, chat_id or config_entry_id']]){
+    const {panel,box}=setup({statistics:stats});
+    panel._hass.language=language;
+    await panel.analytics(box);await tick();
+    const section=[...box.querySelectorAll('section')].find(s=>s.querySelector('h3')?.textContent===heading);
+    assert.ok(section,heading);
+    const cells=[...section.querySelectorAll('tr')][1].querySelectorAll('td');
+    assert.equal(cells[0].textContent,cause);assert.equal(cells[1].textContent,status);
+    assert.equal(cells[2].textContent,'Telegram Büro (tg_buero)');assert.equal(cells[4].textContent,'3');
+    assert.match(cells[6].textContent,/extra keys not allowed/);
+    assert.match(section.querySelector('ul').textContent,new RegExp(advice));
+    assert.equal(section.querySelectorAll('ul li').length,2);
+  }
+  const {panel,box}=setup({statistics:{transports:[],timeline:[],failures:[]}});
+  await panel.analytics(box);await tick();
+  assert.match(box.textContent,/Keine Fehler im gewählten Zeitraum/);
+});
+
+test('targets can get a fallback picked from known targets and retry rules show the time limit',async()=>{
+  const {panel,box}=setup({admin_inventory:{routes:{recipients:{tg:{},phone:{}},groups:{family:[]},persons:{}},labels:{phone:'Handy'}},
+    route_definition:{definition:{action:'notify.mobile_app_x',fallback:'phone'}}});
+  await panel.routes(box);
+  const section=box.querySelector('section');
+  click(section,'tg');await tick();
+  const fallback=control(section,'Ausweichziel bei endgültigem Fehler');
+  assert.equal(fallback.value,'phone');
+  const options=[...section.querySelectorAll('datalist#'+fallback.getAttribute('list')+' option')];
+  assert.deepEqual(options.map(o=>o.value),['family','phone','tg']);
+  assert.equal(options.find(o=>o.value==='phone').label,'Handy (phone)');
+  const editor=panel.fieldEditor({info:{max_attempts:0,base_seconds:30,max_delay:1800,max_hours:6}},{fixed:true});box.append(editor.node);
+  const hours=control(box,'Aufgeben nach Stunden mit Fehlern (0 = nie)');
+  assert.equal([hours.min,hours.max].join('-'),'0-720');
+});
+
 test('saved-target test is disabled until saving and uses persisted alias in English',async()=>{
   const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
     test_route:{ids:[7],not_before:0},archive_detail:{id:7,status:'sent'}});

@@ -52,7 +52,8 @@
             "data": {
               "max_attempts": "Maximum attempts (0 = unlimited)",
               "base_seconds": "Base delay (seconds)",
-              "max_delay": "Maximum delay (seconds)"
+              "max_delay": "Maximum delay (seconds)",
+              "max_hours": "Give up after hours of failures (0 = never)"
             }
           },
           "retry_warning": {
@@ -60,7 +61,8 @@
             "data": {
               "max_attempts": "Maximum attempts (0 = unlimited)",
               "base_seconds": "Base delay (seconds)",
-              "max_delay": "Maximum delay (seconds)"
+              "max_delay": "Maximum delay (seconds)",
+              "max_hours": "Give up after hours of failures (0 = never)"
             }
           },
           "retry_critical": {
@@ -68,7 +70,8 @@
             "data": {
               "max_attempts": "Maximum attempts (0 = unlimited)",
               "base_seconds": "Base delay (seconds)",
-              "max_delay": "Maximum delay (seconds)"
+              "max_delay": "Maximum delay (seconds)",
+              "max_hours": "Give up after hours of failures (0 = never)"
             }
           },
           "retention": {
@@ -439,6 +442,12 @@
         "info": "Information",
         "debug": "Debug"
       }
+    }
+  },
+  "issues": {
+    "dead_letters": {
+      "title": "Reliable Notify: {count} undeliverable notifications",
+      "description": "{count} notifications could not be delivered and are waiting under **Dead letters**. Open [Reliable Notify](/reliable-notify) → **Statistics** → **Failure analysis** to see the reason per target, fix the target or transport, then retry or delete the messages under **Messages**. This notice disappears when no dead letters are left."
     }
   }
 }

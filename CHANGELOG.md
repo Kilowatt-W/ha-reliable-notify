@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.4.0
+- Keep a sanitised error text for every failure (URLs, tokens, e-mail addresses and long IDs masked) in dead letters, archive and history instead of only the exception class.
+- New **Statistics → Failure analysis**: dead, expired and retrying notifications grouped by cause and target, with German/English advice; also part of the diagnostics export (`failures`).
+- Messages past their `ttl` are recorded as `expired` in history and statistics instead of disappearing silently.
+- Each dead letter fires `reliable_notify_dead_letter` and a repair issue is shown while dead letters exist.
+- Retry rules give up after a time span: new `max_hours` (info 6 h, warning 24 h, critical never); `max_attempts` defaults to 0 (unlimited). Untouched pre-3.4 defaults (8/20 attempts, about 1 h for info) are migrated automatically.
+- Waiting for HA to load a transport action (e.g. at start-up) no longer uses up attempts.
+- HA validation errors are permanent `invalid_payload` failures instead of being retried for hours as `unknown`.
+- A missing or unavailable notify entity is a retryable failure instead of a false "sent".
+- Extra call data is filtered per transport; a single-target call with unsupported keys fails immediately with the key list instead of becoming a dead letter later.
+- Optional `fallback` per recipient: a finally failed message is sent once to another recipient, group or person.
+- Telegram routes may use `data.entity_id` again (it was wrongly rejected as an override).
+- Help texts explain the failure analysis, time limit and fallback.
+
 ## 3.3.2
 - Recognise Reliable Notify's own notify entities (entity registry platform, so also after renaming, plus the `notify.reliable_` prefix) and never use them as targets: hidden in the panel's target picker and action list, refused when saving a target or a default target, and rejected when queueing. Sending to them would queue the message again (endless loop).
 - The automation check ignores actions that already deliver through Reliable Notify, including `notify.send_message` to its entities (previously listed for manual review).

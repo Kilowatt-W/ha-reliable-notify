@@ -8,7 +8,7 @@ from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN
-from .retry import validate_policies, DEFAULT_POLICIES
+from .retry import validate_policies, migrate_policies, DEFAULT_POLICIES
 from .retention import validate_retention, DEFAULT_RETENTION
 from .smart import validate_quiet_hours, DEFAULT_QUIET_HOURS
 from .routing import is_own_entity
@@ -132,12 +132,16 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Required('rate_limit_per_minute', default=smart['rate_limit_per_minute']): number(1, 1000),
             vol.Required('digest_window_seconds', default=smart['digest_window_seconds']): number(10, 3600),
         })
+        # Show untouched pre-3.4 defaults as the new time-based defaults, so saving
+        # the form does not freeze the old attempt limits.
+        stored_policies = migrate_policies(current.get('retry_policies', {}))
         for priority, defaults in DEFAULT_POLICIES.items():
-            values = {**defaults, **current.get('retry_policies', {}).get(priority, {}),
+            values = {**defaults, **stored_policies.get(priority, {}),
                       **submitted.get('retry_' + priority, {})}
             add('retry_' + priority, {
                 vol.Required(key, default=values[key]): number(low, high)
-                for key, low, high in [('max_attempts', 0, 10000), ('base_seconds', 1, 3600), ('max_delay', 1, 86400)]
+                for key, low, high in [('max_attempts', 0, 10000), ('base_seconds', 1, 3600),
+                                       ('max_delay', 1, 86400), ('max_hours', 0, 720)]
             })
         retention = {**DEFAULT_RETENTION, **current.get('archive_retention', {}), **submitted.get('retention', {})}
         add('retention', {vol.Required(key, default=value): number(0, 365) for key, value in retention.items()})

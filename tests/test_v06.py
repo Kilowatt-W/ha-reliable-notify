@@ -26,7 +26,8 @@ class RetryPolicyTest(unittest.TestCase):
     def test_default_and_custom(self):
         p = validate_policies({'critical': {'max_attempts': 0, 'base_seconds': 10}})
         self.assertEqual(p['critical']['base_seconds'], 10)
-        self.assertEqual(p['warning']['max_attempts'], 20)
+        # Since 3.4.0 warning gives up after 24 h of failures instead of after 20 attempts.
+        self.assertEqual((p['warning']['max_attempts'], p['warning']['max_hours']), (0, 24))
         with self.assertRaises(ValueError):
             validate_policies({'info': {'base_seconds': 4000}})
         with self.assertRaises(ValueError):

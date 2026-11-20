@@ -52,7 +52,8 @@
             "data": {
               "max_attempts": "Maximale Versuche (0 = unbegrenzt)",
               "base_seconds": "Basisabstand (Sekunden)",
-              "max_delay": "Maximaler Abstand (Sekunden)"
+              "max_delay": "Maximaler Abstand (Sekunden)",
+              "max_hours": "Aufgeben nach Stunden mit Fehlern (0 = nie)"
             }
           },
           "retry_warning": {
@@ -60,7 +61,8 @@
             "data": {
               "max_attempts": "Maximale Versuche (0 = unbegrenzt)",
               "base_seconds": "Basisabstand (Sekunden)",
-              "max_delay": "Maximaler Abstand (Sekunden)"
+              "max_delay": "Maximaler Abstand (Sekunden)",
+              "max_hours": "Aufgeben nach Stunden mit Fehlern (0 = nie)"
             }
           },
           "retry_critical": {
@@ -68,7 +70,8 @@
             "data": {
               "max_attempts": "Maximale Versuche (0 = unbegrenzt)",
               "base_seconds": "Basisabstand (Sekunden)",
-              "max_delay": "Maximaler Abstand (Sekunden)"
+              "max_delay": "Maximaler Abstand (Sekunden)",
+              "max_hours": "Aufgeben nach Stunden mit Fehlern (0 = nie)"
             }
           },
           "retention": {
@@ -439,6 +442,12 @@
         "info": "Information",
         "debug": "Debug"
       }
+    }
+  },
+  "issues": {
+    "dead_letters": {
+      "title": "Reliable Notify: {count} unzustellbare Benachrichtigungen",
+      "description": "{count} Benachrichtigungen konnten nicht zugestellt werden und warten unter **Dead letters**. Unter [Reliable Notify](/reliable-notify) → **Statistik** → **Fehleranalyse** steht der Grund je Ziel. Ziel oder Transport korrigieren und die Nachrichten danach unter **Nachrichten** erneut senden oder löschen. Der Hinweis verschwindet, sobald keine Dead Letters mehr vorhanden sind."
     }
   }
 }

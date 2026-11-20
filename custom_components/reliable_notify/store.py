@@ -25,6 +25,21 @@ def _ensure_companion_tag(payload, key):
 PRIORITY_ORDER = "CASE priority WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END"
 
 
+def failure_category(detail, status="dead"):
+    """Category of a stored failure text: '[network] OSError: ...' -> 'network'.
+
+    Entries written before 3.4.0 look like 'OSError: network'.
+    """
+    text = (detail or "").strip()
+    if text.startswith("[") and "]" in text:
+        return text[1:text.index("]")] or "unknown"
+    if ": " in text:
+        tail = text.rsplit(": ", 1)[1].strip()
+        if tail.replace("_", "").isalpha() and tail.islower():
+            return tail
+    return "ttl_expired" if status == "expired" else "unknown"
+
+
 class QueueStore:
     def __init__(self, path):
         self.path = Path(path)
@@ -80,6 +95,9 @@ class QueueStore:
             message_cols = {r[1] for r in con.execute("PRAGMA table_info(messages)")}
             if "occurrences" not in message_cols:
                 con.execute("ALTER TABLE messages ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1")
+            if "first_failed_at" not in message_cols:
+                # Start of the current failing streak; drives the time-based give-up.
+                con.execute("ALTER TABLE messages ADD COLUMN first_failed_at REAL")
             con.execute("CREATE INDEX IF NOT EXISTS idx_due ON messages(next_attempt)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_dedup ON messages(dedup_key,target,action)")
             con.execute("CREATE TABLE IF NOT EXISTS metrics (key TEXT PRIMARY KEY,value INTEGER NOT NULL DEFAULT 0)")
@@ -96,6 +114,8 @@ class QueueStore:
                 con.execute("ALTER TABLE dead_letters ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
             if "occurrences" not in dead_cols:
                 con.execute("ALTER TABLE dead_letters ADD COLUMN occurrences INTEGER NOT NULL DEFAULT 1")
+            if "first_failed_at" not in dead_cols:
+                con.execute("ALTER TABLE dead_letters ADD COLUMN first_failed_at REAL")
             con.execute("""CREATE TABLE IF NOT EXISTS delivery_history (
                 history_id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER,
                 target TEXT NOT NULL, action TEXT NOT NULL, priority TEXT NOT NULL,
@@ -160,9 +180,7 @@ class QueueStore:
     async def enqueue_many(self, items, limit):
         now = time.time()
         def op(con):
-            con.execute("""UPDATE message_archive SET status='expired',updated_at=?
-                WHERE id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)""",(now,now))
-            con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
+            self._expire_due(con, now)
             current = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
             replacements = set()
             for item in items:
@@ -276,9 +294,7 @@ class QueueStore:
             raise ValueError("rate_limit_per_minute must be 1..1000")
         now = time.time()
         def op(con):
-            con.execute("""UPDATE message_archive SET status='expired',updated_at=?
-                WHERE id IN (SELECT id FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?)""",(now,now))
-            con.execute("DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at<=?", (now,))
+            self._expire_due(con, now)
             con.row_factory=sqlite3.Row
             lane_clause = ("AND action LIKE 'telegram_bot.%'" if lane == "telegram" else
                            "AND action NOT LIKE 'telegram_bot.%' AND action != 'smtp.send_message' AND action != 'reliable_notify.staged'" if lane == "notify" else
@@ -342,6 +358,20 @@ class QueueStore:
                 con.execute("DELETE FROM message_archive WHERE id=? AND retention_days=0",(identifier,))
         await self._run(op)
 
+    def _expire_due(self, con, now):
+        """Drop messages past their TTL and record them, so they never vanish silently."""
+        rows = con.execute("""SELECT id,target,action,priority,attempts,last_error FROM messages
+            WHERE expires_at IS NOT NULL AND expires_at<=?""", (now,)).fetchall()
+        for row in rows:
+            detail = row[5] or "[ttl_expired] expired before delivery"
+            self._history(con, row[0], (row[1], row[2], row[3], row[4]), "expired", detail)
+            con.execute("UPDATE message_archive SET status='expired',updated_at=?,last_error=? WHERE id=?",
+                        (now, detail[:300], row[0]))
+            con.execute("DELETE FROM messages WHERE id=?", (row[0],))
+        if rows:
+            self._inc(con, "expired")
+        return len(rows)
+
     @staticmethod
     def _inc(con, key):
         con.execute("INSERT INTO metrics(key,value) VALUES (?,1) ON CONFLICT(key) DO UPDATE SET value=value+1", (key,))
@@ -365,7 +395,13 @@ class QueueStore:
                 (SELECT history_id FROM delivery_history ORDER BY history_id DESC LIMIT 2000)""")
 
     async def failed(self, identifier, attempts, error, base_interval, max_attempts=12,
-                     permanent=False, max_delay=3600, retry_after=None, category='unknown'):
+                     permanent=False, max_delay=3600, retry_after=None, category='unknown',
+                     max_hours=0):
+        """Record a failed attempt; returns 'dead', 'retry' or None (job gone).
+
+        Gives up when the error is permanent, ``max_attempts`` is reached
+        (0/None = unlimited) or the job has been failing for ``max_hours``.
+        """
         delay = min(max_delay, base_interval * (2 ** min(max(0,attempts-1),10)))
         if retry_after is not None:
             delay = max(delay, retry_after)
@@ -373,25 +409,33 @@ class QueueStore:
             con.row_factory = sqlite3.Row
             row = con.execute("SELECT * FROM messages WHERE id=?", (identifier,)).fetchone()
             if not row:
-                return
+                return None
             self._inc(con,"failures")
-            if permanent or (max_attempts is not None and attempts >= max_attempts):
+            now = time.time()
+            first = row["first_failed_at"] if "first_failed_at" in row.keys() and row["first_failed_at"] else now
+            timed_out = bool(max_hours) and now - first >= max_hours * 3600
+            detail = error + (f" (gave up after {max_hours} h)" if timed_out and not permanent else "")
+            if permanent or (max_attempts and attempts >= max_attempts) or timed_out:
                 record = dict(row)
-                record.update(attempts=attempts, last_error=f"[{category}] {error}"[:1000], lease_until=None)
+                record.update(attempts=attempts, last_error=f"[{category}] {detail}"[:1000], lease_until=None,
+                              first_failed_at=first)
                 fields = [k for k in record if k != "failed_at"]
                 con.execute(f"INSERT INTO dead_letters ({','.join(fields)},failed_at) VALUES ({','.join('?' for _ in fields)},?)",
                             (*[record[k] for k in fields], time.time()))
                 con.execute("DELETE FROM messages WHERE id=?", (identifier,))
                 con.execute("UPDATE message_archive SET status='dead',updated_at=?,attempts=?,last_error=? WHERE id=?",
-                            (time.time(), attempts, f'[{category}]'[:120], identifier))
+                            (now, attempts, f'[{category}] {detail}'[:300], identifier))
                 self._inc(con,"dead_letters")
-                self._history(con,identifier,(row["target"],row["action"],row["priority"],attempts),"dead",error)
-            else:
-                con.execute("""UPDATE messages SET attempts=?,last_error=?,next_attempt=?,lease_until=NULL
-                    WHERE id=?""", (attempts,f"[{category}] {error}"[:1000],time.time()+delay,identifier))
-                con.execute("UPDATE message_archive SET status='retry',updated_at=?,attempts=?,last_error=? WHERE id=?",
-                            (time.time(),attempts,f'[{category}]'[:120],identifier))
-        await self._run(op)
+                self._history(con,identifier,(row["target"],row["action"],row["priority"],attempts),"dead",
+                              f"[{category}] {detail}")
+                return "dead"
+            con.execute("""UPDATE messages SET attempts=?,last_error=?,next_attempt=?,lease_until=NULL,
+                first_failed_at=? WHERE id=?""",
+                (attempts,f"[{category}] {error}"[:1000],now+delay,first,identifier))
+            con.execute("UPDATE message_archive SET status='retry',updated_at=?,attempts=?,last_error=? WHERE id=?",
+                        (now,attempts,f'[{category}] {error}'[:300],identifier))
+            return "retry"
+        return await self._run(op)
 
     async def staged_count(self):
         return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM messages WHERE action='reliable_notify.staged' AND (expires_at IS NULL OR expires_at>?)", (time.time(),)).fetchone()[0])
@@ -730,6 +774,7 @@ class QueueStore:
                 SELECT action,COUNT(*) AS events,
                   SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) AS sent,
                   SUM(CASE WHEN status='dead' THEN 1 ELSE 0 END) AS failed,
+                  SUM(CASE WHEN status='expired' THEN 1 ELSE 0 END) AS expired,
                   ROUND(AVG(CASE WHEN status='sent' THEN duration_ms END)/1000.0,2) AS avg_delivery_seconds,
                   MAX(occurred_at) AS last_event
                 FROM delivery_history WHERE occurred_at>=?
@@ -743,7 +788,23 @@ class QueueStore:
                     THEN acknowledged_at-created_at END)
                 FROM acknowledgements WHERE created_at>=?""",(cutoff,)).fetchone()
             queued=con.execute("SELECT COUNT(*),MIN(created_at) FROM messages WHERE action!='reliable_notify.staged'").fetchone()
-            return {"transports":transport,"timeline":byday,
+            failures={}
+            rows=[(r["status"],r["action"],r["target"],r["detail"],r["occurred_at"]) for r in con.execute(
+                """SELECT status,action,target,detail,occurred_at FROM delivery_history
+                   WHERE occurred_at>=? AND status IN ('dead','expired') ORDER BY occurred_at""",(cutoff,))]
+            rows+=[("retrying",r["action"],r["target"],r["last_error"],r["created_at"]) for r in con.execute(
+                """SELECT action,target,last_error,created_at FROM messages
+                   WHERE attempts>0 AND action!='reliable_notify.staged'""")]
+            for status,action,target,detail,when in rows:
+                category=failure_category(detail,status)
+                entry=failures.setdefault((category,status,action,target),{
+                    "category":category,"status":status,"action":action,"target":target,
+                    "count":0,"last_seen":0,"detail":""})
+                entry["count"]+=1
+                if when>=entry["last_seen"]:
+                    entry["last_seen"],entry["detail"]=when,(detail or "")[:300]
+            analysis=sorted(failures.values(),key=lambda e:(-e["count"],-e["last_seen"]))[:50]
+            return {"transports":transport,"timeline":byday,"failures":analysis,
                     "acknowledgements":{"total":ack[0],"confirmed":ack[1] or 0,
                                         "avg_seconds":round(ack[2],1) if ack[2] is not None else None},
                     "queued":queued[0],"oldest_queued_seconds":
@@ -755,7 +816,8 @@ class QueueStore:
 
     async def retry_all(self):
         now = time.time()
-        await self._run(lambda con: con.execute("UPDATE messages SET next_attempt=? WHERE lease_until IS NULL OR lease_until<=?", (now,now)))
+        # A manual retry starts a fresh failure window for the time-based give-up.
+        await self._run(lambda con: con.execute("UPDATE messages SET next_attempt=?,first_failed_at=NULL WHERE lease_until IS NULL OR lease_until<=?", (now,now)))
 
     async def retry_dead(self):
         def op(con):
@@ -801,7 +863,7 @@ class QueueStore:
         now = time.time()
         def op(con):
             if not dead:
-                updated=con.execute("""UPDATE messages SET next_attempt=?,lease_until=NULL
+                updated=con.execute("""UPDATE messages SET next_attempt=?,lease_until=NULL,first_failed_at=NULL
                     WHERE id=? AND action!='reliable_notify.staged' AND (lease_until IS NULL OR lease_until<=?)""",
                     (now,identifier,now)).rowcount
                 if updated:

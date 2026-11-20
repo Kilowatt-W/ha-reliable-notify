@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.3.2 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.3.2';
+/* Reliable Notify Admin Panel 3.4.0 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.4.0';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -23,13 +23,15 @@ const RN_HELP={
       'HA-Aktion wählen: notify.send_message mit einer Notify-Entität, notify.mobile_app_… für die Companion-App oder telegram_bot.send_message mit chat_id unter Transportparameter.',
       'Speichern und mit „Test senden“ prüfen. Der Test verschickt eine echte Nachricht; Testmodus und Ruhezeiten gelten.',
       'Gruppen fassen mehrere Ziele zusammen. Personen wählen je Priorität und Zone (person.*) passende Kanäle.',
-      'In Automationen die interne ID unter recipients verwenden (Beispiel unten) oder die Entität notify.reliable_<ID>.']},
+      'In Automationen die interne ID unter recipients verwenden (Beispiel unten) oder die Entität notify.reliable_<ID>.',
+      'Optional über „Feld hinzufügen“ ein Ausweichziel eintragen: Scheitert die Zustellung endgültig, geht die Nachricht einmalig an dieses Ziel (z. B. Telegram → App).']},
     en:{intro:'Define where notifications go: single targets, groups and people.',steps:[
       'Click “Create new target” and enter a display name, e.g. “Telegram Wolfgang”. The internal ID is suggested from it.',
       'Choose the HA action: notify.send_message with a notify entity, notify.mobile_app_… for the Companion app, or telegram_bot.send_message with chat_id under transport parameters.',
       'Save and check with “Send test”. The test sends a real notification; test mode and quiet hours apply.',
       'Groups combine several targets. People pick channels per priority and zone (person.*).',
-      'In automations, use the internal ID under recipients (example below) or the entity notify.reliable_<ID>.']}},
+      'In automations, use the internal ID under recipients (example below) or the entity notify.reliable_<ID>.',
+      'Optionally add a fallback target via “Add field”: if delivery finally fails, the notification is sent once to that target (e.g. Telegram → app).']}},
   incidents:{doc:'CONFIGURATION.md',example:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_wolfgang]\n  message: "Wasseralarm Keller"\n  priority: critical\n  dedup_key: water_cellar\n  acknowledgement:\n    required: true\n    escalation:\n      - after: 300\n        recipients: [family]',
     de:{intro:'Kritische Meldungen können auf eine Bestätigung warten und sonst stufenweise eskalieren.',steps:[
       'Eine Nachricht mit dedup_key und acknowledgement wartet auf Bestätigung (Beispiel unten).',
@@ -56,11 +58,13 @@ const RN_HELP={
     de:{intro:'Zustellstatistik je Transport und Tag sowie Systemzustand.',steps:[
       'Zeitraum wählen und „Aktualisieren“ klicken.',
       'Der Balkenverlauf zeigt die täglich versendeten Nachrichten der letzten 30 Tage.',
-      'Der Diagnose-Export enthält keine Nachrichtentexte und eignet sich für Fehlermeldungen.']},
+      'Der Diagnose-Export enthält keine Nachrichtentexte und eignet sich für Fehlermeldungen.',
+      'Die Fehleranalyse zeigt je Ziel die Ursache endgültig fehlgeschlagener, abgelaufener und gerade wiederholter Nachrichten – mit bereinigtem Fehlertext und Empfehlung.']},
     en:{intro:'Delivery statistics per transport and day plus system health.',steps:[
       'Choose a period and click “Refresh”.',
       'The bar chart shows notifications sent per day over the last 30 days.',
-      'The diagnostics export contains no message texts and is suitable for bug reports.']}},
+      'The diagnostics export contains no message texts and is suitable for bug reports.',
+      'The failure analysis shows, per target, why notifications finally failed, expired or are being retried – with a sanitised error text and advice.']}},
   templates:{doc:'CONFIGURATION.md',example:'action: reliable_notify.send_template\ndata:\n  template: window_open\n  variables:\n    room: Bad\n  recipients: [family]',
     de:{intro:'Wiederverwendbare Nachrichten mit Platzhaltern.',steps:[
       '„Neu anlegen“, einen Namen (Kleinbuchstaben, Ziffern, _) und den Nachrichtentext eingeben. Jinja-Platzhalter wie {{ room }} sind erlaubt.',
@@ -97,11 +101,13 @@ const RN_HELP={
       'Alle Optionen gibt es gesammelt im HA-Dialog „Alle Integrationsoptionen öffnen“: optionales Standardziel, Wiederholungen, Ruhezeiten, Testmodus, Logging und Backups.',
       'Hier direkt änderbar: Wiederholungen je Priorität, Archiv-Aufbewahrung, Ruhezeiten mit Limits sowie Testmodus und Logging.',
       'Testmodus „Nur zurückstellen“ hält Nachrichten zurück, statt sie zu senden – ideal zum Ausprobieren.',
+      'Wiederholungen: „Aufgeben nach Stunden mit Fehlern“ legt fest, wie lange Reliable es versucht (Standard: info 6 h, warning 24 h, critical unbegrenzt). Wartet HA noch auf das Laden einer Integration, zählt das nicht als Versuch.',
       'Neue Ziele werden unter „Ziele & Personen“ angelegt, nicht im HA-Dialog.']},
     en:{intro:'Operating settings of the integration.',steps:[
       'All options are collected in the HA dialog “Open all integration options”: optional default target, retries, quiet hours, test mode, logging and backups.',
       'Directly editable here: retries per priority, archive retention, quiet hours with limits, and test mode and logging.',
       'Test mode “Stage only” holds notifications back instead of sending – ideal for trying things out.',
+      'Retries: “Give up after hours of failures” sets how long Reliable keeps trying (default: info 6 h, warning 24 h, critical unlimited). Waiting for HA to load an integration does not count as an attempt.',
       'New targets are created under “Targets & people”, not in the HA dialog.']}},
 };
 
@@ -223,7 +229,7 @@ class ReliableNotifyPanel extends HTMLElement {
       archive:'mdi:archive-outline',archive_days:'mdi:calendar-clock-outline',quiet_hours:'mdi:weather-night',transport_logging:'mdi:math-log',
       test_mode:'mdi:flask-outline',only_if:'mdi:filter-check-outline',acknowledgement:'mdi:check-decagram-outline',
       escalation:'mdi:alert-decagram-outline',token:'mdi:key-outline',headers:'mdi:code-json',rate:'mdi:speedometer',
-      max_attempts:'mdi:reload',base_seconds:'mdi:timer-outline',max_delay:'mdi:timer-sand'})[key]||'mdi:form-textbox';
+      max_attempts:'mdi:reload',base_seconds:'mdi:timer-outline',max_delay:'mdi:timer-sand',max_hours:'mdi:timer-off-outline',fallback:'mdi:call-split'})[key]||'mdi:form-textbox';
   }
   async testTarget(category,name,button,result){
     button.disabled=true;
@@ -308,7 +314,8 @@ class ReliableNotifyPanel extends HTMLElement {
       end:this.t('Ende (HH:MM)'),allow_priorities:this.t('Während Ruhezeit erlaubte Prioritäten'),
       rate_limit_per_minute:this.t('Versuche pro Minute und Ziel'),digest_window_seconds:this.t('Digest-Zeitfenster (Sekunden)'),
       max_attempts:this.t('Maximale Versuche (0 = unbegrenzt)'),base_seconds:this.t('Basisabstand (Sekunden)'),
-      max_delay:this.t('Maximaler Abstand (Sekunden)'),info:'Information',warning:this.t('Warnung'),critical:this.t('Kritisch'),
+      max_delay:this.t('Maximaler Abstand (Sekunden)'),max_hours:this.t('Aufgeben nach Stunden mit Fehlern (0 = nie)'),
+      fallback:this.t('Ausweichziel bei endgültigem Fehler'),info:'Information',warning:this.t('Warnung'),critical:this.t('Kritisch'),
       chat_id:this.t('Telegram-Chat-ID'),config_entry_id:this.t('Telegram-Konfiguration'),url:'URL',topic:this.t('Thema'),
       token:'Token',base_url:this.t('HTTPS-Basis-URL'),allow_private:this.t('Private Zieladressen erlauben'),headers:this.t('HTTP-Header'),method:this.t('HTTP-Methode'),parse_mode:this.t('Telegram-Textformat'),
       disable_notification:this.t('Lautlos senden'),mobile:this.t('Mobilgerät'),email:this.t('E-Mail'),telegram:'Telegram',
@@ -320,7 +327,7 @@ class ReliableNotifyPanel extends HTMLElement {
     if(kind==='profile')return {...common,ttl:3600,strategy:'always',
       only_if:{entity_id:'',state:'on'},test_mode:'off',acknowledgement:{required:true,escalation:[]}};
     if(kind==='template')return {title:'',message:'',...common};
-    if(kind==='recipient')return {action:'notify.send_message',target_entity:'',data:{}};
+    if(kind==='recipient')return {action:'notify.send_message',target_entity:'',data:{},fallback:''};
     if(kind==='person')return {entity:'',channels:{},preferred:{},preferred_by_zone:{}};
     return {};
   }
@@ -367,7 +374,7 @@ class ReliableNotifyPanel extends HTMLElement {
       if(type==='boolean')input.checked=initial;else input.value=initial===null?'':initial;
       if(type==='null'){input.disabled=true;input.placeholder='null';}
       const numeric={rate:[1,60],rate_limit_per_minute:[1,1000],digest_window_seconds:[10,3600],archive_days:[0,365],ttl:[0,2678400],max_attempts:[0,10000],
-        base_seconds:[1,3600],max_delay:[1,86400]};
+        base_seconds:[1,3600],max_delay:[1,86400],max_hours:[0,720]};
       if(numeric[key]){[input.min,input.max]=numeric[key];input.step='1';}
       host.append(input);
       if(routes&&!options&&input.tagName==='INPUT'&&type==='string')host.append(this.routeList(input));
@@ -403,7 +410,7 @@ class ReliableNotifyPanel extends HTMLElement {
       const row=this.element('div',null,'field-row');
       const label=this.element('label',array?this.t('Eintrag'):this.fieldLabel(name));rnDecorate(label,array?'mdi:format-list-bulleted':this.fieldIcon(name),'slate');
       // Lists of recipients and person channels offer known targets with their display names.
-      const childRoutes=array||key==='channels'?routes:['channels','recipients'].includes(name);
+      const childRoutes=array||key==='channels'?routes:['channels','recipients','fallback'].includes(name);
       const child=this.fieldEditor(value,{key:array?'':name,routes:childRoutes,
         valueKind:key==='transport_logging'?'level':key==='allow_priorities'?'priority':null,
         fixed:fixed&&value!==null&&typeof value==='object'&&!Array.isArray(value),choices:key==='transport_logging'?['off','error','warning','info','debug']:key==='allow_priorities'?['info','warning','critical']:null,defaults:!array&&name==='preferred'
@@ -510,6 +517,8 @@ class ReliableNotifyPanel extends HTMLElement {
       details.rn-help pre{background:var(--secondary-background-color);border-radius:8px;padding:10px;font-size:13px}
       details.rn-help a{display:inline-flex;margin-top:4px;color:var(--primary-color)}
       details.rn-help h4{margin:16px 0 6px}details.rn-help ul{margin:4px 0 10px;padding-left:22px;line-height:1.5}
+      .rn-scroll{overflow-x:auto}table.rn-failures{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+      table.rn-failures th,table.rn-failures td{padding:6px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}
       .rn-example-title{font-weight:600;margin:14px 0 4px}.rn-code{position:relative}
       .rn-code pre{margin:0 0 6px}.rn-code button{font-size:12px;min-height:30px;padding:4px 10px}
       nav.tabs{padding:8px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);gap:7px}
@@ -713,6 +722,53 @@ class ReliableNotifyPanel extends HTMLElement {
     }));
     wrapper.append(editor.node,run,result);this.yamlView(wrapper,editor.read);box.append(wrapper);
   }
+  // Failure categories from retry.classify_error / store (DE text, translated via catalog).
+  failureText(kind,code){
+    const texts={
+      category:{network:'Netzwerk / Zeitüberschreitung',provider_unavailable:'Dienst des Anbieters nicht erreichbar',rate_limit:'Zu viele Nachrichten (Drosselung)',
+        authentication:'Zugang abgelehnt',invalid_payload:'Ungültiger Aufruf oder ungültige Daten',invalid_recipient:'Empfänger ungültig',
+        tls_certificate:'TLS-Zertifikat ungültig',unexpected_redirect:'Unerwartete Weiterleitung',unknown:'Unbekannter Fehler',
+        service_not_loaded:'HA-Aktion nicht geladen',target_unavailable:'Notify-Entität fehlt oder ist nicht verfügbar',ttl_expired:'Gültigkeit (ttl) abgelaufen'},
+      advice:{network:'Netzwerk bzw. Internet prüfen. Längere Ausfälle deckt „Aufgeben nach Stunden mit Fehlern“ ab.',
+        provider_unavailable:'Der Anbieter war gestört. Nachrichten unter Nachrichten → Dead letters erneut senden.',
+        rate_limit:'Weniger Nachrichten an dieses Ziel senden oder „Versuche pro Minute und Ziel“ senken.',
+        authentication:'Token, Bot oder Chat prüfen: Bot im Chat gestartet und nicht blockiert? Zugangsdaten aktuell?',
+        invalid_payload:'Den Text unter „Letzter Fehler“ lesen: meist passen Zusatzdaten, chat_id oder config_entry_id nicht zum Transport. Ziel korrigieren und erneut senden.',
+        invalid_recipient:'Empfängeradresse im Ziel korrigieren.',tls_certificate:'Zertifikat des Servers erneuern oder die richtige HTTPS-Adresse eintragen.',
+        unexpected_redirect:'Die Adresse des Dienstes im Ziel korrigieren (Weiterleitungen werden nicht verfolgt).',
+        unknown:'Den Text unter „Letzter Fehler“ und das HA-Protokoll prüfen.',
+        service_not_loaded:'Die Integration des Transports (z. B. Telegram, Companion-App) ist nicht geladen. Unter Einstellungen → Geräte & Dienste prüfen.',
+        target_unavailable:'Die Notify-Entität fehlt oder ist nicht verfügbar. Im Ziel eine vorhandene Entität wählen.',
+        ttl_expired:'Die Nachricht war zu lange unterwegs (z. B. Ruhezeiten oder Ausfall). ttl erhöhen oder weglassen.'},
+      status:{dead:'Fehlgeschlagen',expired:'Abgelaufen',retrying:'Wird wiederholt'}};
+    const text=texts[kind]?.[code];
+    return text?this.t(text):(kind==='advice'?null:String(code));
+  }
+  renderFailures(box,data){
+    box.replaceChildren(this.heading(this.t('Fehleranalyse'),'mdi:alert-circle-check-outline','red','h3'));
+    const rows=data?.failures||[];
+    if(!rows.length){box.append(this.element('p',this.t('Keine Fehler im gewählten Zeitraum.'),'muted'));return;}
+    box.append(this.element('p',this.t('Endgültig fehlgeschlagene, abgelaufene und gerade wiederholte Nachrichten, gruppiert nach Ursache und Ziel. Der Fehlertext ist bereinigt (Adressen, Token und IDs sind maskiert).'),'muted'));
+    const wrap=this.element('div',null,'rn-scroll');const table=this.element('table',null,'rn-failures');
+    const head=this.element('tr');
+    for(const label of [this.t('Ursache'),this.t('Status'),this.t('Ziel'),this.t('Transport'),this.t('Anzahl'),this.t('Zuletzt'),this.t('Letzter Fehler')])head.append(this.element('th',label));
+    table.append(head);
+    const labels=data.labels||{};
+    for(const row of rows){
+      const tr=this.element('tr');
+      tr.append(this.element('td',this.failureText('category',row.category)),this.element('td',this.failureText('status',row.status)),
+        this.element('td',rnRouteLabel(labels,row.target)),this.element('td',row.action),this.element('td',String(row.count)),
+        this.element('td',row.last_seen?new Date(row.last_seen*1000).toLocaleString(rnLanguage(this._hass)):''),this.element('td',row.detail||''));
+      table.append(tr);
+    }
+    wrap.append(table);box.append(wrap);
+    const advice=this.element('ul');
+    for(const category of [...new Set(rows.map(row=>row.category))]){
+      const text=this.failureText('advice',category);if(!text)continue;
+      const item=this.element('li');item.append(this.element('b',this.failureText('category',category)+': '),text);advice.append(item);
+    }
+    if(advice.childElementCount)box.append(this.heading(this.t('Empfehlungen'),'mdi:lightbulb-on-outline','amber','h4'),advice);
+  }
   async analytics(box){
     const wrapper=this.element('div',null,'panel');wrapper.append(this.heading(this.t('Transportstatistik & Systemzustand'),'mdi:chart-box-outline','cyan','h2'));
     const days=this.element('select');for(const day of [1,7,14,30]){
@@ -722,8 +778,9 @@ class ReliableNotifyPanel extends HTMLElement {
     const refresh=this.actionButton(this.t('Aktualisieren'),'mdi:refresh');
     const exportButton=this.actionButton(this.t('Diagnose (ohne Nachrichtentexte) exportieren'),'mdi:download-outline');
     const report=this.element('pre',this.t('Lade ...'));
+    const failureBox=this.element('section',null,'panel');
     const load=async()=>{const data=await this.call('statistics',{days:Number(days.value)});
-      this._lastStats=data;report.textContent=JSON.stringify(data,null,2);};
+      this._lastStats=data;report.textContent=JSON.stringify(data,null,2);this.renderFailures(failureBox,data);};
     // Refresh callback is set after the chart loader is constructed.
     exportButton.addEventListener('click',()=>{
       if(!this._lastStats)return;
@@ -759,7 +816,7 @@ class ReliableNotifyPanel extends HTMLElement {
     };
     refresh.onclick=()=>this.run(report,loadWithChart);
     wrapper.append(days,refresh,exportButton,report);box.append(wrapper);
-    box.append(trend);
+    box.append(failureBox,trend);
     await this.run(report,loadWithChart);
     await this.run(report,load);
   }

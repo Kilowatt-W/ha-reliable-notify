@@ -57,10 +57,22 @@ Entity IDs depend on the HA entity registry; verify yours in Developer Tools.
 
 Action IDs are HMAC signed and verified before the integration changes incident state. Third-party apps cannot acknowledge a message by guessing its dedup_key. Telegram callback feedback is attempted but provider API acceptance is not end-device acknowledgement.
 
+## Retries, give-up and failure analysis (3.4.0)
+
+- A failed delivery is retried with exponential backoff. A message gives up when the error is permanent, when **max attempts** is reached (0 = unlimited, the default since 3.4.0) or when it has been failing for **max hours** (defaults: info 6 h, warning 24 h, critical 0 = never). Untouched pre-3.4 defaults (8/20 attempts) are migrated automatically.
+- Waiting for HA to load the transport action (e.g. during start-up) is retried every 60 s and does **not** use up attempts; max hours still applies.
+- Delivering to a missing or `unavailable` notify entity is a retryable `target_unavailable` failure instead of a false "sent" (HA would skip the entity silently).
+- HA validation errors (`Invalid`, `ServiceValidationError`) are permanent `invalid_payload` failures, so a call that can never succeed is not retried for hours.
+- Failures store a sanitised error text: URLs, tokens, e-mail addresses and numbers with six or more digits (chat/phone IDs) are masked.
+- Messages past their `ttl` are recorded as `expired` in history and statistics.
+- **Statistics → Failure analysis** groups dead, expired and retrying messages by cause and target and gives advice per cause; the diagnostics export contains the same `failures` list.
+- Each dead letter fires the event `reliable_notify_dead_letter` (`id`, `recipient`, `target`, `action`, `priority`, `category`; no message text) and maintains a repair issue while dead letters exist.
+- A recipient may define `fallback: <recipient, group or person>`. When a message to it finally fails, a copy is queued once to the fallback (a fallback copy never falls back again).
+
 ## Troubleshooting checklist
 
 1. Check disk free bytes and maintenance integrity.
-2. Inspect Queue and Dead Letters in the admin panel.
+2. Inspect Queue and Dead Letters in the admin panel and open **Statistics → Failure analysis** for the cause per target.
 3. Use the Simulator to test priority, routing and quiet-hours decisions without sending.
 4. Enable debug for only the failing transport. Logs deliberately omit message bodies and tokens.
 5. Stage a test notification, then assign it to a real recipient once the route is verified.

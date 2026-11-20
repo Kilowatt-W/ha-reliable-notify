@@ -32,7 +32,7 @@ class CatalogTests(unittest.TestCase):
     def test_all_literal_translations_and_code_tables_are_in_catalog(self):
         known = catalog()
         texts = {literal(m) for m in re.findall(r"\bt\(\s*" + STRING, PANEL + CARD[CARD.index("const RN_CATALOG"):])}
-        for name in ("migrationText", "errorText"):
+        for name in ("migrationText", "errorText", "failureText"):
             body = method_body(name)
             texts |= {literal(m) for m in re.findall(r"[a-z_]+:" + STRING, body)}
         missing = sorted(text for text in texts if text not in known and text not in known.values())

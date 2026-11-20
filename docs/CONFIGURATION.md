@@ -15,6 +15,17 @@
 
 The optional `/config/reliable_notify_routes.yaml` supports `recipients`, `groups`, `persons` and optional `labels` (display names, 1–100 characters, no line breaks). UI-managed definitions and display names override names in the YAML file; do not store the same name in several categories. Display names never change routing: automations always use the internal name, and the entity ID stays `notify.reliable_<internal name>` when the display name changes.
 
+Optional `fallback` per recipient (3.4.0): when a message to this recipient finally fails, it is sent once to the fallback recipient, group or person.
+
+```yaml
+recipients:
+  telegram:
+    action: telegram_bot.send_message
+    data:
+      chat_id: 123456789
+    fallback: phone
+```
+
 ```yaml
 labels:
   telegram: "Telegram Wölfi – Büro"
