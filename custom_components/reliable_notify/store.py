@@ -25,6 +25,40 @@ def _ensure_companion_tag(payload, key):
 PRIORITY_ORDER = "CASE priority WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END"
 
 
+INCIDENT_ACTIONS = ("ack", "snooze", "escalate", "resolve", "reopen")
+# Open, unacknowledged, not snoozed, and (if resolved) still configured to remind.
+ESCALATING = ("acknowledged_at IS NULL AND closed_at IS NULL AND (snoozed_until IS NULL OR snoozed_until<=?) "
+              "AND (resolved_at IS NULL OR escalate_while_resolved=1)")
+
+
+def incident_state(row):
+    """active | resolved | acknowledged (cause still present) | closed."""
+    if row["closed_at"] is not None:
+        return "closed"
+    if row["acknowledged_at"] is not None:
+        return "acknowledged"
+    if row["resolved_at"] is not None:
+        return "resolved"
+    return "active"
+
+
+def incident_record(row, now=None):
+    """Public view of an incident (no transport data, no message payload)."""
+    now = now or time.time()
+    steps = json.loads(row["steps_json"] or "[]")
+    snoozed = row["snoozed_until"] if row["snoozed_until"] and row["snoozed_until"] > now else None
+    return {
+        "dedup_key": row["ack_key"], "title": row["title"], "message": row["message"],
+        "display_text": row["display_text"], "priority": row["priority"], "area": row["area"],
+        "message_type": row["message_type"], "state": incident_state(row), "incident": bool(row["incident"]),
+        "opened_at": row["opened_at"] or row["created_at"], "resolved_at": row["resolved_at"],
+        "resolved_by": row["resolved_by"], "acknowledged_at": row["acknowledged_at"],
+        "acknowledged_by": row["acknowledged_by"], "closed_at": row["closed_at"], "snoozed_until": snoozed,
+        "escalation_step": row["next_step"], "escalation_steps": len(steps),
+        "escalate_while_resolved": bool(row["escalate_while_resolved"]),
+    }
+
+
 def failure_category(detail, status="dead"):
     """Category of a stored failure text: '[network] OSError: ...' -> 'network'.
 
@@ -74,6 +108,20 @@ class QueueStore:
             cols_ack={r[1] for r in con.execute("PRAGMA table_info(acknowledgements)")}
             if "action_id" not in cols_ack:
                 con.execute("ALTER TABLE acknowledgements ADD COLUMN action_id TEXT")
+            # 3.6.0 incident lifecycle (alarm window): opened/snoozed/resolved/closed.
+            for name, definition in (("opened_at", "REAL"), ("snoozed_until", "REAL"),
+                                     ("resolved_at", "REAL"), ("resolved_by", "TEXT"),
+                                     ("closed_at", "REAL"), ("incident", "INTEGER NOT NULL DEFAULT 0"),
+                                     ("display_text", "TEXT"), ("area", "TEXT"), ("message_type", "TEXT"),
+                                     ("escalate_while_resolved", "INTEGER NOT NULL DEFAULT 1")):
+                if name not in cols_ack:
+                    con.execute(f"ALTER TABLE acknowledgements ADD COLUMN {name} {definition}")
+                    if name == "opened_at":
+                        con.execute("UPDATE acknowledgements SET opened_at=created_at WHERE opened_at IS NULL")
+                    if name == "closed_at":
+                        # Before 3.6 an acknowledgement ended the incident.
+                        con.execute("""UPDATE acknowledgements SET closed_at=acknowledged_at
+                            WHERE acknowledged_at IS NOT NULL""")
             for (key,) in con.execute("SELECT ack_key FROM acknowledgements WHERE action_id IS NULL"):
                 digest=hashlib.sha256(key.encode("utf8")).hexdigest()[:16]
                 con.execute("UPDATE acknowledgements SET action_id=? WHERE ack_key=?",(digest,key))
@@ -265,19 +313,35 @@ class QueueStore:
             # Register acknowledgement plan in the same transaction as enqueue.
             if items and items[0].get("ack_plan"):
                 ack=items[0]["ack_plan"]
+                incident=ack.get("incident") or {}
+                # Re-reporting an open incident keeps its opening time ("since");
+                # after it was acknowledged or closed a new episode starts.
                 con.execute("""INSERT INTO acknowledgements(
                     ack_key,message_id,title,message,priority,created_at,steps_json,
-                    next_step,acknowledged_at,acknowledged_by,action_id)
-                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?)
+                    next_step,acknowledged_at,acknowledged_by,action_id,opened_at,
+                    snoozed_until,resolved_at,resolved_by,closed_at,incident,display_text,
+                    area,message_type,escalate_while_resolved)
+                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?,?,NULL,NULL,NULL,NULL,?,?,?,?,?)
                     ON CONFLICT(ack_key) DO UPDATE SET
                     message_id=excluded.message_id,title=excluded.title,
                     message=excluded.message,priority=excluded.priority,
                     created_at=excluded.created_at,steps_json=excluded.steps_json,
                     next_step=0,acknowledged_at=NULL,acknowledged_by=NULL,
-                    action_id=excluded.action_id""",
+                    action_id=excluded.action_id,
+                    opened_at=CASE WHEN acknowledgements.closed_at IS NULL
+                        AND acknowledgements.acknowledged_at IS NULL
+                        THEN COALESCE(acknowledgements.opened_at,excluded.opened_at)
+                        ELSE excluded.opened_at END,
+                    snoozed_until=NULL,resolved_at=NULL,resolved_by=NULL,closed_at=NULL,
+                    incident=excluded.incident,display_text=excluded.display_text,
+                    area=excluded.area,message_type=excluded.message_type,
+                    escalate_while_resolved=excluded.escalate_while_resolved""",
                     (ack["key"],ids[0],items[0].get("title"),items[0]["message"],
                      items[0]["priority"],now,json.dumps(ack["steps"]),
-                     hashlib.sha256(ack["key"].encode("utf8")).hexdigest()[:16]))
+                     hashlib.sha256(ack["key"].encode("utf8")).hexdigest()[:16],now,
+                     1 if ack.get("incident") is not None else 0,incident.get("display_text"),
+                     incident.get("area"),ack.get("message_type"),
+                     0 if incident.get("escalate_while_resolved") is False else 1))
             return ids
         return await self._run(op)
 
@@ -535,12 +599,12 @@ class QueueStore:
             con.execute("DELETE FROM telegram_receipts WHERE created_at<?",(now-90*86400,))
             con.execute("DELETE FROM delivery_daily WHERE day<date(?,'unixepoch')",(now-366*86400,))
             con.execute("""DELETE FROM acknowledgements
-                WHERE acknowledged_at IS NOT NULL AND acknowledged_at<?""",
+                WHERE closed_at IS NOT NULL AND closed_at<?""",
                 (now-30*86400,))
             # Unacknowledged critical incidents are retained; stale noncritical
             # records are not allowed to accumulate indefinitely.
             con.execute("""DELETE FROM acknowledgements
-                WHERE acknowledged_at IS NULL AND priority!='critical'
+                WHERE acknowledged_at IS NULL AND priority!='critical' AND incident=0
                 AND created_at<?""",(now-90*86400,))
             return len(candidates)
         removed=await self._run(prune)
@@ -603,14 +667,16 @@ class QueueStore:
 
     async def acknowledgement(self, key, by="manual"):
         """Public legacy ACK method delegates to atomic incident state update."""
-        return int(await self.act_on_incident(key,"ack",by))
+        return int(bool(await self.act_on_incident(key,"ack",by)))
 
     async def active_acknowledgements(self, limit=50):
         def op(con):
             con.row_factory=sqlite3.Row
             records=[dict(row) for row in con.execute("""SELECT ack_key,message_id,title,priority,
-                created_at,steps_json,next_step FROM acknowledgements
-                WHERE acknowledged_at IS NULL ORDER BY created_at DESC LIMIT ?""",(limit,))]
+                created_at,steps_json,next_step,COALESCE(opened_at,created_at) AS opened_at,
+                resolved_at,snoozed_until FROM acknowledgements
+                WHERE acknowledged_at IS NULL AND closed_at IS NULL
+                ORDER BY created_at DESC LIMIT ?""",(limit,))]
             for record in records:
                 record["steps"]=json.loads(record.pop("steps_json"))
             return records
@@ -620,9 +686,9 @@ class QueueStore:
         now=now or time.time()
         def op(con):
             con.row_factory=sqlite3.Row
-            rows=con.execute("""SELECT ack_key,title,message,priority,created_at,
+            rows=con.execute(f"""SELECT ack_key,title,message,priority,created_at,
                 steps_json,next_step FROM acknowledgements
-                WHERE acknowledged_at IS NULL AND next_step<8""").fetchall()
+                WHERE {ESCALATING} AND next_step<8""",(now,)).fetchall()
             due=[]
             for row in rows:
                 steps=json.loads(row["steps_json"])
@@ -649,10 +715,10 @@ class QueueStore:
         now=time.time()
         def op(con):
             con.row_factory=sqlite3.Row
-            ack=con.execute("""SELECT ack_key,message,title,priority,created_at,
+            ack=con.execute(f"""SELECT ack_key,message,title,priority,created_at,
                 steps_json,next_step,acknowledged_at FROM acknowledgements
-                WHERE ack_key=?""",(key,)).fetchone()
-            if not ack or ack["acknowledged_at"] is not None or ack["next_step"]!=index:
+                WHERE ack_key=? AND {ESCALATING}""",(key,now)).fetchone()
+            if not ack or ack["next_step"]!=index:
                 return []
             steps=json.loads(ack["steps_json"])
             if index>=len(steps) or ack["created_at"]+steps[index]["after"]>now:
@@ -689,21 +755,48 @@ class QueueStore:
             return row[0] if row else None
         return await self._run(op)
 
-    async def act_on_incident(self,key,action,by="callback"):
-        """Atomic ACK, snooze (15m), or immediate next-step escalation."""
-        if action not in ("ack","snooze","escalate"):
+    async def act_on_incident(self,key,action,by="callback",minutes=15,stop_escalation=False):
+        """Atomic incident change; returns the updated incident or None.
+
+        ack (acknowledge), snooze (minutes), escalate (next stage now), resolve
+        (cause gone) and reopen. Plain acknowledgements (no ``incident`` data)
+        end with the acknowledgement; incidents end when acknowledged *and* resolved.
+        """
+        if action not in INCIDENT_ACTIONS:
             raise ValueError("unsupported incident action")
+        if action=="snooze" and (type(minutes) is not int or not 1<=minutes<=1440):
+            raise ValueError("snooze minutes must be 1..1440")
         now=time.time()
+        who=str(by or "unknown")[:100]
         def op(con):
             con.row_factory=sqlite3.Row
-            row=con.execute("""SELECT next_step,steps_json FROM acknowledgements
-                WHERE ack_key=? AND acknowledged_at IS NULL""",(key,)).fetchone()
+            row=con.execute("SELECT * FROM acknowledgements WHERE ack_key=?",(key,)).fetchone()
             if row is None:
-                return False
-            if action=="ack":
-                con.execute("""UPDATE acknowledgements
-                    SET acknowledged_at=?,acknowledged_by=? WHERE ack_key=?""",
-                    (now,by[:100],key))
+                return None
+            closed=row["closed_at"] is not None
+            acked=row["acknowledged_at"] is not None
+            resolved=row["resolved_at"] is not None
+            if action=="reopen":
+                if not (closed or acked or resolved):
+                    return None
+                con.execute("""UPDATE acknowledgements SET acknowledged_at=NULL,acknowledged_by=NULL,
+                    resolved_at=NULL,resolved_by=NULL,closed_at=NULL,snoozed_until=NULL,
+                    opened_at=?,created_at=?,next_step=0 WHERE ack_key=?""",(now,now,key))
+            elif closed:
+                return None
+            elif action=="resolve":
+                if resolved:
+                    return None
+                con.execute("""UPDATE acknowledgements SET resolved_at=?,resolved_by=?,
+                    escalate_while_resolved=CASE WHEN ? THEN 0 ELSE escalate_while_resolved END,
+                    closed_at=CASE WHEN acknowledged_at IS NOT NULL THEN ? ELSE NULL END
+                    WHERE ack_key=?""",(now,who,1 if stop_escalation else 0,now,key))
+            elif acked:
+                return None  # ack/snooze/escalate need an unacknowledged incident
+            elif action=="ack":
+                close=now if (resolved or not row["incident"]) else None
+                con.execute("""UPDATE acknowledgements SET acknowledged_at=?,acknowledged_by=?,
+                    closed_at=?,snoozed_until=NULL WHERE ack_key=?""",(now,who,close,key))
                 # Cancel unsent escalation stages only; never touch an in-flight lease.
                 esc_key="rn_esc_"+hashlib.sha256(key.encode("utf8")).hexdigest()[:16]
                 ids=[r[0] for r in con.execute("""SELECT id FROM messages
@@ -713,15 +806,29 @@ class QueueStore:
                 con.executemany("UPDATE message_archive SET status='cancelled',updated_at=? WHERE id=?",
                                 [(now,ident) for ident in ids])
             elif action=="snooze":
-                con.execute("UPDATE acknowledgements SET created_at=created_at+900 WHERE ack_key=?",(key,))
+                # Only reminders pause; the opening time ("since") is not touched.
+                con.execute("UPDATE acknowledgements SET snoozed_until=? WHERE ack_key=?",
+                            (now+minutes*60,key))
             else:
                 steps=json.loads(row["steps_json"])
                 if row["next_step"]>=len(steps):
-                    return False
+                    return None
                 required=steps[row["next_step"]]["after"]
-                con.execute("UPDATE acknowledgements SET created_at=? WHERE ack_key=?",
+                con.execute("UPDATE acknowledgements SET created_at=?,snoozed_until=NULL WHERE ack_key=?",
                             (now-required-1,key))
-            return True
+            updated=con.execute("SELECT * FROM acknowledgements WHERE ack_key=?",(key,)).fetchone()
+            return incident_record(updated,now)
+        return await self._run(op)
+
+    async def incidents(self, include_closed=False, limit=200):
+        """Incidents for the alarm window and entities, newest first."""
+        def op(con):
+            con.row_factory=sqlite3.Row
+            where="" if include_closed else "WHERE closed_at IS NULL"
+            now=time.time()
+            return [incident_record(row,now) for row in con.execute(
+                f"SELECT * FROM acknowledgements {where} ORDER BY COALESCE(opened_at,created_at) DESC LIMIT ?",
+                (min(500,max(1,int(limit))),))]
         return await self._run(op)
 
     async def archive_list(self, limit=40, search=""):

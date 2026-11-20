@@ -99,6 +99,10 @@ enqueue:
       description: Optional current HA entity-state guard; suppress the notification before delivery if the state no longer matches (for example a closed window).
       selector:
         object:
+    incident:
+      description: "Alarm window: display_text, area and escalate_while_resolved. Requires dedup_key; implies an acknowledgement."
+      selector:
+        object:
     test_mode:
       description: Force local staging for this notification, with no delivery or escalation.
       selector:
@@ -302,3 +306,46 @@ telegram_lifecycle:
       selector:
         text:
           multiline: true
+resolve:
+  name: Resolve incident
+  description: Mark the cause of an incident as gone. It stays visible until acknowledged.
+  fields:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    by:
+      selector:
+        text:
+    stop_escalation:
+      selector:
+        boolean:
+snooze:
+  name: Snooze incident
+  description: Pause reminders of an open incident; the opening time is kept.
+  fields:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    minutes:
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
+          mode: box
+    by:
+      selector:
+        text:
+reopen:
+  name: Reopen incident
+  description: Make an acknowledged, resolved or closed incident active again and restart reminders.
+  fields:
+    dedup_key:
+      required: true
+      selector:
+        text:
+    by:
+      selector:
+        text:

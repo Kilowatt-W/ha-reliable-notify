@@ -12,6 +12,7 @@ from .retry import validate_policies
 from .retention import validate_retention
 from .smart import validate_quiet_hours, validate_route_quiet_hours
 from .i18n import text as i18n_text
+from .incidents import visible_incidents, public_incident, may_act
 from .routing import (display_name, merge_routes, validate_config, valid_label,
                       is_own_entity, ROUTE_KINDS, MAX_LABEL)
 
@@ -172,8 +173,58 @@ def register_dashboard(hass):
         if manager is None:
             connection.send_error(msg['id'], 'not_loaded', 'Reliable Notify not loaded')
             return
-        changed=await manager.store.acknowledgement(msg['key'], connection.user.name or 'admin')
+        changed=await manager.incident_action(msg['key'], 'ack', connection.user.name or 'admin')
         connection.send_result(msg['id'], {'acknowledged':bool(changed)})
+
+    INCIDENT_FILTERS = {
+        vol.Optional("areas"): [vol.All(str, vol.Length(max=64))],
+        vol.Optional("message_types"): [vol.All(str, vol.Length(max=64))],
+        vol.Optional("min_priority", default="info"): vol.In(("info", "warning", "critical")),
+        vol.Optional("include_acknowledged", default=False): bool,
+    }
+
+    async def incidents_payload(manager, msg, user):
+        records = visible_incidents(await manager.store.incidents(), msg.get("areas"),
+                                    msg.get("message_types"), msg.get("min_priority", "info"),
+                                    msg.get("include_acknowledged", False))
+        admin_only = bool(manager.settings.get("incident_admin_only", False))
+        return {"incidents": [public_incident(r, user.is_admin) for r in records],
+                "permissions": {action: may_act(action, user.is_admin, admin_only)
+                                for action in ("ack", "snooze", "escalate", "resolve", "reopen")}}
+
+    # Alarm window: readable by every signed-in user (residents' dashboards).
+    @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/incidents", **INCIDENT_FILTERS})
+    @websocket_api.async_response
+    async def list_incidents(hass, connection, msg):
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
+            return
+        connection.send_result(msg["id"], await incidents_payload(manager, msg, connection.user))
+
+    @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/subscribe_incidents", **INCIDENT_FILTERS})
+    @websocket_api.async_response
+    async def subscribe_incidents(hass, connection, msg):
+        """Live list for the alarm card: sent now and after every incident change."""
+        manager = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
+            return
+
+        async def push(_event=None):
+            current = next(iter(hass.data.get(DOMAIN, {}).values()), None)
+            if current is None:
+                return
+            try:
+                payload = await incidents_payload(current, msg, connection.user)
+            except Exception:  # never break the subscription on a transient DB error
+                return
+            connection.send_message(websocket_api.event_message(msg["id"], payload))
+
+        connection.subscriptions[msg["id"]] = hass.bus.async_listen(
+            "reliable_notify_incident", lambda event: hass.async_create_task(push(event)))
+        connection.send_result(msg["id"])
+        await push()
 
     @websocket_api.websocket_command({
         vol.Required('type'): 'reliable_notify/set_smart_settings',
@@ -416,21 +467,23 @@ def register_dashboard(hass):
     @websocket_api.websocket_command({
         vol.Required("type"): "reliable_notify/incident_action",
         vol.Required("key"): vol.All(str,vol.Length(min=1,max=128)),
-        vol.Required("action"): vol.In(("ack","snooze","escalate")),
+        vol.Required("action"): vol.In(("ack","snooze","escalate","resolve","reopen")),
+        vol.Optional("minutes",default=15): vol.All(vol.Coerce(int),vol.Range(min=1,max=1440)),
     })
     @websocket_api.async_response
     async def incident_action(hass,connection,msg):
-        if not connection.user.is_admin:
-            connection.send_error(msg["id"],"unauthorized","Administrator required")
-            return
         manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
         if manager is None:
             connection.send_error(msg["id"],"not_loaded","Integration unavailable")
             return
-        changed=await manager.store.act_on_incident(
-            msg["key"],msg["action"],connection.user.name or "HA admin")
-        if changed:
-            manager.hass.bus.async_fire("reliable_notify_updated",{"kind":"incident"})
+        # Residents may acknowledge and snooze (unless restricted); the rest is admin-only.
+        if not may_act(msg["action"],connection.user.is_admin,
+                       bool(manager.settings.get("incident_admin_only",False))):
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        options={"minutes":msg["minutes"]} if msg["action"]=="snooze" else {}
+        changed=await manager.incident_action(
+            msg["key"],msg["action"],connection.user.name or "HA user",**options)
         connection.send_result(msg["id"],{"changed":bool(changed)})
 
     @websocket_api.websocket_command({
@@ -632,6 +685,8 @@ def register_dashboard(hass):
     websocket_api.async_register_command(hass, statistics)
     websocket_api.async_register_command(hass, set_smart)
     websocket_api.async_register_command(hass, acknowledge_command)
+    websocket_api.async_register_command(hass, list_incidents)
+    websocket_api.async_register_command(hass, subscribe_incidents)
     websocket_api.async_register_command(hass, set_retention)
     websocket_api.async_register_command(hass, archive_search)
     websocket_api.async_register_command(hass, archive_detail)

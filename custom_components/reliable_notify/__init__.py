@@ -33,7 +33,7 @@ from .retry import (classify_error, validate_policies, DEFAULT_POLICIES, migrate
                     sanitize_error, ServiceNotLoaded, TargetUnavailable)
 from .retention import validate_retention, retention_for_message, DEFAULT_RETENTION
 from .dashboard import register_dashboard
-from .acknowledgement import validate_acknowledgement
+from .acknowledgement import validate_acknowledgement, validate_incident
 from .lifecycle import notification_tag
 from .smart import (DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp,
                     scheduled_timestamp, validate_route_quiet_hours)
@@ -43,6 +43,8 @@ from .logging_utils import validate_transport_logging, transport_for
 from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliver_native
 
 LANES = ("telegram", "smtp", "notify", "notify")
+PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.6.0"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("dedup_key"): cv.string,
     vol.Optional("strategy"): vol.In(("always", "replace", "digest")),
     vol.Optional("acknowledgement"): dict,
+    vol.Optional("incident"): dict,
     vol.Optional("test_mode"): vol.In(("off","stage")),
     vol.Optional("send_at"): cv.datetime,
     vol.Optional("delay"): vol.All(vol.Coerce(int), vol.Range(min=0, max=31 * 86400)),
@@ -83,6 +86,23 @@ DISMISS_SCHEMA = vol.Schema({
     vol.Required("recipients"): vol.Any(cv.string,[cv.string]),
 })
 CANCEL_SCHEMA = vol.Schema({vol.Required("dedup_key"): cv.string, vol.Optional("target_entity"): cv.string})
+RESOLVE_SCHEMA = vol.Schema({
+    vol.Required("dedup_key"): cv.string,
+    vol.Optional("by", default="manual"): cv.string,
+    vol.Optional("stop_escalation", default=False): cv.boolean,
+})
+SNOOZE_SCHEMA = vol.Schema({
+    vol.Required("dedup_key"): cv.string,
+    vol.Optional("minutes", default=15): vol.All(vol.Coerce(int), vol.Range(min=1, max=1440)),
+    vol.Optional("by", default="manual"): cv.string,
+})
+REOPEN_SCHEMA = vol.Schema({
+    vol.Required("dedup_key"): cv.string,
+    vol.Optional("by", default="manual"): cv.string,
+})
+# Incident action -> action name in the reliable_notify_incident event.
+INCIDENT_EVENTS = {"ack": "acknowledged", "snooze": "snoozed", "escalate": "escalated",
+                   "resolve": "resolved", "reopen": "reopened"}
 
 
 def _load_routes(path):
@@ -205,10 +225,26 @@ class ReliableNotifyManager:
         key=await self.store.incident_key_from_action_id(identity)
         if key is None:
             return False
-        result=await self.store.act_on_incident(key,action,origin)
-        if result:
-            self.hass.bus.async_fire("reliable_notify_updated", {"kind":"acknowledgement"})
+        result=await self.incident_action(key,action,origin)
         return bool(result)
+
+    def _fire_incident(self, record, action, by):
+        """reliable_notify_incident with the key, so HA can follow every change."""
+        self.hass.bus.async_fire("reliable_notify_incident", {
+            "dedup_key": record["dedup_key"], "action": action, "by": by,
+            "priority": record["priority"], "title": record["title"],
+            "message_type": record["message_type"], "area": record["area"], "state": record["state"],
+        })
+        self.hass.bus.async_fire("reliable_notify_updated", {"kind": "incident"})
+
+    async def incident_action(self, key, action, by, **options):
+        """Acknowledge/snooze/escalate/resolve/reopen from any source (service, panel, card, button)."""
+        record = await self.store.act_on_incident(key, action, by, **options)
+        if record:
+            self._fire_incident(record, INCIDENT_EVENTS[action], by)
+            if action in ("escalate", "reopen"):
+                self.wakeup.set()
+        return record
 
     async def _telegram_feedback(self,event,raw,actor):
         try:
@@ -315,7 +351,14 @@ class ReliableNotifyManager:
             # Own quiet hours of recipients / persons (incl. persons inside groups).
             route_qh = route_quiet_hours(self.routes, names, priority=data.get("priority","info"),
                                          presence=presence) if recipients else {}
-            ack_plan = validate_acknowledgement(data.get('acknowledgement'), data.get('dedup_key'))
+            incident = validate_incident(data.get("incident"))
+            acknowledgement = data.get('acknowledgement')
+            if incident is not None and acknowledgement is None:
+                acknowledgement = {"required": True, "escalation": []}  # alarm window without reminders
+            ack_plan = validate_acknowledgement(acknowledgement, data.get('dedup_key'))
+            if ack_plan:
+                ack_plan["incident"] = incident
+                ack_plan["message_type"] = data.get("message_type")
             if ack_plan:
                 for step in ack_plan['steps']:
                     resolve(self.routes, step['recipients'])
@@ -449,6 +492,11 @@ class ReliableNotifyManager:
             raise HomeAssistantError(f"Reliable Notify could not persist notification: {err}") from err
         self.wakeup.set()
         self.hass.bus.async_fire("reliable_notify_updated", {"kind":"queued"})
+        if ack_plan:
+            for record in await self.store.incidents():
+                if record["dedup_key"] == ack_plan["key"]:
+                    self._fire_incident(record, "created", "enqueue")
+                    break
         return result
 
     async def _deliver(self, item):
@@ -725,8 +773,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 str(Path(__file__).parent / 'reliable-notify-card.js'), False),
             StaticPathConfig('/reliable_notify/reliable-notify-panel.js',
                 str(Path(__file__).parent / 'reliable-notify-panel.js'), False),
+            StaticPathConfig('/reliable_notify/reliable-notify-alarm-card.js',
+                str(Path(__file__).parent / 'reliable-notify-alarm-card.js'), False),
         ])
         hass.data['reliable_notify_dashboard_registered'] = True
+    if not hass.data.get('reliable_notify_alarm_card_loaded'):
+        # The alarm card is loaded for every user, so residents need no manual resource.
+        frontend.add_extra_js_url(hass, ALARM_CARD_URL)
+        hass.data['reliable_notify_alarm_card_loaded'] = True
     if not hass.data.get("reliable_notify_external_api_registered"):
         hass.http.register_view(ReliableNotifyAPIView(hass))
         hass.data["reliable_notify_external_api_registered"]=True
@@ -735,7 +789,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.5.0",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.6.0",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
@@ -848,9 +902,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             })
 
     async def acknowledge(call: ServiceCall):
-        changed = await manager.store.acknowledgement(call.data["dedup_key"],call.data.get("by","manual"))
-        if not changed:
+        if not await manager.incident_action(call.data["dedup_key"], "ack", call.data.get("by", "manual")):
             raise HomeAssistantError("Acknowledgement key not found or already acknowledged")
+
+    async def resolve_incident(call: ServiceCall):
+        if not await manager.incident_action(call.data["dedup_key"], "resolve", call.data["by"],
+                                             stop_escalation=call.data["stop_escalation"]):
+            raise HomeAssistantError("Incident not found, closed or already resolved")
+
+    async def snooze_incident(call: ServiceCall):
+        if not await manager.incident_action(call.data["dedup_key"], "snooze", call.data["by"],
+                                             minutes=call.data["minutes"]):
+            raise HomeAssistantError("Incident not found, closed or already acknowledged")
+
+    async def reopen_incident(call: ServiceCall):
+        if not await manager.incident_action(call.data["dedup_key"], "reopen", call.data["by"]):
+            raise HomeAssistantError("Incident not found or still open")
 
     async def cancel(call: ServiceCall):
         await manager.store.cancel(call.data["dedup_key"], call.data.get("target_entity"))
@@ -887,6 +954,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         ("retry_all", retry, None),
         ("retry_dead", retry_dead, None), ("clear_queue", clear, None),
         ("cancel", cancel, CANCEL_SCHEMA), ("acknowledge", acknowledge, ACK_SCHEMA),
+        ("resolve", resolve_incident, RESOLVE_SCHEMA), ("snooze", snooze_incident, SNOOZE_SCHEMA),
+        ("reopen", reopen_incident, REOPEN_SCHEMA),
         ("update", update_message, UPDATE_SCHEMA), ("dismiss", dismiss, DISMISS_SCHEMA),
         ("reload_routes", reload_routes, None),
         ("retry_one", retry_one, JOB_SCHEMA), ("delete_one", delete_one, JOB_SCHEMA),
@@ -899,14 +968,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async_register_admin_service(
         hass,DOMAIN,"backup",create_backup,schema=vol.Schema({}),
         supports_response=SupportsResponse.ONLY)
-    await hass.config_entries.async_forward_entry_setups(entry, ["sensor", "button", "notify"])
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     manager.compat_notify_services = await async_register_compat(hass, manager)
     entry.async_on_unload(entry.add_update_listener(_reload_entry))
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    if not await hass.config_entries.async_unload_platforms(entry, ['sensor', 'button', 'notify']):
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         return False
     manager = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if manager is not None:
@@ -915,6 +984,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # WebSocket endpoints are HA-lifetime registrations; panel can be re-added on reload.
     if not hass.data.get(DOMAIN):
         frontend.async_remove_panel(hass,"reliable-notify",warn_if_unknown=False)
+        if hass.data.pop('reliable_notify_alarm_card_loaded', None):
+            frontend.remove_extra_js_url(hass, ALARM_CARD_URL)
         try:
             from homeassistant.helpers import issue_registry as ir
             ir.async_delete_issue(hass, DOMAIN, "dead_letters")
@@ -922,7 +993,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
             pass
         hass.data.pop('reliable_notify_panel_registered',None)
         for service in ('enqueue', 'retry_all', 'retry_dead', 'clear_queue', 'cancel',
-                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup', 'send_template', 'telegram_lifecycle'):
+                        'reload_routes', 'retry_one', 'delete_one', 'acknowledge', 'update', 'dismiss', 'simulate', 'backup', 'send_template', 'telegram_lifecycle',
+                        'resolve', 'snooze', 'reopen'):
             hass.services.async_remove(DOMAIN, service)
     return True
 

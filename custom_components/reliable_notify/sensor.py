@@ -6,6 +6,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.event import async_track_time_interval
 from .const import DOMAIN
+from .incidents import summary
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -16,8 +17,38 @@ async def async_setup_entry(hass, entry, async_add_entities):
         DeadLetterSensor(manager), HistorySensor(manager), StorageFreeSensor(manager),
         DatabaseSizeSensor(manager), MaintenanceHealthSensor(manager),
         HealthSensor(manager), QueueAgeSensor(manager), MediaSizeSensor(manager),
-        TransportStatusSensor(manager),
+        TransportStatusSensor(manager), OpenIncidentsSensor(manager),
     ])
+
+
+class OpenIncidentsSensor(SensorEntity):
+    """Alarm window: number of open incidents, for badges and conditional cards."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "open_incidents"
+    _attr_icon = "mdi:alarm-light-outline"
+    _attr_native_unit_of_measurement = None
+    _attr_should_poll = False
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._attr_unique_id = f"{manager.entry.entry_id}_open_incidents"
+        self._attr_native_value = 0
+
+    async def async_added_to_hass(self):
+        async def refresh(_=None):
+            await self._refresh()
+        self.async_on_remove(self.hass.bus.async_listen("reliable_notify_incident", refresh))
+        # Snooze expiry and maintenance do not fire events; a slow interval keeps it exact.
+        self.async_on_remove(async_track_time_interval(self.hass, refresh, timedelta(seconds=60)))
+        await self._refresh()
+
+    async def _refresh(self):
+        data = summary(await self.manager.store.incidents())
+        self._attr_native_value = data["count"]
+        self._attr_extra_state_attributes = {
+            "critical_unacknowledged": data["critical_unacknowledged"], "incidents": data["incidents"]}
+        self.async_write_ha_state()
 
 
 class BaseSensor(SensorEntity):

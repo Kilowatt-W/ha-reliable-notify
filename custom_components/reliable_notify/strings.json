@@ -33,12 +33,14 @@
               "legacy_notify_services": "Enable legacy notify.reliable_* services",
               "companion_grouping": "Group Companion app notifications by message type",
               "daily_report_recipient": "Daily failure report to (internal target name, empty = off)",
-              "daily_report_time": "Time of the daily failure report (HH:MM)"
+              "daily_report_time": "Time of the daily failure report (HH:MM)",
+              "incident_admin_only": "Only administrators may acknowledge or snooze incidents"
             },
             "data_description": {
               "target_entity": "Optional fallback, not a new notification target. Create targets in the Reliable Notify sidebar panel.",
               "companion_grouping": "Android group and iOS thread-id are set to the message type unless the call sets them.",
-              "daily_report_recipient": "For example telegram_admin. The report is only sent when there were failures in the last 24 hours."
+              "daily_report_recipient": "For example telegram_admin. The report is only sent when there were failures in the last 24 hours.",
+              "incident_admin_only": "Off: every signed-in user can acknowledge and snooze on the alarm card. Escalating, resolving and reopening always need an administrator."
             }
           },
           "smart": {
@@ -157,6 +159,14 @@
       },
       "transport_health": {
         "name": "Transport health"
+      },
+      "open_incidents": {
+        "name": "Open incidents"
+      }
+    },
+    "binary_sensor": {
+      "critical_open": {
+        "name": "Critical incident open"
       }
     }
   },
@@ -234,6 +244,10 @@
         "delay": {
           "name": "Delay",
           "description": "Send not before this many seconds from now; combined with send at, the later time wins."
+        },
+        "incident": {
+          "name": "Alarm window",
+          "description": "Keep this incident visible until acknowledged: display_text (shown on dashboards), area (filter), escalate_while_resolved (reminders after the cause is gone, default true). Requires dedup_key."
         }
       }
     },
@@ -404,6 +418,53 @@
         "message": {
           "name": "Message",
           "description": "New body required for edit operation."
+        }
+      }
+    },
+    "resolve": {
+      "name": "Resolve incident",
+      "description": "Mark the cause of an incident as gone. It stays visible until someone acknowledges it.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "by": {
+          "name": "Resolved by",
+          "description": "Name of the person or automation."
+        },
+        "stop_escalation": {
+          "name": "Stop reminders",
+          "description": "End reminders now instead of waiting for the acknowledgement."
+        }
+      }
+    },
+    "snooze": {
+      "name": "Snooze incident",
+      "description": "Pause reminders of an open incident; the opening time stays unchanged.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "How long reminders pause (1–1440)."
+        },
+        "by": {
+          "name": "Snoozed by",
+          "description": "Name of the person or automation."
+        }
+      }
+    },
+    "reopen": {
+      "name": "Reopen incident",
+      "description": "Make an acknowledged, resolved or closed incident active again and restart its reminders.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplication key"
+        },
+        "by": {
+          "name": "Reopened by",
+          "description": "Name of the person or automation."
         }
       }
     }

@@ -33,12 +33,14 @@
               "legacy_notify_services": "Klassische notify.reliable_* Dienste aktivieren",
               "companion_grouping": "Companion-App-Benachrichtigungen nach Nachrichtentyp gruppieren",
               "daily_report_recipient": "Täglicher Fehlerbericht an (interner Zielname, leer = aus)",
-              "daily_report_time": "Uhrzeit des täglichen Fehlerberichts (HH:MM)"
+              "daily_report_time": "Uhrzeit des täglichen Fehlerberichts (HH:MM)",
+              "incident_admin_only": "Nur Administratoren dürfen Vorfälle quittieren oder schlummern"
             },
             "data_description": {
               "target_entity": "Optionaler Fallback, kein neues Sendeziel. Ziele im Seitenleistenpanel „Reliable Notify“ anlegen.",
               "companion_grouping": "Android-group und iOS-thread-id werden auf den Nachrichtentyp gesetzt, sofern der Aufruf sie nicht selbst setzt.",
-              "daily_report_recipient": "Zum Beispiel telegram_admin. Der Bericht kommt nur, wenn es in den letzten 24 Stunden Fehler gab."
+              "daily_report_recipient": "Zum Beispiel telegram_admin. Der Bericht kommt nur, wenn es in den letzten 24 Stunden Fehler gab.",
+              "incident_admin_only": "Aus: Jeder angemeldete Benutzer kann auf der Alarm-Karte quittieren und schlummern. Eskalieren, als behoben markieren und wieder öffnen erfordern immer einen Administrator."
             }
           },
           "smart": {
@@ -157,6 +159,14 @@
       },
       "transport_health": {
         "name": "Transportzustand"
+      },
+      "open_incidents": {
+        "name": "Offene Vorfälle"
+      }
+    },
+    "binary_sensor": {
+      "critical_open": {
+        "name": "Kritischer Vorfall offen"
       }
     }
   },
@@ -234,6 +244,10 @@
         "delay": {
           "name": "Verzögerung",
           "description": "Erst nach so vielen Sekunden senden; zusammen mit „Senden ab“ gilt der spätere Zeitpunkt."
+        },
+        "incident": {
+          "name": "Alarmfenster",
+          "description": "Vorfall sichtbar halten, bis er quittiert ist: display_text (Anzeige im Dashboard), area (Filter), escalate_while_resolved (Erinnerungen auch nach behobener Ursache, Standard true). Benötigt dedup_key."
         }
       }
     },
@@ -404,6 +418,53 @@
         "message": {
           "name": "Nachricht",
           "description": "Neuer Nachrichtentext; beim Bearbeiten erforderlich."
+        }
+      }
+    },
+    "resolve": {
+      "name": "Vorfall als behoben markieren",
+      "description": "Die Ursache eines Vorfalls ist weg. Er bleibt sichtbar, bis ihn jemand quittiert.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "by": {
+          "name": "Behoben durch",
+          "description": "Name der Person oder Automation."
+        },
+        "stop_escalation": {
+          "name": "Erinnerungen beenden",
+          "description": "Erinnerungen sofort beenden statt bis zum Quittieren weiterzuschicken."
+        }
+      }
+    },
+    "snooze": {
+      "name": "Vorfall schlummern",
+      "description": "Erinnerungen eines offenen Vorfalls pausieren; der Beginn bleibt unverändert.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "minutes": {
+          "name": "Minuten",
+          "description": "So lange ruhen die Erinnerungen (1–1440)."
+        },
+        "by": {
+          "name": "Geschlummert durch",
+          "description": "Name der Person oder Automation."
+        }
+      }
+    },
+    "reopen": {
+      "name": "Vorfall wieder öffnen",
+      "description": "Einen quittierten, behobenen oder erledigten Vorfall wieder aktiv setzen und die Erinnerungen neu starten.",
+      "fields": {
+        "dedup_key": {
+          "name": "Deduplizierungsschlüssel"
+        },
+        "by": {
+          "name": "Geöffnet durch",
+          "description": "Name der Person oder Automation."
         }
       }
     }

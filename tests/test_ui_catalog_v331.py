@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "reliable_notify"
 CARD = (ROOT / "reliable-notify-card.js").read_text(encoding="utf-8")
 PANEL = (ROOT / "reliable-notify-panel.js").read_text(encoding="utf-8")
+ALARM = (ROOT / "reliable-notify-alarm-card.js").read_text(encoding="utf-8")
 STRING = r"""("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')"""
 
 
@@ -31,7 +32,8 @@ def method_body(name):
 class CatalogTests(unittest.TestCase):
     def test_all_literal_translations_and_code_tables_are_in_catalog(self):
         known = catalog()
-        texts = {literal(m) for m in re.findall(r"\bt\(\s*" + STRING, PANEL + CARD[CARD.index("const RN_CATALOG"):])}
+        texts = {literal(m) for m in re.findall(r"\bt\(\s*" + STRING, PANEL + ALARM + CARD[CARD.index("const RN_CATALOG"):])}
+        texts |= {literal(m) for m in re.findall(r"rnTranslate\([^,]+,\s*" + STRING, ALARM + CARD)}
         for name in ("migrationText", "errorText", "failureText"):
             body = method_body(name)
             texts |= {literal(m) for m in re.findall(r"[a-z_]+:" + STRING, body)}

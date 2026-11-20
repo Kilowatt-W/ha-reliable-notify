@@ -69,6 +69,18 @@ Action IDs are HMAC signed and verified before the integration changes incident 
 - Each dead letter fires the event `reliable_notify_dead_letter` (`id`, `recipient`, `target`, `action`, `priority`, `category`; no message text) and maintains a repair issue while dead letters exist.
 - A recipient may define `fallback: <recipient, group or person>`. When a message to it finally fails, a copy is queued once to the fallback (a fallback copy never falls back again).
 
+## Alarm window (3.6.0)
+
+An acknowledged notification with an `incident` mapping becomes an incident that stays visible until it is acknowledged, even when the cause is already gone:
+
+- States: `active` → `resolved` (cause gone, `reliable_notify.resolve`) → `closed` once acknowledged; acknowledging while the cause persists gives `acknowledged` ("still present") until it is resolved. Plain acknowledgements without `incident` close on acknowledgement as before.
+- `incident` fields: `display_text` (shown on dashboards), `area` (filter, a-z/0-9/_), `escalate_while_resolved` (default true: reminders continue after `resolve` until acknowledged). `incident` requires `dedup_key` and implies `acknowledgement: {required: true}`.
+- Services: `reliable_notify.resolve` (`stop_escalation`), `reliable_notify.snooze` (`minutes`, only reminders pause, "since" is kept), `reliable_notify.reopen`; `reliable_notify.acknowledge` unchanged.
+- Event `reliable_notify_incident` on every change: `dedup_key`, `action` (created, acknowledged, snoozed, escalated, resolved, reopened), `by`, `priority`, `title`, `message_type`, `area`, `state` – no matter whether the change came from Telegram, the app, the card, the panel or a service.
+- Entities: sensor *Open incidents* (count, attribute `incidents`) and binary sensor *Critical incident open*.
+- Card `custom:reliable-notify-alarm-card` (loaded automatically for all users): options `areas`, `message_types`, `min_priority`, `show_acknowledged`, `snooze_minutes` (up to three), `confirm_acknowledge`, `compact`. Live updates via WebSocket subscription; without open incidents the card hides itself. Every signed-in user may acknowledge and snooze (option *Only administrators may acknowledge or snooze incidents*); escalating, resolving and reopening need an administrator.
+- Open incidents are kept regardless of priority; closed ones are removed after 30 days.
+
 ## Troubleshooting checklist
 
 1. Check disk free bytes and maintenance integrity.

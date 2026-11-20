@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.6.0
+- Alarm window (phase 1): acknowledged notifications with `incident` (`display_text`, `area`, `escalate_while_resolved`) become incidents that stay visible until acknowledged, also after the cause is gone. States active → resolved / acknowledged → closed.
+- New services `reliable_notify.resolve` (optionally stopping reminders), `reliable_notify.snooze` (minutes) and `reliable_notify.reopen`. Snoozing and escalating no longer move the incident's opening time.
+- Event `reliable_notify_incident` with `dedup_key`, `action`, `by`, `priority`, `title`, `message_type`, `area` and `state` for every change, whatever the source (Telegram, app, card, panel, service).
+- Entities: sensor *Open incidents* (with the incident list) and binary sensor *Critical incident open*.
+- New card `custom:reliable-notify-alarm-card` for all users (loaded automatically): one band per incident by priority, "since", "resolved at", acknowledge and snooze buttons, escalate for admins, live updates, hidden when nothing is open; German/English.
+- Signed-in users may acknowledge and snooze incidents (option to restrict to administrators); escalating, resolving and reopening need an administrator.
+- Open incidents are kept regardless of priority; closed ones are removed after 30 days. Existing acknowledgements are migrated without losing open ones.
+- The admin panel shows "since", "resolved at" and snooze status and can mark incidents as resolved; help examples for the alarm window.
+
 ## 3.5.0
 - Scheduled notifications: `send_at` (date/time) and `delay` (seconds) in `reliable_notify.enqueue`, up to 31 days ahead; quiet hours apply from the send time and `ttl` counts from it. The simulation shows the planned time per target.
 - Quiet hours per recipient and per person (also when a person is reached through a group); the recipient's own setting wins, then the person's, then the global one. Editable in the admin panel via "Add field".

@@ -1,4 +1,30 @@
 """Validate acknowledgement/escalation plans before durable queuing."""
+import re
+
+INCIDENT_KEYS = ("display_text", "area", "escalate_while_resolved")
+AREA = re.compile(r"[a-z0-9_]{1,64}")
+
+
+def validate_incident(raw):
+    """Optional alarm-window data of an acknowledged notification (3.6.0)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("incident must be a mapping")
+    unknown = set(raw) - set(INCIDENT_KEYS)
+    if unknown:
+        raise ValueError("unsupported incident fields: " + ", ".join(sorted(map(str, unknown)))
+                         + " (supported: " + ", ".join(INCIDENT_KEYS) + ")")
+    text = raw.get("display_text")
+    if text is not None and (not isinstance(text, str) or len(text) > 500):
+        raise ValueError("incident.display_text must be text up to 500 characters")
+    area = raw.get("area")
+    if area is not None and (not isinstance(area, str) or not AREA.fullmatch(area)):
+        raise ValueError("incident.area must use a-z, 0-9 and _ (max 64)")
+    remind = raw.get("escalate_while_resolved", True)
+    if not isinstance(remind, bool):
+        raise ValueError("incident.escalate_while_resolved must be true or false")
+    return {"display_text": text, "area": area, "escalate_while_resolved": remind}
 
 
 def validate_acknowledgement(raw, dedup_key):

@@ -28,5 +28,6 @@ class LocalizationTests(unittest.TestCase):
                 for field in item.get('fields', {}).values():
                     self.assertTrue(field['name'])
         self.assertEqual(set(english['entity']['sensor']), set(german['entity']['sensor']))
-        self.assertEqual(len(english['entity']['sensor']), 12)
+        self.assertEqual(len(english['entity']['sensor']), 13)  # + open_incidents (3.6.0)
+        self.assertEqual(set(english['entity']['binary_sensor']), set(german['entity']['binary_sensor']))
         self.assertNotEqual(english['services']['enqueue']['name'], german['services']['enqueue']['name'])

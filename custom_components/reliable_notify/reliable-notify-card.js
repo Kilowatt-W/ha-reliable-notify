@@ -1000,6 +1000,18 @@ RN_TRANSLATIONS.push(...[
   ['Wird wiederholt','Retrying'],
   ['Senden ab (Datum und Uhrzeit)','Send at (date and time)'],
   ['Verzögerung (Sekunden)','Delay (seconds)'],
+  ['„{title}“ quittieren?','Acknowledge “{title}”?'],
+  ['seit {time}','since {time}'],
+  ['behoben um {time}','resolved at {time}'],
+  ['quittiert von {name}, besteht noch','acknowledged by {name}, still present'],
+  ['Erinnerungen pausiert bis {time}','reminders paused until {time}'],
+  ['Quittieren','Acknowledge'],
+  ['Schlummern {minutes} min','Snooze {minutes} min'],
+  ['Eskalieren','Escalate'],
+  ['Als behoben markieren','Mark as resolved'],
+  ['Alarmfenster nicht verfügbar:','Alarm window unavailable:'],
+  ['Aktion nicht möglich:','Action not possible:'],
+  ['Offene Vorfälle mit Quittieren und Schlummern','Open incidents with acknowledge and snooze'],
 ]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
@@ -1039,7 +1051,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.5.0 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.6.0 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

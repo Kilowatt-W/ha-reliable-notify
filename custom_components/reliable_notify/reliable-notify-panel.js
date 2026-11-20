@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.5.0 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.5.0';
+/* Reliable Notify Admin Panel 3.6.0 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.6.0';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -40,13 +40,15 @@ const RN_HELP={
       'Ohne Bestätigung wird nach der eingestellten Zeit an die nächste Stufe gesendet.',
       'Offene Alarme hier bestätigen, um 15 Minuten verschieben oder sofort eskalieren. Empfänger können auch direkt per Companion-App- oder Telegram-Knopf bestätigen.',
       'Mit dem Assistenten eine Kette zuerst nur simulieren. „Alarm wirklich einreihen“ sendet echt.',
-      'Bereits gesendete Telegram-Nachrichten lassen sich über ihren dedup_key bearbeiten oder löschen.']},
+      'Bereits gesendete Telegram-Nachrichten lassen sich über ihren dedup_key bearbeiten oder löschen.',
+      'Alarmfenster: Mit dem Feld incident bleibt ein Vorfall sichtbar, bis ihn jemand quittiert – auch wenn die Ursache schon behoben ist (reliable_notify.resolve). Die Karte custom:reliable-notify-alarm-card zeigt offene Vorfälle für alle Bewohner und braucht keine eigene Ressource.']},
     en:{intro:'Critical notifications can wait for an acknowledgement and otherwise escalate step by step.',steps:[
       'A notification with dedup_key and acknowledgement waits for confirmation (example below).',
       'Without acknowledgement it is sent to the next step after the configured time.',
       'Acknowledge open alarms here, snooze them for 15 minutes or escalate immediately. Recipients can also acknowledge with the Companion app or Telegram button.',
       'Use the wizard to simulate a chain first. “Really queue alarm” sends for real.',
-      'Telegram messages that were already sent can be edited or deleted via their dedup_key.']}},
+      'Telegram messages that were already sent can be edited or deleted via their dedup_key.',
+      'Alarm window: with the incident field an incident stays visible until someone acknowledges it – even after the cause is gone (reliable_notify.resolve). The card custom:reliable-notify-alarm-card shows open incidents to all residents and needs no extra resource.']}},
   simulation:{doc:'API_V2.md',example:'action: reliable_notify.simulate\ndata:\n  recipients: [family]\n  message: Test\n  priority: warning\nresponse_variable: preview',
     de:{intro:'Zeigt, was mit einer Nachricht passieren würde – ohne Versand und ohne Eintrag in der Warteschlange.',steps:[
       'Empfänger, Priorität und Text eintragen und „Versand simulieren“ klicken.',
@@ -116,6 +118,17 @@ const RN_HELP={
 };
 
 // Buttons and images per transport (help of "Targets & people"). YAML stays untranslated except sample texts.
+// Alarm window examples (help of "Escalations").
+RN_HELP.incidents.examples=[
+  {de:'Störung melden, bis zum Quittieren sichtbar halten und erinnern',en:'Report a fault, keep it visible until acknowledged and send reminders',
+   code:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_technik]\n  title: Brennerstörung\n  message: "Der Brenner hat auf Störung geschaltet."\n  priority: critical\n  message_type: heizraum\n  dedup_key: heizraum_brenner\n  acknowledgement:\n    required: true\n    escalation:\n      - {after: 1800, recipients: [telegram_technik]}\n  incident:\n    display_text: "An der Ecomatic prüfen und entstören."\n    area: heizraum'},
+  {de:'Ursache ist weg (eigene Automation, wenn der Sensor wieder normal ist)',en:'Cause is gone (own automation when the sensor is back to normal)',
+   code:'action: reliable_notify.resolve\ndata:\n  dedup_key: heizraum_brenner'},
+  {de:'Alarm-Karte für Bewohner (ohne offenen Vorfall unsichtbar)',en:'Alarm card for residents (invisible without open incidents)',
+   code:'type: custom:reliable-notify-alarm-card\nareas: [heizraum]\nmin_priority: warning\nsnooze_minutes: [15, 60]\nshow_acknowledged: false'},
+  {de:'Auf Quittieren reagieren (z. B. Lampe ausschalten)',en:'React to an acknowledgement (e.g. switch a lamp off)',
+   code:'triggers:\n  - trigger: event\n    event_type: reliable_notify_incident\n    event_data:\n      dedup_key: heizraum_brenner\n      action: acknowledged\nactions:\n  - action: light.turn_off\n    target:\n      entity_id: light.alarmlampe'},
+];
 RN_HELP.routes.notes={
   de:['Companion-App (Ziel mit HA-Aktion notify.mobile_app_…): Buttons über actions und Bilder über image – beides unter data → data.',
     'Telegram (telegram_bot.send_message): Buttons über inline_keyboard, Fotos mit media: photo und file (lokale Datei) oder url.',
@@ -659,9 +672,16 @@ class ReliableNotifyPanel extends HTMLElement {
         const row=this.element('div',null,'panel');
         row.append(this.element('b',(item.title||item.ack_key)+' • '+rnValueLabel(this._hass,'priority',item.priority)));
         row.append(this.element('p',this.t('ID: ')+item.ack_key+this.t(' | Eskalationsstufe: ')+item.next_step));
+        const since=new Date((item.opened_at||item.created_at)*1000).toLocaleString(rnLanguage(this._hass));
+        const state=[this.t('seit {time}',{time:since})];
+        if(item.resolved_at)state.push(this.t('behoben um {time}',{time:new Date(item.resolved_at*1000).toLocaleString(rnLanguage(this._hass))}));
+        if(item.snoozed_until&&item.snoozed_until*1000>Date.now())state.push(this.t('Erinnerungen pausiert bis {time}',{time:new Date(item.snoozed_until*1000).toLocaleString(rnLanguage(this._hass))}));
+        row.append(this.element('p',state.join(' · '),'muted'));
         const status=this.element('p');
-        for(const [action,label] of [['ack',this.t('Bestätigen')],['snooze',this.t('15 Min. verschieben')],['escalate',this.t('Sofort eskalieren')]]){
-          const button=this.actionButton(label,({ack:'mdi:check-circle-outline',snooze:'mdi:clock-plus-outline',escalate:'mdi:alert-outline'})[action]||'mdi:gesture-tap-button');
+        const actions=[['ack',this.t('Bestätigen')],['snooze',this.t('15 Min. verschieben')],['escalate',this.t('Sofort eskalieren')]];
+        if(!item.resolved_at)actions.push(['resolve',this.t('Als behoben markieren')]);
+        for(const [action,label] of actions){
+          const button=this.actionButton(label,({ack:'mdi:check-circle-outline',snooze:'mdi:clock-plus-outline',escalate:'mdi:alert-outline',resolve:'mdi:wrench-check-outline'})[action]||'mdi:gesture-tap-button');
           button.addEventListener('click',()=>this.run(status,async()=>{
             await this.call('incident_action',{key:item.ack_key,action});
             box.replaceChildren();await this.incidents(box);

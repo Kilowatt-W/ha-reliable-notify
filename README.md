@@ -100,6 +100,7 @@ recipients:
 
 - **Sidebar:** `/reliable-notify` (administrators only).
 - **Lovelace:** `type: custom:reliable-notify-card`; register the resource `/reliable_notify/reliable-notify-card.js` as a JavaScript module.
+- **Alarm window (3.6.0):** `type: custom:reliable-notify-alarm-card` shows open incidents (sent with `incident:` and `acknowledgement`) to every user until someone acknowledges them, with acknowledge and snooze buttons; it is loaded automatically, no resource needed. Entities *Open incidents* and *Critical incident open*, event `reliable_notify_incident`, services `resolve`, `snooze`, `reopen`. See `docs/OPERATIONS.md`.
 - **Archive deep links:** Set integration `archive_url` to `/reliable-notify` or a Lovelace view with the card. Non-admin users cannot read the full archive.
 - [Configuration and routing](docs/CONFIGURATION.md)
 - [Transport channels and HTTP security](docs/TRANSPORTS.md)

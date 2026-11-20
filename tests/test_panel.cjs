@@ -427,6 +427,66 @@ test('targets can get a fallback picked from known targets and retry rules show 
   assert.equal([hours.min,hours.max].join('-'),'0-720');
 });
 
+function alarmSetup(language,payload){
+  const dom=new JSDOM('<body></body>',{runScripts:'outside-only',url:'https://ha.test/'});
+  dom.window.confirm=()=>true;
+  const alarm=readFileSync('custom_components/reliable_notify/reliable-notify-alarm-card.js','utf8').replace(/^import .*;$/m,'');
+  dom.window.eval(readFileSync('custom_components/reliable_notify/reliable-notify-card.js','utf8').replace(/^export /gm,'')+'\n'+alarm);
+  const calls=[],subscriptions=[];let push=null;
+  const hass={language,user:{is_admin:false},callWS:async msg=>{calls.push(msg);return {changed:true};},
+    connection:{subscribeMessage:async(callback,msg)=>{subscriptions.push(msg);push=callback;callback(payload);return ()=>{subscriptions.push('closed');};}}};
+  const card=dom.window.document.createElement('reliable-notify-alarm-card');
+  dom.window.document.body.append(card);
+  return {dom,card,hass,calls,subscriptions,push:value=>push(value)};
+}
+
+test('alarm card shows open incidents as bands, hides itself when none are open and lets residents act',async()=>{
+  const now=Date.now()/1000;
+  const payload={permissions:{ack:true,snooze:true,escalate:false},incidents:[
+    {dedup_key:'brenner',title:'Brennerstörung',text:'An der Ecomatic entstören.',priority:'critical',state:'active',opened_at:now-600,escalation_step:0,escalation_steps:2},
+    {dedup_key:'oel',title:'Ölstand',text:'Öl bestellen.',priority:'warning',state:'resolved',opened_at:now-3600,resolved_at:now-60,escalation_step:1,escalation_steps:1}]};
+  for(const [language,ack,snooze,since,resolved] of [['de','Quittieren','Schlummern 15 min','seit','behoben um'],['en','Acknowledge','Snooze 15 min','since','resolved at']]){
+    const {card,hass,calls,subscriptions,push}=alarmSetup(language,payload);
+    card.setConfig({areas:['heizraum'],snooze_minutes:[15,60]});
+    card.hass=hass;await tick();
+    assert.deepEqual(JSON.parse(JSON.stringify(subscriptions[0])),{type:'reliable_notify/subscribe_incidents',min_priority:'info',include_acknowledged:false,areas:['heizraum']});
+    const bands=[...card.shadowRoot.querySelectorAll('.band')];
+    assert.deepEqual(bands.map(b=>[b.dataset.priority,b.dataset.state]),[['critical','active'],['warning','resolved']]);
+    assert.match(bands[0].textContent,/Brennerstörung/);assert.match(bands[0].textContent,/An der Ecomatic entstören/);
+    assert.match(bands[0].querySelector('.meta').textContent,new RegExp('^'+since));
+    assert.match(bands[1].querySelector('.meta').textContent,new RegExp(resolved));
+    const labels=[...bands[0].querySelectorAll('button')].map(b=>b.textContent);
+    assert.deepEqual(labels,[ack,snooze,snooze.replace('15','60')]);  // no escalate for residents
+    assert.equal(card.hidden,false);
+    bands[0].querySelector('button.ack').click();await tick();
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[0])),{type:'reliable_notify/incident_action',key:'brenner',action:'ack'});
+    bands[0].querySelectorAll('button.snooze')[1].click();await tick();
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[1])),{type:'reliable_notify/incident_action',key:'brenner',action:'snooze',minutes:60});
+    push({permissions:{},incidents:[]});
+    assert.equal(card.hidden,true);assert.equal(card.shadowRoot.querySelectorAll('.band').length,0);
+    card.remove();assert.equal(subscriptions.at(-1),'closed');
+  }
+});
+
+test('alarm card options: compact, acknowledged state, admin escalation and invalid configuration',async()=>{
+  const now=Date.now()/1000;
+  const payload={permissions:{ack:true,snooze:true,escalate:true},incidents:[
+    {dedup_key:'a',title:'A',text:'Langer Text',priority:'critical',state:'active',opened_at:now,escalation_step:0,escalation_steps:1},
+    {dedup_key:'b',title:'B',text:'',priority:'info',state:'acknowledged',acknowledged_by:'Anna',opened_at:now,escalation_step:0,escalation_steps:0}]};
+  const {card,hass,subscriptions}=alarmSetup('de',payload);
+  card.setConfig({compact:true,show_acknowledged:true,snooze_minutes:[]});
+  card.hass=hass;await tick();
+  assert.equal(subscriptions[0].include_acknowledged,true);
+  const bands=[...card.shadowRoot.querySelectorAll('.band')];
+  assert.equal(bands[0].querySelector('.text'),null);
+  assert.deepEqual([...bands[0].querySelectorAll('button')].map(b=>b.textContent),['Quittieren','Eskalieren']);
+  assert.match(bands[1].textContent,/quittiert von Anna, besteht noch/);
+  assert.equal(bands[1].querySelectorAll('button').length,0);
+  for(const bad of [{min_priority:'high'},{snooze_minutes:[0]},{snooze_minutes:[1,2,3,4]},{areas:'heizraum'}])
+    assert.throws(()=>card.setConfig(bad));
+  card.remove();
+});
+
 test('saved-target test is disabled until saving and uses persisted alias in English',async()=>{
   const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
     test_route:{ids:[7],not_before:0},archive_detail:{id:7,status:'sent'}});
