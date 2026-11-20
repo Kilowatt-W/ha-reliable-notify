@@ -51,6 +51,19 @@ def filter_extras(action, extra):
     return kept, sorted(set(extra) - set(kept))
 
 
+def telegram_entity_route(rec):
+    """Send to a Telegram notify entity through telegram_bot.send_message (3.8.1).
+
+    notify.send_message only accepts message/title, so parse_mode, keyboards,
+    message tags and acknowledgement buttons would be rejected or lost.
+    telegram_bot.send_message addresses the same chat via ``entity_id``.
+    """
+    target = rec.get("target_entity")
+    data = dict(rec.get("data") or {})
+    data["entity_id"] = target
+    return {**rec, "action": "telegram_bot.send_message", "data": data, "target_entity": target}
+
+
 def companion_group(payload, group):
     """Group Companion app notifications per message type (Android group, iOS thread-id).
 

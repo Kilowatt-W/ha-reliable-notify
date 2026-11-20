@@ -1,5 +1,5 @@
-/* Reliable Notify Alarm Card 3.8.0 — open incidents for every dashboard (residents). No external dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnValueLabel } from './reliable-notify-card.js?v=3.8.0';
+/* Reliable Notify Alarm Card 3.8.1 — open incidents for every dashboard (residents). No external dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnValueLabel } from './reliable-notify-card.js?v=3.8.1';
 
 const RN_ALARM_PRIORITIES=['info','warning','critical'];
 const RN_ALARM_STYLES=`

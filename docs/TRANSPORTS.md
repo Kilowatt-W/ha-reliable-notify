@@ -23,7 +23,7 @@ Extra data in `reliable_notify.enqueue` (`data:`) is passed to the transport of 
 | ntfy (native) | `data: {actions: [{action: view, label: …, url: …}]}` (max 3, `view`/`http`) | `data: {attach: https://…}`; also `click`, `icon`, `tags`, `filename` |
 | Gotify (native) | – | `data: {image: https://…}` (large image); `click` opens a URL |
 | Webhook (native) | – | any JSON fields under `data` are sent as `data` |
-| `notify.send_message` | – | – (title and text only) |
+| `notify.send_message` | – | – (title and text only; Telegram notify entities are sent via `telegram_bot.send_message` since 3.8.1) |
 
 Since 3.4.0 extra data is filtered per transport: keys a transport cannot accept are not sent to it (logged at info level). If the call has a single target and keys would be dropped, `reliable_notify.enqueue` fails immediately with the list of unsupported keys instead of creating a dead letter. The entity `notify.reliable_<name>` transmits title and text only; use `reliable_notify.enqueue` for buttons and images. For groups with mixed transports send one call per transport, because the extra data applies to every target.
 

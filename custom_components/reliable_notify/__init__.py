@@ -20,7 +20,7 @@ from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
 from .routing import (resolve, validate_config, valid_action, merge_routes, is_own_entity, filter_extras,
-                      route_quiet_hours, companion_group)
+                      route_quiet_hours, companion_group, telegram_entity_route)
 from .i18n import ha_text
 from .notify_compat import async_register_compat, async_unregister_compat
 from .templates import validate_templates, validate_parameters
@@ -45,7 +45,7 @@ from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliv
 
 LANES = ("telegram", "smtp", "notify", "notify")
 PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
-ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.0"
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.1"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -188,15 +188,37 @@ class ReliableNotifyManager:
         ]
         # Dedicated Telegram worker; two independently operating general notify workers.
         for index, lane in enumerate(LANES):
-            self.tasks.append(self.hass.async_create_task(self.worker(index, lane), eager_start=False))
-        self.tasks.append(self.hass.async_create_task(self.media_cleanup_loop(), eager_start=False))
-        self.tasks.append(self.hass.async_create_task(self.maintenance_loop(), eager_start=False))
-        self.tasks.append(self.hass.async_create_task(self.backup_loop(), eager_start=False))
-        self.tasks.append(self.hass.async_create_task(self.escalation_loop(), eager_start=False))
-        self.tasks.append(self.hass.async_create_task(self.report_loop(), eager_start=False))
-        self.tasks.append(self.hass.async_create_task(self.incident_timer_loop(), eager_start=False))
+            self.tasks.append(self._background(self.worker(index, lane), f"worker {index} {lane}"))
+        self.tasks.append(self._background(self.media_cleanup_loop(), "media cleanup"))
+        self.tasks.append(self._background(self.maintenance_loop(), "maintenance"))
+        self.tasks.append(self._background(self.backup_loop(), "backup"))
+        self.tasks.append(self._background(self.escalation_loop(), "escalation"))
+        self.tasks.append(self._background(self.report_loop(), "daily report"))
+        self.tasks.append(self._background(self.incident_timer_loop(), "incident timers"))
         self.hass.async_create_task(self.reconcile_incidents())
         self.hass.async_create_task(self.update_dead_letter_issue())
+
+    def _background(self, coro, name):
+        """Long-running loop as config-entry background task: HA cancels it when
+        stopping, so a restart is not delayed (was hass.async_create_task)."""
+        try:
+            return self.entry.async_create_background_task(self.hass, coro, "reliable_notify " + name,
+                                                           eager_start=False)
+        except AttributeError:  # very old HA / tests without config entry helpers
+            return self.hass.async_create_task(coro, eager_start=False)
+
+    def _is_telegram_entity(self, entity_id):
+        """Notify entity provided by the Telegram bot integration."""
+        if not isinstance(entity_id, str) or not entity_id.startswith("notify."):
+            return False
+        try:
+            from homeassistant.helpers import entity_registry as er
+            entry = er.async_get(self.hass).async_get(entity_id)
+            if entry is not None:
+                return entry.platform == "telegram_bot"
+        except Exception:
+            pass
+        return entity_id.startswith("notify.telegram_bot_")
 
     async def stop(self):
         self.stopping = True
@@ -516,11 +538,17 @@ class ReliableNotifyManager:
             fallback_of = data.get("_fallback_of")  # internal: copy of a dead letter
             for name, rec in targets:
                 action = rec.get("action", "notify.send_message")
+                via_entity = action == "notify.send_message" and self._is_telegram_entity(rec.get("target_entity"))
+                if via_entity:
+                    rec = telegram_entity_route(rec)
+                    action = rec["action"]
                 if data.get("media") == "photo" and action == "telegram_bot.send_message":
                     action = "telegram_bot.send_photo"
                 if action != "reliable_notify.staged" and not valid_action(action):
                     raise ValueError(f"unsupported action: {action}")
                 target = rec.get("target_entity", "") if action in ("notify.send_message", "smtp.send_message") else ("(staged)" if action == "reliable_notify.staged" else name or action)
+                if via_entity:
+                    target = rec["target_entity"]  # show/limit by the chat entity, not the action name
                 if action in ("notify.send_message", "smtp.send_message") and not str(target).startswith("notify."):
                     raise ValueError("notify.send_message requires a notify entity")
                 if action in ("notify.send_message", "smtp.send_message") and is_own_entity(
@@ -827,6 +855,9 @@ class ReliableNotifyManager:
                     prepared=[]
                     for name,rec in routes:
                         action=rec.get("action","notify.send_message")
+                        if action=="notify.send_message" and self._is_telegram_entity(rec.get("target_entity")):
+                            rec=telegram_entity_route(rec)
+                            action=rec["action"]
                         if not valid_action(action) or action=="telegram_bot.send_photo":
                             raise ValueError("escalation only supports text transports")
                         item=dict(rec)
@@ -941,7 +972,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.0",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.1",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

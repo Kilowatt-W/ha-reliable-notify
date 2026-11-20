@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.1
+Fixes found on a live installation (204 dead letters).
+- Targets that are Telegram notify entities (integration `telegram_bot`, including the default target) are sent through `telegram_bot.send_message` with `entity_id`. `notify.send_message` rejects Telegram fields such as `parse_mode`, so HTML-formatted status messages became dead letters; now formatting, keyboards, message receipts and acknowledgement buttons work for these targets as well. Escalations use the same path.
+- Long-running loops (workers, maintenance, backup, escalation, report, incident timers) run as config-entry background tasks, so Home Assistant cancels them on shutdown instead of warning that they delay the restart.
+
 ## 3.8.0
 - Alarm window phase 3: `incident.mirror` (`none`, `persistent_notification`, `repairs`) and the option *Mirror open incidents by default*. The notification bell shows an entry per unacknowledged incident; dismissing it acknowledges the incident. Repairs show an error (critical) or warning (warning) issue. Entries disappear when acknowledged or closed and are restored after an HA restart.
 - Sensor *Open incidents <area>* for every incident area; new areas appear automatically.
