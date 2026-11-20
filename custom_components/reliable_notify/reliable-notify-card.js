@@ -1055,6 +1055,11 @@ export function rnRouteLabel(labels, name) {
   const label=labels?.[name];
   return label && label!==name ? label+' ('+name+')' : name;
 }
+// Language before a hass object exists (card picker): HA's stored choice, then the page/browser.
+export function rnPageLanguage() {
+  try{const stored=JSON.parse(localStorage.getItem('selectedLanguage')||'null');if(stored)return {language:stored};}catch(_){/* no storage */}
+  return {language:document.documentElement?.lang||navigator.language};
+}
 export function rnLanguage(hass) {
   return String(hass?.selectedLanguage || hass?.language || hass?.locale?.language || 'en').toLowerCase().split(/[-_]/)[0]==='de'?'de':'en';
 }
@@ -1391,4 +1396,4 @@ if(!customElements.get('reliable-notify-card'))customElements.define('reliable-n
 window.customCards=window.customCards||[];
 // The card picker has no hass object yet; HA sets the page language on <html lang>.
 window.customCards.push({type:'reliable-notify-card',name:'Reliable Notify',
-  description:rnTranslate({language:document.documentElement?.lang},'Persistente Benachrichtigungswarteschlange mit Verwaltung')});
+  description:rnTranslate(rnPageLanguage(),'Persistente Benachrichtigungswarteschlange mit Verwaltung')});

@@ -864,8 +864,8 @@ class ReliableNotifyPanel extends HTMLElement {
     refresh.onclick=()=>this.run(report,loadWithChart);
     wrapper.append(days,refresh,exportButton,report);box.append(wrapper);
     box.append(failureBox,trend);
+    // One load: a second run() would replace the JSON with "Erfolgreich" (unchanged text).
     await this.run(report,loadWithChart);
-    await this.run(report,load);
   }
   async namedSettings(box,{title,kind,load,save,property}){
     const section=this.element('section',null,'panel');section.append(this.heading(title,kind==='template'?'mdi:text-box-multiple-outline':'mdi:shield-account-outline',kind==='template'?'indigo':'purple'));box.append(section);

@@ -1,5 +1,5 @@
 /* Reliable Notify Alarm Card 3.8.1 — open incidents for every dashboard (residents). No external dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnValueLabel } from './reliable-notify-card.js?v=3.8.1';
+import { rnTranslate, rnLanguage, rnIcon, rnValueLabel, rnPageLanguage } from './reliable-notify-card.js?v=3.8.1';
 
 const RN_ALARM_PRIORITIES=['info','warning','critical'];
 const RN_ALARM_STYLES=`
@@ -223,4 +223,4 @@ if(!customElements.get('reliable-notify-alarm-card-editor'))customElements.defin
 if(!customElements.get('reliable-notify-alarm-card'))customElements.define('reliable-notify-alarm-card',ReliableNotifyAlarmCard);
 window.customCards=window.customCards||[];
 if(!window.customCards.some(card=>card.type==='reliable-notify-alarm-card'))window.customCards.push({type:'reliable-notify-alarm-card',name:'Reliable Notify Alarm',
-  description:rnTranslate({language:document.documentElement?.lang},'Offene Vorfälle mit Quittieren und Schlummern')});
+  description:rnTranslate(rnPageLanguage(),'Offene Vorfälle mit Quittieren und Schlummern')});
