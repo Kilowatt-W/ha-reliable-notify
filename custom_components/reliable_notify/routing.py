@@ -21,7 +21,12 @@ def valid_label(value):
 
 # Extra call data (``reliable_notify.enqueue`` -> ``data``) each transport can accept.
 # Unsupported keys would make HA reject the call, i.e. a guaranteed dead letter.
-_EXTRA_ALLOW = {"notify.send_message": frozenset()}   # entity action: message/title only
+_EXTRA_ALLOW = {
+    "notify.send_message": frozenset(),   # entity action: message/title only
+    # Same sets as native_transport.NATIVE_EXTRAS (kept here so routing has no imports).
+    "reliable_notify.ntfy": frozenset(("click", "attach", "icon", "tags", "actions", "filename")),
+    "reliable_notify.gotify": frozenset(("click", "image")),
+}
 _EXTRA_DENY = {
     "telegram_bot.send_message": frozenset(("file", "url", "caption", "data")),
     "telegram_bot.send_photo": frozenset(("data",)),
@@ -44,6 +49,53 @@ def filter_extras(action, extra):
         # smtp, rest_command and native transports define their own fields.
         kept = extra
     return kept, sorted(set(extra) - set(kept))
+
+
+def companion_group(payload, group):
+    """Group Companion app notifications per message type (Android group, iOS thread-id).
+
+    Values the caller already set are kept.
+    """
+    phone = payload.get("data")
+    if phone is None:
+        phone = {}
+    if not isinstance(phone, dict):
+        return payload
+    phone = dict(phone)
+    phone.setdefault("group", str(group))
+    push = phone.get("push")
+    if push is None or isinstance(push, dict):
+        push = dict(push or {})
+        push.setdefault("thread-id", str(group))
+        phone["push"] = push
+    return {**payload, "data": phone}
+
+
+def route_quiet_hours(config, names, priority="info", presence=None):
+    """Quiet-hour policy per resolved recipient: its own, else that of the person
+    it was reached through. Recipients without one use the global policy.
+    """
+    persons = config.get("persons", {})
+    recipients = config.get("recipients", {})
+    groups = config.get("groups", {})
+    result = {}
+    pending, seen = list(names), set()
+    while pending:  # persons may be addressed directly or inside (nested) groups
+        name = pending.pop(0)
+        if name in seen:
+            continue
+        seen.add(name)
+        if name in groups:
+            pending.extend(groups[name])
+            continue
+        spec = persons.get(name)
+        if spec and isinstance(spec.get("quiet_hours"), dict):
+            for recipient, _ in resolve(config, [name], priority=priority, presence=presence):
+                result.setdefault(recipient, spec["quiet_hours"])
+    for name, rec in recipients.items():
+        if isinstance(rec.get("quiet_hours"), dict):
+            result[name] = rec["quiet_hours"]  # the recipient's own setting wins
+    return result
 
 
 OWN_ENTITY_PREFIX = "notify.reliable_"

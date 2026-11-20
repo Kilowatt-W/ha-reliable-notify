@@ -30,10 +30,15 @@
               "retry_interval": "Base interval (seconds)",
               "archive_url": "Archive URL",
               "dead_letter_days": "Noncritical dead-letter retention (days)",
-              "legacy_notify_services": "Enable legacy notify.reliable_* services"
+              "legacy_notify_services": "Enable legacy notify.reliable_* services",
+              "companion_grouping": "Group Companion app notifications by message type",
+              "daily_report_recipient": "Daily failure report to (internal target name, empty = off)",
+              "daily_report_time": "Time of the daily failure report (HH:MM)"
             },
             "data_description": {
-              "target_entity": "Optional fallback, not a new notification target. Create targets in the Reliable Notify sidebar panel."
+              "target_entity": "Optional fallback, not a new notification target. Create targets in the Reliable Notify sidebar panel.",
+              "companion_grouping": "Android group and iOS thread-id are set to the message type unless the call sets them.",
+              "daily_report_recipient": "For example telegram_admin. The report is only sent when there were failures in the last 24 hours."
             }
           },
           "smart": {
@@ -221,6 +226,14 @@
         "test_mode": {
           "name": "Test mode",
           "description": "Force local staging for this notification, with no delivery or escalation."
+        },
+        "send_at": {
+          "name": "Send at",
+          "description": "Send not before this date/time (HA time zone); quiet hours still apply afterwards. At most 31 days ahead."
+        },
+        "delay": {
+          "name": "Delay",
+          "description": "Send not before this many seconds from now; combined with send at, the later time wins."
         }
       }
     },

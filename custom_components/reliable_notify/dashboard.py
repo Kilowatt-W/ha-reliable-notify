@@ -10,7 +10,7 @@ from homeassistant.components import websocket_api
 from .const import DOMAIN
 from .retry import validate_policies
 from .retention import validate_retention
-from .smart import validate_quiet_hours
+from .smart import validate_quiet_hours, validate_route_quiet_hours
 from .i18n import text as i18n_text
 from .routing import (display_name, merge_routes, validate_config, valid_label,
                       is_own_entity, ROUTE_KINDS, MAX_LABEL)
@@ -370,7 +370,7 @@ def register_dashboard(hass):
         file_routes=await __import__("asyncio").to_thread(_load_routes,manager.route_path)
         merged=merge_routes(file_routes,{**updated,"labels":labels})
         try:
-            validate_config(merged)
+            validate_route_quiet_hours(validate_config(merged))
         except (TypeError,ValueError) as err:
             connection.send_error(msg["id"],"invalid_route",str(err))
             return

@@ -19,6 +19,11 @@ def _parse_clock(value):
         raise ValueError("invalid HH:MM") from exc
 
 
+def parse_clock(value):
+    """Public HH:MM check (raises ValueError)."""
+    return _parse_clock(value)
+
+
 def validate_quiet_hours(raw):
     if not isinstance(raw,dict) or set(raw)-set(DEFAULT_QUIET_HOURS):
         raise ValueError("quiet_hours must be a mapping with known keys")
@@ -33,6 +38,50 @@ def validate_quiet_hours(raw):
     if not isinstance(allow,list) or any(x not in ("info","warning","critical") for x in allow):
         raise ValueError("invalid allow_priorities")
     return policy
+
+
+def validate_route_quiet_hours(routes):
+    """Check optional quiet_hours of recipients and persons (raises ValueError)."""
+    for kind in ("recipients", "persons"):
+        for name, spec in (routes.get(kind) or {}).items():
+            if isinstance(spec, dict) and "quiet_hours" in spec:
+                try:
+                    validate_quiet_hours(spec["quiet_hours"])
+                except ValueError as err:
+                    raise ValueError(f"{name}: quiet_hours: {err}") from err
+    return routes
+
+
+MAX_SCHEDULE_SECONDS = 31 * 86400
+
+
+def scheduled_timestamp(now, send_at=None, delay=None, timezone="UTC"):
+    """Earliest send time requested by the caller (``send_at`` and/or ``delay``).
+
+    ``send_at`` may be a datetime or ISO string; without a time zone it is read
+    in the HA time zone. Times in the past mean "now". At most 31 days ahead.
+    """
+    target = now
+    if delay is not None:
+        if isinstance(delay, bool) or not isinstance(delay, (int, float)) or not 0 <= delay <= MAX_SCHEDULE_SECONDS:
+            raise ValueError("delay must be 0..2678400 seconds")
+        target = max(target, now + float(delay))
+    if isinstance(send_at, str) and not send_at.strip():
+        send_at = None  # empty form field
+    if send_at is not None:
+        if isinstance(send_at, str):
+            try:
+                send_at = datetime.fromisoformat(send_at.strip().replace("Z", "+00:00"))
+            except ValueError as err:
+                raise ValueError("send_at must be an ISO date/time") from err
+        if not isinstance(send_at, datetime):
+            raise ValueError("send_at must be a date/time")
+        if send_at.tzinfo is None:
+            send_at = send_at.replace(tzinfo=ZoneInfo(timezone))
+        target = max(target, send_at.timestamp())
+    if target - now > MAX_SCHEDULE_SECONDS:
+        raise ValueError("notifications can be scheduled at most 31 days ahead")
+    return target
 
 
 def next_allowed_timestamp(now, priority, policy, timezone):

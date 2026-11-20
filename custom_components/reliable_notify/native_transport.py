@@ -9,7 +9,7 @@ import hashlib
 import ipaddress
 import json
 import re
-from urllib.parse import urlsplit, urlunsplit, quote
+from urllib.parse import urlsplit, urlunsplit
 
 
 NATIVE_ACTIONS=("reliable_notify.ntfy","reliable_notify.gotify","reliable_notify.webhook")
@@ -59,6 +59,73 @@ def validate_native_route(action,data):
     return endpoint
 
 
+# Per-message extras each native transport understands (None: any JSON fields).
+NATIVE_EXTRAS={
+    "reliable_notify.ntfy":frozenset(("click","attach","icon","tags","actions","filename")),
+    "reliable_notify.gotify":frozenset(("click","image")),
+    "reliable_notify.webhook":None,
+}
+NTFY_ACTIONS=("view","http")
+PRIORITY_NTFY={"info":3,"warning":4,"critical":5}
+PRIORITY_GOTIFY={"info":2,"warning":5,"critical":9}
+
+
+def _plain_text(value,field,limit):
+    if not isinstance(value,str) or not value.strip() or len(value)>limit or any(ord(c)<32 for c in value):
+        raise ValueError(f"{field} must be text up to {limit} characters without line breaks")
+    return value.strip()
+
+
+def _link(value,field):
+    text=_plain_text(value,field,2048)
+    parts=urlsplit(text)
+    if parts.scheme.lower() not in ("http","https") or not parts.netloc or " " in text:
+        raise ValueError(f"{field} must be an http(s) URL")
+    return text
+
+
+def validate_native_extras(action,extra):
+    """Check per-message extras (buttons, images, click links) for a native transport."""
+    extra=dict(extra or {})
+    allowed=NATIVE_EXTRAS[action]
+    if allowed is None:
+        try:
+            if len(json.dumps(extra,allow_nan=False))>16384:
+                raise ValueError("webhook data exceeds 16 KiB")
+        except (TypeError,ValueError) as err:
+            raise ValueError(f"webhook data must be JSON: {err}") from err
+        return extra
+    unknown=set(extra)-allowed
+    if unknown:
+        raise ValueError("unsupported fields for "+action+": "+", ".join(sorted(unknown)))
+    clean={}
+    for key in ("click","attach","icon","image"):
+        if key in extra:
+            clean[key]=_link(extra[key],key)
+    if "filename" in extra:
+        clean["filename"]=_plain_text(extra["filename"],"filename",255)
+    if "tags" in extra:
+        tags=[extra["tags"]] if isinstance(extra["tags"],str) else extra["tags"]
+        if not isinstance(tags,list) or len(tags)>10:
+            raise ValueError("tags must be a text or a list of up to 10 texts")
+        clean["tags"]=[_plain_text(tag,"tag",64) for tag in tags]
+    if "actions" in extra:
+        buttons=extra["actions"]
+        if not isinstance(buttons,list) or not 1<=len(buttons)<=3:
+            raise ValueError("ntfy actions must be a list of 1 to 3 buttons")
+        clean["actions"]=[]
+        for button in buttons:
+            if not isinstance(button,dict) or button.get("action","view") not in NTFY_ACTIONS:
+                raise ValueError("ntfy button needs action view or http, label and url")
+            item={"action":button.get("action","view"),
+                  "label":_plain_text(button.get("label"),"button label",40),
+                  "url":_link(button.get("url"),"button url")}
+            if button.get("clear") is True:
+                item["clear"]=True
+            clean["actions"].append(item)
+    return clean
+
+
 def native_public_payload(action,config,data):
     """Return job fields containing no token/URL or other secrets."""
     endpoint=validate_native_route(action,config)
@@ -67,7 +134,47 @@ def native_public_payload(action,config,data):
     if data and any(k in data for k in (
         "token","base_url","allow_private","Authorization","authorization","headers")):
         raise ValueError("endpoint/authentication settings must be configured on recipient")
-    return {"endpoint_hash":endpoint_hash(endpoint),"extra":data or {}}
+    return {"endpoint_hash":endpoint_hash(endpoint),"extra":validate_native_extras(action,data)}
+
+
+def build_native_request(action,config,item,extra):
+    """URL, headers and body of one native delivery (no I/O, testable)."""
+    endpoint=validate_native_route(action,config)
+    content=item["message"]
+    if not isinstance(content,str) or len(content.encode("utf8"))>65536:
+        raise ValueError("native notification exceeds 64 KiB")
+    title=item.get("title") or "Reliable Notify"
+    token=config.get("token")
+    allowed=NATIVE_EXTRAS[action]
+    if allowed is not None:  # jobs queued before 3.5 may carry fields that were ignored then
+        extra={k:v for k,v in (extra or {}).items() if k in allowed}
+    extra=validate_native_extras(action,extra)
+    if action=="reliable_notify.ntfy":
+        # JSON publishing to the base URL: UTF-8 titles and button labels are safe
+        # (HTTP headers would need special encoding for umlauts).
+        headers={"Content-Type":"application/json"}
+        if token:
+            headers["Authorization"]="Bearer "+str(token)
+        body={"topic":str(config["topic"]),"message":content,"title":title,
+              "priority":PRIORITY_NTFY.get(item["priority"],3),**extra}
+        return endpoint,headers,body
+    if action=="reliable_notify.gotify":
+        body={"title":title,"message":content,"priority":PRIORITY_GOTIFY.get(item["priority"],2)}
+        notification={}
+        if "click" in extra:
+            notification["click"]={"url":extra["click"]}
+        if "image" in extra:
+            notification["bigImageUrl"]=extra["image"]
+        if notification:
+            body["extras"]={"client::notification":notification}
+        return endpoint+"/message",{"X-Gotify-Key":str(token)},body
+    headers={"Content-Type":"application/json"}
+    if token:
+        headers["Authorization"]="Bearer "+str(token)
+    body={"title":title,"message":content,"priority":item["priority"]}
+    if extra:
+        body["data"]=extra
+    return endpoint,headers,body
 
 
 async def async_deliver_native(hass,action,route,item):
@@ -80,29 +187,8 @@ async def async_deliver_native(hass,action,route,item):
     raw=json.loads(item.get("payload_json") or "{}")
     if raw.get("endpoint_hash")!=endpoint_hash(endpoint):
         raise ValueError("endpoint changed since enqueue; manually retry with updated destination")
-    content=item["message"]
-    if not isinstance(content,str) or len(content.encode("utf8"))>65536:
-        raise ValueError("native notification exceeds 64 KiB")
-    token=config.get("token")
-    headers={}
-    if action=="reliable_notify.ntfy":
-        url=endpoint+"/"+quote(str(config["topic"]),safe="")
-        headers={"Title":item.get("title") or "Reliable Notify",
-                 "Priority":str({"info":3,"warning":4,"critical":5}.get(item["priority"],3))}
-        if token:headers["Authorization"]="Bearer "+str(token)
-        kwargs={"data":content.encode("utf8")}
-    elif action=="reliable_notify.gotify":
-        url=endpoint+"/message"
-        headers={"X-Gotify-Key":str(token)}
-        kwargs={"json":{"title":item.get("title") or "Reliable Notify",
-                        "message":content,
-                        "priority":{"info":2,"warning":5,"critical":9}.get(item["priority"],2)}}
-    else:
-        url=endpoint
-        headers={"Content-Type":"application/json"}
-        if token:headers["Authorization"]="Bearer "+str(token)
-        kwargs={"json":{"title":item.get("title") or "Reliable Notify",
-                        "message":content,"priority":item["priority"]}}
+    url,headers,body=build_native_request(action,config,item,raw.get("extra"))
+    kwargs={"json":body}
     session=async_get_clientsession(hass)
     async with session.post(url,headers=headers,
                             timeout=aiohttp.ClientTimeout(total=30),

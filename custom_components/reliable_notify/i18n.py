@@ -11,10 +11,49 @@ TEXTS = {
     "escalate": {"de": "Eskalieren", "en": "Escalate"},
     "action_applied": {"de": "Aktion übernommen", "en": "Action applied"},
     "action_rejected": {"de": "Bereits bearbeitet oder ungültig", "en": "Already handled or invalid"},
+    "report_title": {"de": "Reliable Notify · Fehlerbericht", "en": "Reliable Notify · Failure report"},
+    "report_intro": {"de": "Letzte 24 Stunden: {dead} fehlgeschlagen, {expired} abgelaufen, {retrying} in Wiederholung.",
+                     "en": "Last 24 hours: {dead} failed, {expired} expired, {retrying} retrying."},
+    "report_more": {"de": "… und {count} weitere. Details: Reliable Notify → Statistik → Fehleranalyse.",
+                    "en": "… and {count} more. Details: Reliable Notify → Statistics → Failure analysis."},
+    "report_hint": {"de": "Details: Reliable Notify → Statistik → Fehleranalyse.",
+                    "en": "Details: Reliable Notify → Statistics → Failure analysis."},
     "test_title": {"de": "Reliable Notify · Test", "en": "Reliable Notify · Test"},
     "test_message": {"de": "Testnachricht von Reliable Notify an {name}.",
                      "en": "Test notification from Reliable Notify to {name}."},
 }
+
+
+CATEGORIES = {
+    "network": {"de": "Netzwerk", "en": "network"},
+    "provider_unavailable": {"de": "Anbieter gestört", "en": "provider unavailable"},
+    "rate_limit": {"de": "Drosselung", "en": "rate limited"},
+    "authentication": {"de": "Zugang abgelehnt", "en": "access denied"},
+    "invalid_payload": {"de": "ungültiger Aufruf", "en": "invalid call"},
+    "invalid_recipient": {"de": "Empfänger ungültig", "en": "invalid recipient"},
+    "tls_certificate": {"de": "TLS-Zertifikat", "en": "TLS certificate"},
+    "unexpected_redirect": {"de": "Weiterleitung", "en": "redirect"},
+    "unknown": {"de": "unbekannt", "en": "unknown"},
+    "service_not_loaded": {"de": "HA-Aktion nicht geladen", "en": "HA action not loaded"},
+    "target_unavailable": {"de": "Entität nicht verfügbar", "en": "entity unavailable"},
+    "ttl_expired": {"de": "Gültigkeit abgelaufen", "en": "validity expired"},
+}
+
+
+def failure_report(lang, failures, labels=None, limit=5):
+    """Plain-text daily summary of failure-analysis rows (no message texts)."""
+    code = language(lang)
+    totals = {"dead": 0, "expired": 0, "retrying": 0}
+    for row in failures:
+        totals[row["status"]] = totals.get(row["status"], 0) + row["count"]
+    lines = [text(code, "report_intro", **totals)]
+    for row in failures[:limit]:
+        target = (labels or {}).get(row["target"]) or row["target"]
+        category = CATEGORIES.get(row["category"], {}).get(code, row["category"])
+        lines.append(f"• {category} – {target}: {row['count']}")
+    rest = len(failures) - limit
+    lines.append(text(code, "report_more", count=rest) if rest > 0 else text(code, "report_hint"))
+    return "\n".join(lines)
 
 
 def language(value) -> str:

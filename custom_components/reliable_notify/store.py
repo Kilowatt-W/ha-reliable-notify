@@ -437,6 +437,15 @@ class QueueStore:
             return "retry"
         return await self._run(op)
 
+    async def metric_value(self, key, default=0):
+        row = await self._run(lambda con: con.execute("SELECT value FROM metrics WHERE key=?", (key,)).fetchone())
+        return row[0] if row else default
+
+    async def set_metric(self, key, value):
+        await self._run(lambda con: con.execute(
+            "INSERT INTO metrics(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, int(value))))
+
     async def staged_count(self):
         return await self._run(lambda con: con.execute("SELECT COUNT(*) FROM messages WHERE action='reliable_notify.staged' AND (expires_at IS NULL OR expires_at>?)", (time.time(),)).fetchone()[0])
 

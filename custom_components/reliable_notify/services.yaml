@@ -68,6 +68,18 @@ enqueue:
           min: 0
           max: 604800
           mode: box
+    send_at:
+      description: Send not before this date/time (HA time zone); quiet hours still apply afterwards. At most 31 days ahead.
+      selector:
+        datetime:
+    delay:
+      description: Send not before this many seconds from now; combined with send_at the later time wins.
+      selector:
+        number:
+          min: 0
+          max: 2678400
+          unit_of_measurement: s
+          mode: box
     dedup_key:
       selector:
         text:

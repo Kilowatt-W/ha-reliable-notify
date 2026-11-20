@@ -998,6 +998,8 @@ RN_TRANSLATIONS.push(...[
   ['Fehlgeschlagen','Failed'],
   ['Abgelaufen','Expired'],
   ['Wird wiederholt','Retrying'],
+  ['Senden ab (Datum und Uhrzeit)','Send at (date and time)'],
+  ['Verzögerung (Sekunden)','Delay (seconds)'],
 ]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
@@ -1037,7 +1039,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.4.0 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.5.0 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

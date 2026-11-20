@@ -15,6 +15,35 @@
 
 The optional `/config/reliable_notify_routes.yaml` supports `recipients`, `groups`, `persons` and optional `labels` (display names, 1–100 characters, no line breaks). UI-managed definitions and display names override names in the YAML file; do not store the same name in several categories. Display names never change routing: automations always use the internal name, and the entity ID stays `notify.reliable_<internal name>` when the display name changes.
 
+### Scheduled notifications (3.5.0)
+
+`reliable_notify.enqueue` accepts `send_at` (date/time, HA time zone when no zone is given) and `delay` (seconds). The later of both is the earliest send time, at most 31 days ahead; quiet hours apply from there on and `ttl` counts from the send time. Cancel a scheduled notification with `reliable_notify.cancel` and its `dedup_key`.
+
+```yaml
+action: reliable_notify.enqueue
+data:
+  recipients: [family]
+  message: "Müll rausstellen"
+  send_at: "2026-11-21 19:00:00"
+  dedup_key: waste_reminder
+```
+
+### Quiet hours per recipient or person (3.5.0)
+
+Recipients and persons may define their own `quiet_hours` (same fields as the global setting). A recipient's own setting wins, then the setting of the person it was reached through (also inside groups), then the global quiet hours.
+
+```yaml
+persons:
+  anna:
+    entity: person.anna
+    channels: {mobile: phone}
+    quiet_hours: {enabled: true, start: "21:30", end: "06:30", allow_priorities: [critical]}
+```
+
+### Daily failure report (3.5.0)
+
+Options → General: *Daily failure report to* (internal target name) and *time* (HH:MM). Once a day, if there were failures in the last 24 hours, a short summary (counts and the top causes per target, no message texts) is sent there.
+
 Optional `fallback` per recipient (3.4.0): when a message to this recipient finally fails, it is sent once to the fallback recipient, group or person.
 
 ```yaml

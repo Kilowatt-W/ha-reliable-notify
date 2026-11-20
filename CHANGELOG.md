@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.5.0
+- Scheduled notifications: `send_at` (date/time) and `delay` (seconds) in `reliable_notify.enqueue`, up to 31 days ahead; quiet hours apply from the send time and `ttl` counts from it. The simulation shows the planned time per target.
+- Quiet hours per recipient and per person (also when a person is reached through a group); the recipient's own setting wins, then the person's, then the global one. Editable in the admin panel via "Add field".
+- ntfy: buttons (`actions`, view/http), click link, image (`attach`), icon, tags and file name. ntfy is now published as JSON, so UTF-8 titles and labels are safe. Gotify: click link and large image. Webhook: extra fields are sent as `data`. Links are validated when queueing.
+- Companion app notifications are grouped by message type (Android `group`, iOS `thread-id`); option in General, values set by the call are kept.
+- Optional daily failure report (counts and top causes per target, no message texts) to a chosen target at a chosen time, only when there were failures.
+- Help texts and examples for scheduling, ntfy extras and per-target quiet hours.
+
 ## 3.4.0
 - Keep a sanitised error text for every failure (URLs, tokens, e-mail addresses and long IDs masked) in dead letters, archive and history instead of only the exception class.
 - New **Statistics → Failure analysis**: dead, expired and retrying notifications grouped by cause and target, with German/English advice; also part of the diagnostics export (`failures`).

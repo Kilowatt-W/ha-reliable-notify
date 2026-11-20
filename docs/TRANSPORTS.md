@@ -12,13 +12,18 @@ Reliable Notify's own notify entities (`notify.reliable_<name>`, also after rena
 
 ## Buttons, images and extra data
 
+Since 3.5.0 ntfy is published as JSON to the base URL (UTF-8 titles and button labels work without header encoding); links must be http(s). Companion app notifications are grouped by message type (Android `group`, iOS `push.thread-id`) unless the call sets them or the option is switched off.
+
 Extra data in `reliable_notify.enqueue` (`data:`) is passed to the transport of every resolved target. The panel help under **Ziele & Personen / Targets & people** contains copyable examples.
 
 | Transport | Buttons | Images |
 | --- | --- | --- |
 | Companion app (`notify.mobile_app_*`) | `data: {data: {actions: [...]}}`; react with the `mobile_app_notification_action` event | `data: {data: {image: /media/local/...}}` (loaded when displayed) |
 | Telegram (`telegram_bot.send_message`) | `data: {inline_keyboard: ["Text:/command, ..."]}`; react with the `telegram_callback` event | `media: photo` with `data: {file: /media/...}` (copied when queued) or `data: {url: https://...}` |
-| `notify.send_message`, ntfy, Gotify, webhook | – | – (title and text only) |
+| ntfy (native) | `data: {actions: [{action: view, label: …, url: …}]}` (max 3, `view`/`http`) | `data: {attach: https://…}`; also `click`, `icon`, `tags`, `filename` |
+| Gotify (native) | – | `data: {image: https://…}` (large image); `click` opens a URL |
+| Webhook (native) | – | any JSON fields under `data` are sent as `data` |
+| `notify.send_message` | – | – (title and text only) |
 
 Since 3.4.0 extra data is filtered per transport: keys a transport cannot accept are not sent to it (logged at info level). If the call has a single target and keys would be dropped, `reliable_notify.enqueue` fails immediately with the list of unsupported keys instead of creating a dead letter. The entity `notify.reliable_<name>` transmits title and text only; use `reliable_notify.enqueue` for buttons and images. For groups with mixed transports send one call per transport, because the extra data applies to every target.
 

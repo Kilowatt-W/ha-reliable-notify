@@ -30,10 +30,15 @@
               "retry_interval": "Basisintervall (Sekunden)",
               "archive_url": "URL der Archivansicht",
               "dead_letter_days": "Aufbewahrung nichtkritischer Fehler (Tage)",
-              "legacy_notify_services": "Klassische notify.reliable_* Dienste aktivieren"
+              "legacy_notify_services": "Klassische notify.reliable_* Dienste aktivieren",
+              "companion_grouping": "Companion-App-Benachrichtigungen nach Nachrichtentyp gruppieren",
+              "daily_report_recipient": "Täglicher Fehlerbericht an (interner Zielname, leer = aus)",
+              "daily_report_time": "Uhrzeit des täglichen Fehlerberichts (HH:MM)"
             },
             "data_description": {
-              "target_entity": "Optionaler Fallback, kein neues Sendeziel. Ziele im Seitenleistenpanel „Reliable Notify“ anlegen."
+              "target_entity": "Optionaler Fallback, kein neues Sendeziel. Ziele im Seitenleistenpanel „Reliable Notify“ anlegen.",
+              "companion_grouping": "Android-group und iOS-thread-id werden auf den Nachrichtentyp gesetzt, sofern der Aufruf sie nicht selbst setzt.",
+              "daily_report_recipient": "Zum Beispiel telegram_admin. Der Bericht kommt nur, wenn es in den letzten 24 Stunden Fehler gab."
             }
           },
           "smart": {
@@ -221,6 +226,14 @@
         "test_mode": {
           "name": "Testmodus",
           "description": "Diese Nachricht lokal zurückstellen, ohne Zustellung oder Eskalation."
+        },
+        "send_at": {
+          "name": "Senden ab",
+          "description": "Nicht vor diesem Zeitpunkt senden (HA-Zeitzone); danach gelten weiterhin die Ruhezeiten. Höchstens 31 Tage im Voraus."
+        },
+        "delay": {
+          "name": "Verzögerung",
+          "description": "Erst nach so vielen Sekunden senden; zusammen mit „Senden ab“ gilt der spätere Zeitpunkt."
         }
       }
     },

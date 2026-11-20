@@ -19,7 +19,8 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
-from .routing import resolve, validate_config, valid_action, merge_routes, is_own_entity, filter_extras
+from .routing import (resolve, validate_config, valid_action, merge_routes, is_own_entity, filter_extras,
+                      route_quiet_hours, companion_group)
 from .i18n import ha_text
 from .notify_compat import async_register_compat, async_unregister_compat
 from .templates import validate_templates, validate_parameters
@@ -34,7 +35,8 @@ from .retention import validate_retention, retention_for_message, DEFAULT_RETENT
 from .dashboard import register_dashboard
 from .acknowledgement import validate_acknowledgement
 from .lifecycle import notification_tag
-from .smart import DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp
+from .smart import (DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp,
+                    scheduled_timestamp, validate_route_quiet_hours)
 from .simulation import simulate
 from .callbacks import make_token, read_token
 from .logging_utils import validate_transport_logging, transport_for
@@ -62,6 +64,8 @@ ENQUEUE_SCHEMA = vol.Schema({
     vol.Optional("strategy"): vol.In(("always", "replace", "digest")),
     vol.Optional("acknowledgement"): dict,
     vol.Optional("test_mode"): vol.In(("off","stage")),
+    vol.Optional("send_at"): cv.datetime,
+    vol.Optional("delay"): vol.All(vol.Coerce(int), vol.Range(min=0, max=31 * 86400)),
     vol.Optional("only_if"): vol.Schema({
         vol.Required("entity_id"): cv.entity_id,
         vol.Required("state"): cv.string,
@@ -145,7 +149,7 @@ class ReliableNotifyManager:
         # UI-defined routes override YAML names; invalid reload leaves previous mapping intact.
         file_routes = await asyncio.to_thread(_load_routes, self.route_path)
         ui_routes = self.entry.options.get("routes", {"recipients": {}, "groups": {}})
-        self.routes = validate_config(merge_routes(file_routes, ui_routes))
+        self.routes = validate_route_quiet_hours(validate_config(merge_routes(file_routes, ui_routes)))
         _LOGGER.info("Reliable Notify: %s recipients and %s groups loaded",
                      len(self.routes["recipients"]), len(self.routes["groups"]))
 
@@ -164,6 +168,7 @@ class ReliableNotifyManager:
         self.tasks.append(self.hass.async_create_task(self.maintenance_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.backup_loop(), eager_start=False))
         self.tasks.append(self.hass.async_create_task(self.escalation_loop(), eager_start=False))
+        self.tasks.append(self.hass.async_create_task(self.report_loop(), eager_start=False))
         self.hass.async_create_task(self.update_dead_letter_issue())
 
     async def stop(self):
@@ -307,6 +312,9 @@ class ReliableNotifyManager:
                 action = data.get("action") or ("notify.send_message" if target_entity else "reliable_notify.staged")
                 targets = [("", {"action": action,
                     "target_entity": target_entity or "", "data": {}})]
+            # Own quiet hours of recipients / persons (incl. persons inside groups).
+            route_qh = route_quiet_hours(self.routes, names, priority=data.get("priority","info"),
+                                         presence=presence) if recipients else {}
             ack_plan = validate_acknowledgement(data.get('acknowledgement'), data.get('dedup_key'))
             if ack_plan:
                 for step in ack_plan['steps']:
@@ -337,6 +345,8 @@ class ReliableNotifyManager:
                     if dropped:
                         dropped_keys.setdefault(action, set()).update(dropped)
                     payload = {**rec.get("data", {}), **kept}
+                if action.startswith("notify.mobile_app_") and self.settings.get("companion_grouping", True):
+                    payload = companion_group(payload, data.get("message_type") or data.get("priority", "info"))
                 if ack_plan is not None:
                     payload=self._action_payload(action,payload,ack_plan["key"])
                 if data.get("only_if"):
@@ -384,9 +394,17 @@ class ReliableNotifyManager:
                 raise ValueError("digest is only supported for text notifications without file attachments")
             if ack_plan and data.get("strategy")=="digest":
                 raise ValueError("digest is incompatible with acknowledgements")
+            now = time.time()
+            # send_at / delay: earliest send time; quiet hours apply from there on.
+            scheduled = scheduled_timestamp(now, data.get("send_at"), data.get("delay"),
+                                            self.hass.config.time_zone)
             for job in jobs:
+                own = route_qh.get(job.get("route_name"))
+                policy = validate_quiet_hours(own) if own is not None else self.quiet_hours
                 job["not_before"]=next_allowed_timestamp(
-                    time.time(),job["priority"],self.quiet_hours,self.hass.config.time_zone)
+                    scheduled,job["priority"],policy,self.hass.config.time_zone)
+                if job.get("ttl") and scheduled > now:
+                    job["ttl"] = int(job["ttl"] + (scheduled - now))  # ttl counts from the send time
                 if job.get("strategy")=="digest":
                     if not job.get("dedup_key"):
                         raise ValueError("digest requires dedup_key")
@@ -508,6 +526,46 @@ class ReliableNotifyManager:
                 ir.async_delete_issue(self.hass, DOMAIN, "dead_letters")
         except Exception:
             _LOGGER.debug("Reliable Notify could not update the dead-letter repair issue", exc_info=True)
+
+    async def send_failure_report(self, now=None):
+        """Queue the daily failure summary; returns False when there is nothing to report."""
+        from .i18n import failure_report, ha_text
+        recipient = (self.settings.get("daily_report_recipient") or "").strip()
+        if not recipient:
+            return False
+        stats = await self.store.statistics(1)
+        if not stats["failures"]:
+            return False
+        await self.enqueue({
+            "recipients": [recipient], "priority": "info",
+            "title": ha_text(self.hass, "report_title"),
+            "message": failure_report(self.hass.config.language, stats["failures"],
+                                      self.routes.get("labels", {})),
+            "message_type": "reliable_notify_report", "archive_days": 7,
+        })
+        return True
+
+    async def report_loop(self):
+        """Send the optional daily failure report once per day at the configured time."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        while not self.stopping:
+            try:
+                await asyncio.sleep(60)
+                if not (self.settings.get("daily_report_recipient") or "").strip():
+                    continue
+                local = datetime.now(ZoneInfo(self.hass.config.time_zone))
+                due = str(self.settings.get("daily_report_time") or "08:00")
+                today = int(local.strftime("%Y%m%d"))
+                if local.strftime("%H:%M") < due or await self.store.metric_value("daily_report_day") == today:
+                    continue
+                # Remember the day first: a failing report must not be retried every minute.
+                await self.store.set_metric("daily_report_day", today)
+                await self.send_failure_report()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOGGER.warning("Reliable Notify could not send the daily failure report", exc_info=True)
 
     async def media_cleanup_loop(self):
         while not self.stopping:
@@ -677,7 +735,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.4.0",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.5.0",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

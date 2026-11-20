@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.4.0 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.4.0';
+/* Reliable Notify Admin Panel 3.5.0 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.5.0';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -24,14 +24,16 @@ const RN_HELP={
       'Speichern und mit „Test senden“ prüfen. Der Test verschickt eine echte Nachricht; Testmodus und Ruhezeiten gelten.',
       'Gruppen fassen mehrere Ziele zusammen. Personen wählen je Priorität und Zone (person.*) passende Kanäle.',
       'In Automationen die interne ID unter recipients verwenden (Beispiel unten) oder die Entität notify.reliable_<ID>.',
-      'Optional über „Feld hinzufügen“ ein Ausweichziel eintragen: Scheitert die Zustellung endgültig, geht die Nachricht einmalig an dieses Ziel (z. B. Telegram → App).']},
+      'Optional über „Feld hinzufügen“ ein Ausweichziel eintragen: Scheitert die Zustellung endgültig, geht die Nachricht einmalig an dieses Ziel (z. B. Telegram → App).',
+      'Ebenfalls über „Feld hinzufügen“: eigene Ruhezeiten für ein Ziel oder eine Person. Sie ersetzen die globalen Ruhezeiten; Personen-Ruhezeiten gelten auch, wenn die Person über eine Gruppe erreicht wird.']},
     en:{intro:'Define where notifications go: single targets, groups and people.',steps:[
       'Click “Create new target” and enter a display name, e.g. “Telegram Wolfgang”. The internal ID is suggested from it.',
       'Choose the HA action: notify.send_message with a notify entity, notify.mobile_app_… for the Companion app, or telegram_bot.send_message with chat_id under transport parameters.',
       'Save and check with “Send test”. The test sends a real notification; test mode and quiet hours apply.',
       'Groups combine several targets. People pick channels per priority and zone (person.*).',
       'In automations, use the internal ID under recipients (example below) or the entity notify.reliable_<ID>.',
-      'Optionally add a fallback target via “Add field”: if delivery finally fails, the notification is sent once to that target (e.g. Telegram → app).']}},
+      'Optionally add a fallback target via “Add field”: if delivery finally fails, the notification is sent once to that target (e.g. Telegram → app).',
+      'Also via “Add field”: own quiet hours for a target or a person. They replace the global quiet hours; a person\'s quiet hours also apply when the person is reached through a group.']}},
   incidents:{doc:'CONFIGURATION.md',example:'action: reliable_notify.enqueue\ndata:\n  recipients: [telegram_wolfgang]\n  message: "Wasseralarm Keller"\n  priority: critical\n  dedup_key: water_cellar\n  acknowledgement:\n    required: true\n    escalation:\n      - after: 300\n        recipients: [family]',
     de:{intro:'Kritische Meldungen können auf eine Bestätigung warten und sonst stufenweise eskalieren.',steps:[
       'Eine Nachricht mit dedup_key und acknowledgement wartet auf Bestätigung (Beispiel unten).',
@@ -102,30 +104,39 @@ const RN_HELP={
       'Hier direkt änderbar: Wiederholungen je Priorität, Archiv-Aufbewahrung, Ruhezeiten mit Limits sowie Testmodus und Logging.',
       'Testmodus „Nur zurückstellen“ hält Nachrichten zurück, statt sie zu senden – ideal zum Ausprobieren.',
       'Wiederholungen: „Aufgeben nach Stunden mit Fehlern“ legt fest, wie lange Reliable es versucht (Standard: info 6 h, warning 24 h, critical unbegrenzt). Wartet HA noch auf das Laden einer Integration, zählt das nicht als Versuch.',
-      'Neue Ziele werden unter „Ziele & Personen“ angelegt, nicht im HA-Dialog.']},
+      'Neue Ziele werden unter „Ziele & Personen“ angelegt, nicht im HA-Dialog.',
+      'Im HA-Dialog (Allgemein): Companion-App-Benachrichtigungen nach Nachrichtentyp gruppieren und einen täglichen Fehlerbericht an ein Ziel senden lassen (nur wenn es Fehler gab).']},
     en:{intro:'Operating settings of the integration.',steps:[
       'All options are collected in the HA dialog “Open all integration options”: optional default target, retries, quiet hours, test mode, logging and backups.',
       'Directly editable here: retries per priority, archive retention, quiet hours with limits, and test mode and logging.',
       'Test mode “Stage only” holds notifications back instead of sending – ideal for trying things out.',
       'Retries: “Give up after hours of failures” sets how long Reliable keeps trying (default: info 6 h, warning 24 h, critical unlimited). Waiting for HA to load an integration does not count as an attempt.',
-      'New targets are created under “Targets & people”, not in the HA dialog.']}},
+      'New targets are created under “Targets & people”, not in the HA dialog.',
+      'In the HA dialog (General): group Companion app notifications by message type and send a daily failure report to a target (only when there were failures).']}},
 };
 
 // Buttons and images per transport (help of "Targets & people"). YAML stays untranslated except sample texts.
 RN_HELP.routes.notes={
   de:['Companion-App (Ziel mit HA-Aktion notify.mobile_app_…): Buttons über actions und Bilder über image – beides unter data → data.',
     'Telegram (telegram_bot.send_message): Buttons über inline_keyboard, Fotos mit media: photo und file (lokale Datei) oder url.',
-    'Notify-Entitäten (notify.send_message), ntfy, Gotify und Webhook übertragen nur Titel und Text.',
+    'ntfy: Buttons (actions), Klick-Link (click), Bild (attach), Symbol (icon) und Schlagwörter (tags). Gotify: Klick-Link (click) und großes Bild (image). Webhook: beliebige Felder unter data.',
+    'Notify-Entitäten (notify.send_message) übertragen nur Titel und Text.',
     'Die Entität notify.reliable_<ID> überträgt nur Titel und Text. Für Buttons und Bilder die Aktion reliable_notify.enqueue verwenden.',
     'Eigene Buttons bleiben erhalten, auch wenn eine Bestätigung (acknowledgement) eigene Knöpfe ergänzt. strategy: digest funktioniert nur mit reinem Text.',
     'Zusatzdaten gelten für alle Ziele eines Aufrufs. Bei Gruppen mit gemischten Transporten (z. B. App und Telegram) je Transport einen eigenen Aufruf verwenden.'],
   en:['Companion app (target with HA action notify.mobile_app_…): buttons via actions and images via image – both under data → data.',
     'Telegram (telegram_bot.send_message): buttons via inline_keyboard, photos with media: photo and file (local file) or url.',
-    'Notify entities (notify.send_message), ntfy, Gotify and webhook only transmit title and text.',
+    'ntfy: buttons (actions), click link (click), image (attach), icon and tags. Gotify: click link (click) and large image (image). Webhook: any fields under data.',
+    'Notify entities (notify.send_message) only transmit title and text.',
     'The entity notify.reliable_<ID> only transmits title and text. Use the action reliable_notify.enqueue for buttons and images.',
     'Your own buttons are kept even when an acknowledgement adds its buttons. strategy: digest works with plain text only.',
     'Extra data applies to every target of a call. For groups with mixed transports (e.g. app and Telegram) use one call per transport.']};
 RN_HELP.routes.examples=[
+  {de:'Zeitgesteuert: erst um eine bestimmte Uhrzeit senden (send_at) oder nach einer Wartezeit (delay, Sekunden)',
+   en:'Scheduled: send at a given time (send_at) or after a waiting time (delay, seconds)',
+   code:'action: reliable_notify.enqueue\ndata:\n  recipients: [familie]\n  message: "Müll rausstellen"\n  send_at: "2026-11-21 19:00:00"\n  dedup_key: muell_erinnerung   # cancel with reliable_notify.cancel'},
+  {de:'ntfy: Buttons, Klick-Link und Bild',en:'ntfy: buttons, click link and image',
+   code:'action: reliable_notify.enqueue\ndata:\n  recipients: [ntfy_handy]\n  message: "Es hat geläutet"\n  data:\n    click: https://ha.example.com/lovelace/kamera\n    attach: https://ha.example.com/local/haustuer.jpg\n    tags: [bell]\n    actions:\n      - action: view\n        label: Kamera öffnen\n        url: https://ha.example.com/lovelace/kamera'},
   {de:'Companion-App: Nachricht mit Buttons',en:'Companion app: notification with buttons',
    code:'action: reliable_notify.enqueue\ndata:\n  recipients: [handy_wolfgang]\n  title: Haustür\n  message: "Es hat geläutet"\n  data:\n    data:\n      actions:\n        - action: TUER_OEFFNEN\n          title: Tür öffnen\n        - action: IGNORIEREN\n          title: Ignorieren'},
   {de:'Companion-App: auf einen Button reagieren (eigene Automation)',en:'Companion app: react to a button (separate automation)',
@@ -315,7 +326,7 @@ class ReliableNotifyPanel extends HTMLElement {
       rate_limit_per_minute:this.t('Versuche pro Minute und Ziel'),digest_window_seconds:this.t('Digest-Zeitfenster (Sekunden)'),
       max_attempts:this.t('Maximale Versuche (0 = unbegrenzt)'),base_seconds:this.t('Basisabstand (Sekunden)'),
       max_delay:this.t('Maximaler Abstand (Sekunden)'),max_hours:this.t('Aufgeben nach Stunden mit Fehlern (0 = nie)'),
-      fallback:this.t('Ausweichziel bei endgültigem Fehler'),info:'Information',warning:this.t('Warnung'),critical:this.t('Kritisch'),
+      fallback:this.t('Ausweichziel bei endgültigem Fehler'),send_at:this.t('Senden ab (Datum und Uhrzeit)'),delay:this.t('Verzögerung (Sekunden)'),info:'Information',warning:this.t('Warnung'),critical:this.t('Kritisch'),
       chat_id:this.t('Telegram-Chat-ID'),config_entry_id:this.t('Telegram-Konfiguration'),url:'URL',topic:this.t('Thema'),
       token:'Token',base_url:this.t('HTTPS-Basis-URL'),allow_private:this.t('Private Zieladressen erlauben'),headers:this.t('HTTP-Header'),method:this.t('HTTP-Methode'),parse_mode:this.t('Telegram-Textformat'),
       disable_notification:this.t('Lautlos senden'),mobile:this.t('Mobilgerät'),email:this.t('E-Mail'),telegram:'Telegram',
@@ -327,8 +338,9 @@ class ReliableNotifyPanel extends HTMLElement {
     if(kind==='profile')return {...common,ttl:3600,strategy:'always',
       only_if:{entity_id:'',state:'on'},test_mode:'off',acknowledgement:{required:true,escalation:[]}};
     if(kind==='template')return {title:'',message:'',...common};
-    if(kind==='recipient')return {action:'notify.send_message',target_entity:'',data:{},fallback:''};
-    if(kind==='person')return {entity:'',channels:{},preferred:{},preferred_by_zone:{}};
+    // Own quiet hours (3.5.0) override the global ones for this target / person.
+    if(kind==='recipient')return {action:'notify.send_message',target_entity:'',data:{},fallback:'',quiet_hours:{enabled:true,start:'22:00',end:'07:00',allow_priorities:['critical']}};
+    if(kind==='person')return {entity:'',channels:{},preferred:{},preferred_by_zone:{},quiet_hours:{enabled:true,start:'22:00',end:'07:00',allow_priorities:['critical']}};
     return {};
   }
   // Scalar values are quoted, so Jinja, colons, newlines and YAML-looking strings round-trip.
@@ -374,7 +386,7 @@ class ReliableNotifyPanel extends HTMLElement {
       if(type==='boolean')input.checked=initial;else input.value=initial===null?'':initial;
       if(type==='null'){input.disabled=true;input.placeholder='null';}
       const numeric={rate:[1,60],rate_limit_per_minute:[1,1000],digest_window_seconds:[10,3600],archive_days:[0,365],ttl:[0,2678400],max_attempts:[0,10000],
-        base_seconds:[1,3600],max_delay:[1,86400],max_hours:[0,720]};
+        base_seconds:[1,3600],max_delay:[1,86400],max_hours:[0,720],delay:[0,2678400]};
       if(numeric[key]){[input.min,input.max]=numeric[key];input.step='1';}
       host.append(input);
       if(routes&&!options&&input.tagName==='INPUT'&&type==='string')host.append(this.routeList(input));
@@ -713,7 +725,7 @@ class ReliableNotifyPanel extends HTMLElement {
     wrapper.append(this.element('p',this.t('Zeigt Routing, Aufbewahrung und Ruhezeiten an. Keine Queue-Einträge oder Push-Nachrichten.'),'muted'));
     await this.loadRouteChoices();
     const editor=this.fieldEditor({recipients:['wolfgang_phone'],priority:'warning',
-      message_type:'windows',message:this.t('Fenster seit 90 Minuten offen')},{defaults:this.fieldDefaults('template')});
+      message_type:'windows',message:this.t('Fenster seit 90 Minuten offen')},{defaults:{...this.fieldDefaults('template'),send_at:'',delay:0}});
     const result=this.element('pre');
     const run=this.actionButton(this.t('Versand simulieren'),'mdi:flask-outline','test');
     run.addEventListener('click',()=>this.run(result,async()=>{

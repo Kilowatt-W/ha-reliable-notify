@@ -10,8 +10,12 @@ from homeassistant.helpers import selector
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN
 from .retry import validate_policies, migrate_policies, DEFAULT_POLICIES
 from .retention import validate_retention, DEFAULT_RETENTION
-from .smart import validate_quiet_hours, DEFAULT_QUIET_HOURS
+import re
+
+from .smart import validate_quiet_hours, parse_clock, DEFAULT_QUIET_HOURS
 from .routing import is_own_entity
+
+REPORT_RECIPIENT = re.compile(r"[a-z][a-z0-9_]{0,63}")
 from .logging_utils import validate_transport_logging, TRANSPORTS, LEVELS
 
 
@@ -97,6 +101,12 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
                     errors['base'] = 'own_entity'
                     raise ValueError('own entity as default target')
                 opts['archive_url'] = general.get('archive_url', '').strip()
+                # Daily failure report: internal recipient name and local HH:MM.
+                opts['daily_report_recipient'] = (general.get('daily_report_recipient') or '').strip()
+                if opts['daily_report_recipient'] and not REPORT_RECIPIENT.fullmatch(opts['daily_report_recipient']):
+                    raise ValueError('invalid report recipient')
+                opts['daily_report_time'] = (general.get('daily_report_time') or '08:00').strip()
+                parse_clock(opts['daily_report_time'])
                 if user_input.get('show_yaml'):
                     self._pending = opts
                     return await self.async_step_yaml()
@@ -118,6 +128,9 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Optional('archive_url', default=general.get('archive_url', '')): str,
             vol.Required('dead_letter_days', default=general.get('dead_letter_days', 30)): number(1, 365),
             vol.Required('legacy_notify_services', default=general.get('legacy_notify_services', True)): bool,
+            vol.Required('companion_grouping', default=general.get('companion_grouping', True)): bool,
+            vol.Optional('daily_report_recipient', default=general.get('daily_report_recipient', '')): str,
+            vol.Required('daily_report_time', default=general.get('daily_report_time', '08:00')): str,
         })
         smart = {**DEFAULT_QUIET_HOURS, **current.get('quiet_hours', {}),
                  'rate_limit_per_minute': current.get('rate_limit_per_minute', 10),
