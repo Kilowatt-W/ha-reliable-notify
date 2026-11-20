@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.8.0
+- Alarm window phase 3: `incident.mirror` (`none`, `persistent_notification`, `repairs`) and the option *Mirror open incidents by default*. The notification bell shows an entry per unacknowledged incident; dismissing it acknowledges the incident. Repairs show an error (critical) or warning (warning) issue. Entries disappear when acknowledged or closed and are restored after an HA restart.
+- Sensor *Open incidents <area>* for every incident area; new areas appear automatically.
+- Visual editor for `custom:reliable-notify-alarm-card` (areas, message types, minimum priority, snooze buttons, acknowledged incidents, confirmation, compact layout), German/English.
+- `persistent_notification` added to the manifest dependencies.
+
 ## 3.7.0
 - Alarm window phase 2: `incident.source_entity` with `problem_state`/`problem_states` (default `on`) – Reliable Notify watches the cause itself. When the entity leaves the problem state for `resolve_after` seconds the incident is resolved; if the problem returns before anyone acknowledged, it becomes active again (`reactivated`). `unavailable`/`unknown` never resolve. Waiting periods are stored and all watched entities are re-subscribed and re-evaluated after an HA restart.
 - `incident.auto_close_after`: close a resolved, unacknowledged incident after a period (not for `critical`).

@@ -2,7 +2,8 @@
 import re
 
 INCIDENT_KEYS = ("display_text", "area", "escalate_while_resolved", "source_entity", "problem_state",
-                 "problem_states", "resolve_after", "auto_close_after")
+                 "problem_states", "resolve_after", "auto_close_after", "mirror")
+MIRRORS = ("none", "persistent_notification", "repairs")
 AREA = re.compile(r"[a-z0-9_]{1,64}")
 ENTITY_ID = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
 MAX_RESOLVE_AFTER = 86400
@@ -55,9 +56,13 @@ def validate_incident(raw):
     if resolve_after and source is None:
         raise ValueError("incident.resolve_after requires incident.source_entity")
     auto_close = _seconds(raw.get("auto_close_after", 0), "auto_close_after", MAX_AUTO_CLOSE)
+    # Phase 3 (3.8.0): show the incident also in the HA bell or as a repair issue.
+    mirror = raw.get("mirror")
+    if mirror is not None and mirror not in MIRRORS:
+        raise ValueError("incident.mirror must be none, persistent_notification or repairs")
     return {"display_text": text, "area": area, "escalate_while_resolved": remind,
             "source_entity": source, "problem_states": states, "resolve_after": resolve_after,
-            "auto_close_after": auto_close}
+            "auto_close_after": auto_close, "mirror": mirror}
 
 
 def validate_acknowledgement(raw, dedup_key):

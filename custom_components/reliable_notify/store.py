@@ -62,7 +62,7 @@ def incident_record(row, now=None):
         "source_entity": row["source_entity"],
         "problem_states": json.loads(row["problem_states_json"]) if row["problem_states_json"] else None,
         "resolve_after": row["resolve_after"], "auto_close_after": row["auto_close_after"],
-        "clear_since": row["clear_since"],
+        "clear_since": row["clear_since"], "mirror": row["mirror"],
     }
 
 
@@ -124,7 +124,8 @@ class QueueStore:
                                      # 3.7.0: watched cause and timers
                                      ("source_entity", "TEXT"), ("problem_states_json", "TEXT"),
                                      ("resolve_after", "INTEGER NOT NULL DEFAULT 0"),
-                                     ("auto_close_after", "INTEGER NOT NULL DEFAULT 0"), ("clear_since", "REAL")):
+                                     ("auto_close_after", "INTEGER NOT NULL DEFAULT 0"), ("clear_since", "REAL"),
+                                     ("mirror", "TEXT")):
                 if name not in cols_ack:
                     con.execute(f"ALTER TABLE acknowledgements ADD COLUMN {name} {definition}")
                     if name == "opened_at":
@@ -336,8 +337,8 @@ class QueueStore:
                     next_step,acknowledged_at,acknowledged_by,action_id,opened_at,
                     snoozed_until,resolved_at,resolved_by,closed_at,incident,display_text,
                     area,message_type,escalate_while_resolved,source_entity,problem_states_json,
-                    resolve_after,auto_close_after,clear_since)
-                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?,?,NULL,NULL,NULL,NULL,?,?,?,?,?,?,?,?,?,NULL)
+                    resolve_after,auto_close_after,clear_since,mirror)
+                    VALUES(?,?,?,?,?,?,?,0,NULL,NULL,?,?,NULL,NULL,NULL,NULL,?,?,?,?,?,?,?,?,?,NULL,?)
                     ON CONFLICT(ack_key) DO UPDATE SET
                     message_id=excluded.message_id,title=excluded.title,
                     message=excluded.message,priority=excluded.priority,
@@ -354,7 +355,7 @@ class QueueStore:
                     escalate_while_resolved=excluded.escalate_while_resolved,
                     source_entity=excluded.source_entity,problem_states_json=excluded.problem_states_json,
                     resolve_after=excluded.resolve_after,auto_close_after=excluded.auto_close_after,
-                    clear_since=NULL""",
+                    clear_since=NULL,mirror=excluded.mirror""",
                     (ack["key"],ids[0],items[0].get("title"),items[0]["message"],
                      items[0]["priority"],now,json.dumps(ack["steps"]),
                      hashlib.sha256(ack["key"].encode("utf8")).hexdigest()[:16],now,
@@ -363,7 +364,8 @@ class QueueStore:
                      0 if incident.get("escalate_while_resolved") is False else 1,
                      incident.get("source_entity"),
                      json.dumps(incident["problem_states"]) if incident.get("problem_states") else None,
-                     int(incident.get("resolve_after") or 0),int(incident.get("auto_close_after") or 0)))
+                     int(incident.get("resolve_after") or 0),int(incident.get("auto_close_after") or 0),
+                     incident.get("mirror")))
                 con.execute("""INSERT INTO incident_events(ack_key,action,by,state,occurred_at)
                     VALUES(?,'created','enqueue','active',?)""",(ack["key"],now))
             return ids
@@ -887,6 +889,11 @@ class QueueStore:
                 AND auto_close_after>0 AND resolved_at+auto_close_after<=?""",(now,))]
             return resolve,close
         return await self._run(op)
+
+    async def incident_areas(self):
+        """All areas used by stored incidents (for per-area sensors)."""
+        return await self._run(lambda con: [row[0] for row in con.execute(
+            "SELECT DISTINCT area FROM acknowledgements WHERE area IS NOT NULL ORDER BY area")])
 
     async def incident_history(self, key, limit=50):
         """Episodes and actions of one incident, newest first."""

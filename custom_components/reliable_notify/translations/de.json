@@ -34,13 +34,15 @@
               "companion_grouping": "Companion-App-Benachrichtigungen nach Nachrichtentyp gruppieren",
               "daily_report_recipient": "Täglicher Fehlerbericht an (interner Zielname, leer = aus)",
               "daily_report_time": "Uhrzeit des täglichen Fehlerberichts (HH:MM)",
-              "incident_admin_only": "Nur Administratoren dürfen Vorfälle quittieren oder schlummern"
+              "incident_admin_only": "Nur Administratoren dürfen Vorfälle quittieren oder schlummern",
+              "incident_mirror": "Offene Vorfälle standardmäßig spiegeln"
             },
             "data_description": {
               "target_entity": "Optionaler Fallback, kein neues Sendeziel. Ziele im Seitenleistenpanel „Reliable Notify“ anlegen.",
               "companion_grouping": "Android-group und iOS-thread-id werden auf den Nachrichtentyp gesetzt, sofern der Aufruf sie nicht selbst setzt.",
               "daily_report_recipient": "Zum Beispiel telegram_admin. Der Bericht kommt nur, wenn es in den letzten 24 Stunden Fehler gab.",
-              "incident_admin_only": "Aus: Jeder angemeldete Benutzer kann auf der Alarm-Karte quittieren und schlummern. Eskalieren, als behoben markieren und wieder öffnen erfordern immer einen Administrator."
+              "incident_admin_only": "Aus: Jeder angemeldete Benutzer kann auf der Alarm-Karte quittieren und schlummern. Eskalieren, als behoben markieren und wieder öffnen erfordern immer einen Administrator.",
+              "incident_mirror": "Glocke: ein Eintrag je nicht quittiertem Vorfall; Wegklicken quittiert den Vorfall. Reparaturen: ein Reparaturhinweis für critical- und warning-Vorfälle. Das Feld incident.mirror überschreibt das je Vorfall."
             }
           },
           "smart": {
@@ -162,6 +164,9 @@
       },
       "open_incidents": {
         "name": "Offene Vorfälle"
+      },
+      "open_incidents_area": {
+        "name": "Offene Vorfälle {area}"
       }
     },
     "binary_sensor": {
@@ -247,7 +252,7 @@
         },
         "incident": {
           "name": "Alarmfenster",
-          "description": "Vorfall sichtbar halten, bis er quittiert ist: display_text (Anzeige im Dashboard), area (Filter), escalate_while_resolved (Erinnerungen auch nach behobener Ursache, Standard true), source_entity + problem_state(s) (Reliable Notify beobachtet die Ursache selbst), resolve_after (Sekunden, die die Ursache weg sein muss), auto_close_after (behobenen, nicht quittierten Vorfall nach Sekunden schließen; nicht bei critical). Benötigt dedup_key."
+          "description": "Vorfall sichtbar halten, bis er quittiert ist: display_text (Anzeige im Dashboard), area (Filter), escalate_while_resolved (Erinnerungen auch nach behobener Ursache, Standard true), source_entity + problem_state(s) (Reliable Notify beobachtet die Ursache selbst), resolve_after (Sekunden, die die Ursache weg sein muss), auto_close_after (behobenen, nicht quittierten Vorfall nach Sekunden schließen; nicht bei critical). mirror: none, persistent_notification (Glocke; Wegklicken quittiert) oder repairs (critical = Fehler, warning = Warnung). Benötigt dedup_key."
         }
       }
     },
@@ -516,12 +521,23 @@
         "info": "Information",
         "debug": "Debug"
       }
+    },
+    "incident_mirror": {
+      "options": {
+        "none": "Nein",
+        "persistent_notification": "Benachrichtigungsglocke",
+        "repairs": "Reparaturen"
+      }
     }
   },
   "issues": {
     "dead_letters": {
       "title": "Reliable Notify: {count} unzustellbare Benachrichtigungen",
       "description": "{count} Benachrichtigungen konnten nicht zugestellt werden und warten unter **Dead letters**. Unter [Reliable Notify](/reliable-notify) → **Statistik** → **Fehleranalyse** steht der Grund je Ziel. Ziel oder Transport korrigieren und die Nachrichten danach unter **Nachrichten** erneut senden oder löschen. Der Hinweis verschwindet, sobald keine Dead Letters mehr vorhanden sind."
+    },
+    "incident": {
+      "title": "{title}",
+      "description": "{text}\n\nDieser Vorfall ist offen und noch nicht quittiert. Auf der Alarm-Karte, im Reliable-Notify-Panel oder mit der Aktion reliable_notify.acknowledge (dedup_key: {key}) quittieren. Danach verschwindet der Hinweis."
     }
   }
 }

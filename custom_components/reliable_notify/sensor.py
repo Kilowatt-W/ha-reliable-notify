@@ -19,6 +19,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
         HealthSensor(manager), QueueAgeSensor(manager), MediaSizeSensor(manager),
         TransportStatusSensor(manager), OpenIncidentsSensor(manager),
     ])
+    # One sensor per incident area; new areas get a sensor when their first incident arrives.
+    known = set(await manager.store.incident_areas())
+    async_add_entities([OpenIncidentsSensor(manager, area) for area in sorted(known)])
+
+    async def new_area(event):
+        area = event.data.get("area")
+        if area and area not in known:
+            known.add(area)
+            async_add_entities([OpenIncidentsSensor(manager, area)])
+    entry.async_on_unload(hass.bus.async_listen("reliable_notify_incident", new_area))
 
 
 class OpenIncidentsSensor(SensorEntity):
@@ -30,10 +40,17 @@ class OpenIncidentsSensor(SensorEntity):
     _attr_native_unit_of_measurement = None
     _attr_should_poll = False
 
-    def __init__(self, manager):
+    def __init__(self, manager, area=None):
         self.manager = manager
-        self._attr_unique_id = f"{manager.entry.entry_id}_open_incidents"
+        self.area = area
         self._attr_native_value = 0
+        if area is None:
+            self._attr_unique_id = f"{manager.entry.entry_id}_open_incidents"
+        else:
+            self._attr_unique_id = f"{manager.entry.entry_id}_open_incidents_{area}"
+            self._attr_translation_key = "open_incidents_area"
+            self._attr_translation_placeholders = {"area": area}
+            self.entity_id = f"sensor.reliable_notify_open_incidents_{area}"
 
     async def async_added_to_hass(self):
         async def refresh(_=None):
@@ -44,7 +61,10 @@ class OpenIncidentsSensor(SensorEntity):
         await self._refresh()
 
     async def _refresh(self):
-        data = summary(await self.manager.store.incidents())
+        records = await self.manager.store.incidents()
+        if self.area is not None:
+            records = [r for r in records if r.get("area") == self.area]
+        data = summary(records)
         self._attr_native_value = data["count"]
         self._attr_extra_state_attributes = {
             "critical_unacknowledged": data["critical_unacknowledged"], "incidents": data["incidents"]}

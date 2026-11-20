@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.7.0 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.7.0';
+/* Reliable Notify Admin Panel 3.8.0 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.0';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -41,14 +41,16 @@ const RN_HELP={
       'Offene Alarme hier bestätigen, um 15 Minuten verschieben oder sofort eskalieren. Empfänger können auch direkt per Companion-App- oder Telegram-Knopf bestätigen.',
       'Mit dem Assistenten eine Kette zuerst nur simulieren. „Alarm wirklich einreihen“ sendet echt.',
       'Bereits gesendete Telegram-Nachrichten lassen sich über ihren dedup_key bearbeiten oder löschen.',
-      'Alarmfenster: Mit dem Feld incident bleibt ein Vorfall sichtbar, bis ihn jemand quittiert – auch wenn die Ursache schon behoben ist (reliable_notify.resolve). Die Karte custom:reliable-notify-alarm-card zeigt offene Vorfälle für alle Bewohner und braucht keine eigene Ressource.']},
+      'Alarmfenster: Mit dem Feld incident bleibt ein Vorfall sichtbar, bis ihn jemand quittiert – auch wenn die Ursache schon behoben ist (reliable_notify.resolve). Die Karte custom:reliable-notify-alarm-card zeigt offene Vorfälle für alle Bewohner und braucht keine eigene Ressource; sie lässt sich im Dashboard-Editor per Formular einstellen.',
+      'Spiegeln: Mit incident.mirror (oder der Option im HA-Dialog) erscheint ein offener Vorfall zusätzlich in der Benachrichtigungsglocke – Wegklicken quittiert ihn – oder als Reparaturhinweis. Pro Bereich (area) gibt es den Sensor „Offene Vorfälle <Bereich>“.']},
     en:{intro:'Critical notifications can wait for an acknowledgement and otherwise escalate step by step.',steps:[
       'A notification with dedup_key and acknowledgement waits for confirmation (example below).',
       'Without acknowledgement it is sent to the next step after the configured time.',
       'Acknowledge open alarms here, snooze them for 15 minutes or escalate immediately. Recipients can also acknowledge with the Companion app or Telegram button.',
       'Use the wizard to simulate a chain first. “Really queue alarm” sends for real.',
       'Telegram messages that were already sent can be edited or deleted via their dedup_key.',
-      'Alarm window: with the incident field an incident stays visible until someone acknowledges it – even after the cause is gone (reliable_notify.resolve). The card custom:reliable-notify-alarm-card shows open incidents to all residents and needs no extra resource.']}},
+      'Alarm window: with the incident field an incident stays visible until someone acknowledges it – even after the cause is gone (reliable_notify.resolve). The card custom:reliable-notify-alarm-card shows open incidents to all residents and needs no extra resource; it can be set up with a form in the dashboard editor.',
+      'Mirroring: with incident.mirror (or the option in the HA dialog) an open incident also appears in the notification bell – dismissing acknowledges it – or as a repair issue. Each area gets a sensor “Open incidents <area>”.']}},
   simulation:{doc:'API_V2.md',example:'action: reliable_notify.simulate\ndata:\n  recipients: [family]\n  message: Test\n  priority: warning\nresponse_variable: preview',
     de:{intro:'Zeigt, was mit einer Nachricht passieren würde – ohne Versand und ohne Eintrag in der Warteschlange.',steps:[
       'Empfänger, Priorität und Text eintragen und „Versand simulieren“ klicken.',

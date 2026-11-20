@@ -18,6 +18,8 @@ TEXTS = {
                     "en": "… and {count} more. Details: Reliable Notify → Statistics → Failure analysis."},
     "report_hint": {"de": "Details: Reliable Notify → Statistik → Fehleranalyse.",
                     "en": "Details: Reliable Notify → Statistics → Failure analysis."},
+    "mirror_resolved": {"de": "Behoben um {time} – bitte quittieren.", "en": "Resolved at {time} – please acknowledge."},
+    "mirror_hint": {"de": "Wegklicken quittiert den Vorfall.", "en": "Dismissing acknowledges the incident."},
     "test_title": {"de": "Reliable Notify · Test", "en": "Reliable Notify · Test"},
     "test_message": {"de": "Testnachricht von Reliable Notify an {name}.",
                      "en": "Test notification from Reliable Notify to {name}."},

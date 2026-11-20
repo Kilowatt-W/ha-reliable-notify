@@ -34,6 +34,30 @@ def plan_incident(record, state, timer_due=False):
     return None
 
 
+def mirror_plan(record, default_mode="none"):
+    """Where an incident is mirrored: {'notification': 'show'|'hide', 'issue': 'error'|'warning'|'hide'}.
+
+    Only unacknowledged incidents (active or resolved) are shown; info priority gets no repair issue.
+    """
+    mode = record.get("mirror") or default_mode or "none"
+    open_unacked = record["state"] in ("active", "resolved")
+    show_note = mode == "persistent_notification" and open_unacked
+    severity = {"critical": "error", "warning": "warning"}.get(record.get("priority"))
+    show_issue = mode == "repairs" and open_unacked and severity is not None
+    return {"notification": "show" if show_note else "hide", "issue": severity if show_issue else "hide"}
+
+
+def dismissed_incidents(update_type, notification_ids, own_removals=()):
+    """Incident keys acknowledged because a user removed their bell entry (rn_<key>).
+
+    Removals made by Reliable Notify itself (``own_removals``) are ignored.
+    """
+    if str(update_type) != "removed":
+        return []
+    keys = [nid[3:] for nid in notification_ids if isinstance(nid, str) and nid.startswith("rn_") and len(nid) > 3]
+    return [key for key in keys if key not in own_removals]
+
+
 def visible_incidents(records, areas=None, message_types=None, min_priority="info",
                       include_acknowledged=False):
     """Open incidents for a view, highest priority first, newest first within a priority."""

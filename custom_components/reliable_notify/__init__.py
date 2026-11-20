@@ -38,14 +38,14 @@ from .lifecycle import notification_tag
 from .smart import (DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp,
                     scheduled_timestamp, validate_route_quiet_hours)
 from .simulation import simulate
-from .incidents import plan_incident
+from .incidents import plan_incident, mirror_plan, dismissed_incidents
 from .callbacks import make_token, read_token
 from .logging_utils import validate_transport_logging, transport_for
 from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliver_native
 
 LANES = ("telegram", "smtp", "notify", "notify")
 PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
-ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.7.0"
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.0"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -132,6 +132,8 @@ class ReliableNotifyManager:
         self._event_unsubscribers = []
         self._incident_unsub = None          # state listener for watched incident causes
         self._watched_entities = frozenset()
+        self._pn_unsub = None               # bell (persistent_notification) listener
+        self._mirror_dismissing = set()     # keys whose bell entry we remove ourselves
 
     @property
     def settings(self):
@@ -198,6 +200,9 @@ class ReliableNotifyManager:
 
     async def stop(self):
         self.stopping = True
+        if self._pn_unsub:
+            self._pn_unsub()
+            self._pn_unsub = None
         if self._incident_unsub:
             self._incident_unsub()
             self._incident_unsub = None
@@ -244,6 +249,52 @@ class ReliableNotifyManager:
             "message_type": record["message_type"], "area": record["area"], "state": record["state"],
         })
         self.hass.bus.async_fire("reliable_notify_updated", {"kind": "incident"})
+        self.sync_mirror(record)
+
+    def sync_mirror(self, record):
+        """Show/hide the incident in the HA bell or as a repair issue (incident.mirror / option)."""
+        try:
+            from homeassistant.components import persistent_notification as pn
+            from homeassistant.helpers import issue_registry as ir
+            from .i18n import ha_text
+            plan = mirror_plan(record, self.settings.get("incident_mirror", "none"))
+            key = record["dedup_key"]
+            note_id = "rn_" + key
+            if plan["notification"] == "show":
+                lines = [record.get("display_text") or record.get("message") or ""]
+                if record["state"] == "resolved" and record.get("resolved_at"):
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+                    when = datetime.fromtimestamp(record["resolved_at"], ZoneInfo(self.hass.config.time_zone))
+                    lines.append(ha_text(self.hass, "mirror_resolved", time=when.strftime("%H:%M")))
+                lines.append("_" + ha_text(self.hass, "mirror_hint") + "_")
+                pn.async_create(self.hass, "\n\n".join(line for line in lines if line),
+                                title=record.get("title") or key, notification_id=note_id)
+            else:
+                # Our own removal must not count as "dismissed = acknowledged".
+                self._mirror_dismissing.add(key)
+                try:
+                    pn.async_dismiss(self.hass, note_id)
+                finally:
+                    self._mirror_dismissing.discard(key)
+            issue_id = "incident_" + key
+            if plan["issue"] == "hide":
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            else:
+                severity = ir.IssueSeverity.ERROR if plan["issue"] == "error" else ir.IssueSeverity.WARNING
+                ir.async_create_issue(self.hass, DOMAIN, issue_id, is_fixable=False, is_persistent=False,
+                                      severity=severity, translation_key="incident",
+                                      translation_placeholders={
+                                          "title": record.get("title") or key, "key": key,
+                                          "text": record.get("display_text") or record.get("message") or ""})
+        except Exception:
+            _LOGGER.debug("Reliable Notify could not mirror incident %s", record.get("dedup_key"), exc_info=True)
+
+    @callback
+    def _on_notification_update(self, update_type, notifications):
+        """A user dismissed our bell entry: that acknowledges the incident."""
+        for key in dismissed_incidents(update_type, notifications, self._mirror_dismissing):
+            self.hass.async_create_task(self.incident_action(key, "ack", "persistent_notification"))
 
     async def incident_action(self, key, action, by, **options):
         """Acknowledge/snooze/escalate/resolve/reopen from any source (service, panel, card, button)."""
@@ -314,6 +365,15 @@ class ReliableNotifyManager:
 
     async def reconcile_incidents(self):
         """After start: watch causes again and apply states that changed while HA was down."""
+        try:
+            from homeassistant.components import persistent_notification as pn
+            if self._pn_unsub is None:
+                self._pn_unsub = pn.async_register_callback(self.hass, self._on_notification_update)
+        except Exception:
+            _LOGGER.debug("Reliable Notify could not watch the notification bell", exc_info=True)
+        # Bell entries and non-persistent repair issues do not survive a restart: show them again.
+        for record in await self.store.incidents():
+            self.sync_mirror(record)
         await self.watch_incidents()
         for record in await self.store.watched_incidents():
             await self.evaluate_incident(record)
@@ -881,7 +941,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.7.0",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.0",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

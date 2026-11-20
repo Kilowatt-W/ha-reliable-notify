@@ -100,7 +100,7 @@ enqueue:
       selector:
         object:
     incident:
-      description: "Alarm window: display_text, area, escalate_while_resolved, source_entity, problem_state(s), resolve_after, auto_close_after. Requires dedup_key; implies an acknowledgement."
+      description: "Alarm window: display_text, area, escalate_while_resolved, source_entity, problem_state(s), resolve_after, auto_close_after, mirror. Requires dedup_key; implies an acknowledgement."
       selector:
         object:
     test_mode:

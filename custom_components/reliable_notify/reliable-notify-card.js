@@ -1014,6 +1014,14 @@ RN_TRANSLATIONS.push(...[
   ['Offene Vorfälle mit Quittieren und Schlummern','Open incidents with acknowledge and snooze'],
   ['Ursache: {name}','Cause: {name}'],
   ['Verlauf','History'],
+  ['Bereiche (kommagetrennt, leer = alle)','Areas (comma separated, empty = all)'],
+  ['Nachrichtentypen (kommagetrennt, leer = alle)','Message types (comma separated, empty = all)'],
+  ['Mindestpriorität','Minimum priority'],
+  ['Schlummer-Knöpfe in Minuten (bis zu 3, kommagetrennt)','Snooze buttons in minutes (up to 3, comma separated)'],
+  ['Schlummer-Minuten: ganze Zahlen 1–1440, höchstens drei.','Snooze minutes: whole numbers 1–1440, at most three.'],
+  ['Quittierte, noch bestehende Vorfälle anzeigen','Show acknowledged incidents that still persist'],
+  ['Vor dem Quittieren nachfragen','Ask before acknowledging'],
+  ['Kompakte Darstellung','Compact layout'],
 ]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
@@ -1056,7 +1064,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.7.0 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.8.0 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

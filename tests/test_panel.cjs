@@ -504,6 +504,34 @@ test('alarm card names the watched cause and opens it on tap',async()=>{
   }
 });
 
+test('alarm card editor writes the YAML options and validates snooze minutes',async()=>{
+  for(const [language,areasLabel,error] of [['de','Bereiche (kommagetrennt, leer = alle)','ganze Zahlen'],['en','Areas (comma separated, empty = all)','whole numbers']]){
+    const {dom,hass,card}=alarmSetup(language,{incidents:[]});
+    const Card=dom.window.customElements.get('reliable-notify-alarm-card');
+    const editor=Card.getConfigElement();dom.window.document.body.append(editor);
+    editor.hass=hass;editor.setConfig({areas:['heizraum'],compact:true});
+    const configs=[];editor.addEventListener('config-changed',event=>configs.push(JSON.parse(JSON.stringify(event.detail.config))));
+    const root=editor.shadowRoot,field=name=>root.querySelector('[name='+name+']');
+    assert.ok([...root.querySelectorAll('label span')].some(s=>s.textContent===areasLabel));
+    assert.equal(field('areas').value,'heizraum');assert.equal(field('compact').checked,true);
+    const change=(input)=>input.dispatchEvent(new dom.window.Event('change'));
+    field('areas').value='heizraum, bad';change(field('areas'));
+    assert.deepEqual(configs.at(-1),{areas:['heizraum','bad'],compact:true});
+    field('min_priority').value='warning';change(field('min_priority'));
+    assert.equal(configs.at(-1).min_priority,'warning');
+    const before=configs.length;
+    field('snooze_minutes').value='0, 5000';change(field('snooze_minutes'));
+    assert.equal(configs.length,before);assert.match(root.querySelector('.error').textContent,new RegExp(error));
+    field('snooze_minutes').value='10, 30';change(field('snooze_minutes'));
+    assert.deepEqual(configs.at(-1).snooze_minutes,[10,30]);assert.equal(root.querySelector('.error').textContent,'');
+    field('compact').checked=false;change(field('compact'));
+    assert.equal('compact' in configs.at(-1),false);
+    field('areas').value='';change(field('areas'));
+    assert.equal('areas' in configs.at(-1),false);
+    card.remove();
+  }
+});
+
 test('saved-target test is disabled until saving and uses persisted alias in English',async()=>{
   const {panel,box,calls}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},
     test_route:{ids:[7],not_before:0},archive_detail:{id:7,status:'sent'}});

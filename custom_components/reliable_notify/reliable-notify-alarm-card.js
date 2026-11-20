@@ -1,5 +1,5 @@
-/* Reliable Notify Alarm Card 3.7.0 — open incidents for every dashboard (residents). No external dependencies. */
-import { rnTranslate, rnLanguage, rnIcon } from './reliable-notify-card.js?v=3.7.0';
+/* Reliable Notify Alarm Card 3.8.0 — open incidents for every dashboard (residents). No external dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnValueLabel } from './reliable-notify-card.js?v=3.8.0';
 
 const RN_ALARM_PRIORITIES=['info','warning','critical'];
 const RN_ALARM_STYLES=`
@@ -29,6 +29,7 @@ const RN_ALARM_STYLES=`
 
 class ReliableNotifyAlarmCard extends HTMLElement {
   static getStubConfig(){return {snooze_minutes:[15,60]};}
+  static getConfigElement(){return document.createElement('reliable-notify-alarm-card-editor');}
   setConfig(config){
     const c=config||{};
     const list=(value,name)=>{
@@ -155,6 +156,70 @@ class ReliableNotifyAlarmCard extends HTMLElement {
     root.append(card);
   }
 }
+// Visual editor (Lovelace "edit card"): same options as YAML, German/English labels.
+class ReliableNotifyAlarmCardEditor extends HTMLElement {
+  setConfig(config){this._config={...(config||{})};this.render();}
+  set hass(value){const language=this._hass&&rnLanguage(this._hass)!==rnLanguage(value);this._hass=value;if(!this._rendered||language)this.render();}
+  t(text,values={}){return rnTranslate(this._hass,text,values);}
+  _list(value){return value.split(',').map(item=>item.trim()).filter(Boolean);}
+  _emit(){
+    this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:this._config},bubbles:true,composed:true}));
+  }
+  _set(key,value,fallback){
+    // Defaults are left out so the YAML stays short.
+    const config={...this._config};
+    if(value===undefined||value===fallback||(Array.isArray(value)&&!value.length&&key!=='snooze_minutes'))delete config[key];else config[key]=value;
+    this._config=config;this._emit();
+  }
+  field(label,input){
+    const row=document.createElement('label');row.className='row';
+    const text=document.createElement('span');text.textContent=label;
+    row.append(text,input);return row;
+  }
+  render(){
+    if(!this.shadowRoot)this.attachShadow({mode:'open'});
+    this._rendered=true;
+    const c=this._config||{};
+    const root=this.shadowRoot;root.replaceChildren();
+    const style=document.createElement('style');
+    style.textContent=`.row{display:flex;flex-direction:column;gap:4px;margin:0 0 12px;font-size:14px;color:var(--primary-text-color)}
+      .check{flex-direction:row;align-items:center;gap:8px}
+      input[type=text],select{padding:8px;border-radius:6px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color);font:inherit}
+      .error{color:var(--error-color,#db4437);font-size:13px;margin:-6px 0 12px}`;
+    root.append(style);
+    const text=(key)=>{const input=document.createElement('input');input.type='text';input.name=key;input.value=(c[key]||[]).join(', ');return input;};
+    const areas=text('areas');areas.addEventListener('change',()=>this._set('areas',this._list(areas.value)));
+    const types=text('message_types');types.addEventListener('change',()=>this._set('message_types',this._list(types.value)));
+    const priority=document.createElement('select');priority.name='min_priority';
+    for(const value of ['info','warning','critical']){const option=document.createElement('option');option.value=value;option.textContent=rnValueLabel(this._hass,'priority',value);priority.append(option);}
+    priority.value=c.min_priority||'info';priority.addEventListener('change',()=>this._set('min_priority',priority.value,'info'));
+    const snooze=document.createElement('input');snooze.type='text';snooze.name='snooze_minutes';
+    snooze.value=(c.snooze_minutes===undefined?[15]:c.snooze_minutes).join(', ');
+    const error=document.createElement('p');error.className='error';error.setAttribute('role','alert');
+    snooze.addEventListener('change',()=>{
+      const values=this._list(snooze.value).map(Number);
+      if(values.length>3||values.some(m=>!Number.isInteger(m)||m<1||m>1440)){error.textContent=this.t('Schlummer-Minuten: ganze Zahlen 1–1440, höchstens drei.');return;}
+      error.textContent='';
+      if(values.length===1&&values[0]===15){const config={...this._config};delete config.snooze_minutes;this._config=config;this._emit();}
+      else this._set('snooze_minutes',values);
+    });
+    const check=(key,label,fallback)=>{
+      const input=document.createElement('input');input.type='checkbox';input.name=key;
+      input.checked=c[key]===undefined?fallback:c[key]===true;
+      input.addEventListener('change',()=>this._set(key,input.checked,fallback));
+      const row=this.field(label,input);row.classList.add('check');row.append(row.firstChild);return row;
+    };
+    root.append(
+      this.field(this.t('Bereiche (kommagetrennt, leer = alle)'),areas),
+      this.field(this.t('Nachrichtentypen (kommagetrennt, leer = alle)'),types),
+      this.field(this.t('Mindestpriorität'),priority),
+      this.field(this.t('Schlummer-Knöpfe in Minuten (bis zu 3, kommagetrennt)'),snooze),error,
+      check('show_acknowledged',this.t('Quittierte, noch bestehende Vorfälle anzeigen'),false),
+      check('confirm_acknowledge',this.t('Vor dem Quittieren nachfragen'),true),
+      check('compact',this.t('Kompakte Darstellung'),false));
+  }
+}
+if(!customElements.get('reliable-notify-alarm-card-editor'))customElements.define('reliable-notify-alarm-card-editor',ReliableNotifyAlarmCardEditor);
 if(!customElements.get('reliable-notify-alarm-card'))customElements.define('reliable-notify-alarm-card',ReliableNotifyAlarmCard);
 window.customCards=window.customCards||[];
 if(!window.customCards.some(card=>card.type==='reliable-notify-alarm-card'))window.customCards.push({type:'reliable-notify-alarm-card',name:'Reliable Notify Alarm',

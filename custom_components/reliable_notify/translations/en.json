@@ -34,13 +34,15 @@
               "companion_grouping": "Group Companion app notifications by message type",
               "daily_report_recipient": "Daily failure report to (internal target name, empty = off)",
               "daily_report_time": "Time of the daily failure report (HH:MM)",
-              "incident_admin_only": "Only administrators may acknowledge or snooze incidents"
+              "incident_admin_only": "Only administrators may acknowledge or snooze incidents",
+              "incident_mirror": "Mirror open incidents by default"
             },
             "data_description": {
               "target_entity": "Optional fallback, not a new notification target. Create targets in the Reliable Notify sidebar panel.",
               "companion_grouping": "Android group and iOS thread-id are set to the message type unless the call sets them.",
               "daily_report_recipient": "For example telegram_admin. The report is only sent when there were failures in the last 24 hours.",
-              "incident_admin_only": "Off: every signed-in user can acknowledge and snooze on the alarm card. Escalating, resolving and reopening always need an administrator."
+              "incident_admin_only": "Off: every signed-in user can acknowledge and snooze on the alarm card. Escalating, resolving and reopening always need an administrator.",
+              "incident_mirror": "Bell: an entry per unacknowledged incident; dismissing it acknowledges the incident. Repairs: a repair issue for critical and warning incidents. The field incident.mirror overrides this per incident."
             }
           },
           "smart": {
@@ -162,6 +164,9 @@
       },
       "open_incidents": {
         "name": "Open incidents"
+      },
+      "open_incidents_area": {
+        "name": "Open incidents {area}"
       }
     },
     "binary_sensor": {
@@ -247,7 +252,7 @@
         },
         "incident": {
           "name": "Alarm window",
-          "description": "Keep this incident visible until acknowledged: display_text (shown on dashboards), area (filter), escalate_while_resolved (reminders after the cause is gone, default true), source_entity + problem_state(s) (Reliable Notify watches the cause itself), resolve_after (seconds the cause must be gone), auto_close_after (close a resolved, unacknowledged incident after seconds; not for critical). Requires dedup_key."
+          "description": "Keep this incident visible until acknowledged: display_text (shown on dashboards), area (filter), escalate_while_resolved (reminders after the cause is gone, default true), source_entity + problem_state(s) (Reliable Notify watches the cause itself), resolve_after (seconds the cause must be gone), auto_close_after (close a resolved, unacknowledged incident after seconds; not for critical). mirror: none, persistent_notification (bell; dismissing acknowledges) or repairs (critical = error, warning = warning). Requires dedup_key."
         }
       }
     },
@@ -516,12 +521,23 @@
         "info": "Information",
         "debug": "Debug"
       }
+    },
+    "incident_mirror": {
+      "options": {
+        "none": "No",
+        "persistent_notification": "Notification bell",
+        "repairs": "Repairs"
+      }
     }
   },
   "issues": {
     "dead_letters": {
       "title": "Reliable Notify: {count} undeliverable notifications",
       "description": "{count} notifications could not be delivered and are waiting under **Dead letters**. Open [Reliable Notify](/reliable-notify) → **Statistics** → **Failure analysis** to see the reason per target, fix the target or transport, then retry or delete the messages under **Messages**. This notice disappears when no dead letters are left."
+    },
+    "incident": {
+      "title": "{title}",
+      "description": "{text}\n\nThis incident is open and not acknowledged yet. Acknowledge it on the alarm card, in the Reliable Notify panel or with the action reliable_notify.acknowledge (dedup_key: {key}). The notice disappears afterwards."
     }
   }
 }

@@ -130,6 +130,8 @@ class ReliableNotifyOptionsFlow(config_entries.OptionsFlow):
             vol.Required('legacy_notify_services', default=general.get('legacy_notify_services', True)): bool,
             vol.Required('companion_grouping', default=general.get('companion_grouping', True)): bool,
             vol.Required('incident_admin_only', default=general.get('incident_admin_only', False)): bool,
+            vol.Required('incident_mirror', default=general.get('incident_mirror', 'none')): choice(
+                ['none', 'persistent_notification', 'repairs'], 'incident_mirror'),
             vol.Optional('daily_report_recipient', default=general.get('daily_report_recipient', '')): str,
             vol.Required('daily_report_time', default=general.get('daily_report_time', '08:00')): str,
         })
