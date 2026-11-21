@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.1 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.1';
+/* Reliable Notify Admin Panel 3.8.2 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.2';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -1041,6 +1041,22 @@ class ReliableNotifyPanel extends HTMLElement {
         section.append(editor.node,button,result);this.yamlView(section,editor.read);box.append(section);
       }this.status(status,'');
     }catch(e){this.status(status,e.message,true);}
+    this.resetErrorsSection(box);
+  }
+  // Fresh start after fixing a cause (3.8.2): dead letters, failure analysis and counters.
+  resetErrorsSection(box){
+    const section=this.element('section',null,'panel reset-errors');
+    section.append(this.heading(this.t('Fehler zurücksetzen'),'mdi:broom','red'),
+      this.element('p',this.t('Löscht alle unzustellbaren Nachrichten (Dead Letters), die Fehleranalyse und die Fehlerzähler. Erfolgreiche Zustellungen, das Archiv und Nachrichten, die noch erneut versucht werden, bleiben erhalten. Nicht rückgängig zu machen.'),'muted'));
+    const result=this.element('p');
+    const button=this.actionButton(this.t('Alle Fehler löschen'),'mdi:delete-sweep-outline','danger');
+    button.addEventListener('click',()=>this.run(result,async()=>{
+      if(!confirm(this.t('Alle Fehler unwiderruflich löschen?')))return;
+      const done=await this.call('reset_errors');
+      this.status(result,this.t('Zurückgesetzt: {dead} unzustellbare Nachrichten, {history} Einträge der Fehleranalyse.',
+        {dead:done.dead_letters,history:done.history}));
+    }));
+    section.append(button,result);box.append(section);
   }
 
 }

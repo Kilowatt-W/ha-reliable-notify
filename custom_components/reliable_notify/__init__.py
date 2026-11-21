@@ -45,7 +45,7 @@ from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliv
 
 LANES = ("telegram", "smtp", "notify", "notify")
 PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
-ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.1"
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.2"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -755,6 +755,15 @@ class ReliableNotifyManager:
         except Exception:
             _LOGGER.debug("Reliable Notify could not update the dead-letter repair issue", exc_info=True)
 
+    async def reset_errors(self, by="manual"):
+        """Reset all recorded failures (dead letters, failure analysis, counters)."""
+        result = await self.store.reset_errors()
+        self.last_error = None
+        await self.update_dead_letter_issue()
+        _LOGGER.info("Reliable Notify: errors reset by %s (%s dead letters, %s history entries, %s daily entries)",
+                     by, result["dead_letters"], result["history"], result["daily"])
+        return result
+
     async def send_failure_report(self, now=None):
         """Queue the daily failure summary; returns False when there is nothing to report."""
         from .i18n import failure_report, ha_text
@@ -972,7 +981,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.1",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.2",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
@@ -1151,6 +1160,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async_register_admin_service(
         hass,DOMAIN,"backup",create_backup,schema=vol.Schema({}),
         supports_response=SupportsResponse.ONLY)
+
+    async def reset_errors(call: ServiceCall):
+        return await manager.reset_errors(by=call.context.user_id or "service")
+
+    # Deletes failure records for good, so administrators only (3.8.2).
+    async_register_admin_service(
+        hass,DOMAIN,"reset_errors",reset_errors,schema=vol.Schema({}),
+        supports_response=SupportsResponse.OPTIONAL)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     manager.compat_notify_services = await async_register_compat(hass, manager)
     entry.async_on_unload(entry.add_update_listener(_reload_entry))

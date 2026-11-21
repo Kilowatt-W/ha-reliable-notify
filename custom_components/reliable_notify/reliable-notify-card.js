@@ -1023,6 +1023,16 @@ RN_TRANSLATIONS.push(...[
   ['Vor dem Quittieren nachfragen','Ask before acknowledging'],
   ['Kompakte Darstellung','Compact layout'],
 ]);
+// 3.8.2: reset all errors in the settings.
+RN_TRANSLATIONS.push(...[
+  ['Fehler zurücksetzen','Reset errors'],
+  ['Löscht alle unzustellbaren Nachrichten (Dead Letters), die Fehleranalyse und die Fehlerzähler. Erfolgreiche Zustellungen, das Archiv und Nachrichten, die noch erneut versucht werden, bleiben erhalten. Nicht rückgängig zu machen.',
+   'Deletes all undeliverable messages (dead letters), the failure analysis and the failure counters. Successful deliveries, the archive and messages still waiting for a retry are kept. Cannot be undone.'],
+  ['Alle Fehler löschen','Delete all errors'],
+  ['Alle Fehler unwiderruflich löschen?','Permanently delete all errors?'],
+  ['Zurückgesetzt: {dead} unzustellbare Nachrichten, {history} Einträge der Fehleranalyse.',
+   'Reset: {dead} undeliverable messages, {history} failure analysis entries.'],
+]);
 // Labels for technical values; option values and stored data keep the raw value.
 export const RN_VALUE_LABELS = {
   priority:{info:['Information','Information'],warning:['Warnung','Warning'],critical:['Kritisch','Critical']},
@@ -1069,7 +1079,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.8.1 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.8.2 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

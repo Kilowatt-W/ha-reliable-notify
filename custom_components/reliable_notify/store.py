@@ -1099,6 +1099,26 @@ class QueueStore:
             return count
         return await self._run(op)
 
+    async def reset_errors(self):
+        """Forget all recorded failures (3.8.2): a fresh start after fixing a cause.
+
+        Removes dead letters, the failed/expired entries of the delivery history
+        (failure analysis) and of the daily statistics, and the failure counters.
+        Successful deliveries, the archive text and jobs still queued for retry are
+        kept; a queued job's next failure is recorded again.
+        """
+        def op(con):
+            now = time.time()
+            ids = [row[0] for row in con.execute("SELECT id FROM dead_letters")]
+            con.execute("DELETE FROM dead_letters")
+            con.executemany("UPDATE message_archive SET status='deleted',updated_at=? WHERE id=? AND status='dead'",
+                            [(now, i) for i in ids])
+            history = con.execute("DELETE FROM delivery_history WHERE status IN ('dead','expired')").rowcount
+            daily = con.execute("DELETE FROM delivery_daily WHERE status IN ('dead','expired')").rowcount
+            con.execute("DELETE FROM metrics WHERE key IN ('failures','dead_letters','expired')")
+            return {"dead_letters": len(ids), "history": history, "daily": daily}
+        return await self._run(op)
+
     async def history(self, limit=20):
         def op(con):
             con.row_factory = sqlite3.Row

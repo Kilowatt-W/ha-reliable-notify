@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.8.2
+- Settings → *Reset errors*: one button (with confirmation, administrators only) deletes all dead letters, the failure analysis (failed and expired entries of the delivery history and daily statistics) and the failure counters, and removes the dead-letter repair issue. Successful deliveries, the archive text and messages still waiting for a retry are kept. Also available as the admin action `reliable_notify.reset_errors` (optional response with the deleted counts).
+
 ## 3.8.1
 Fixes found on a live installation (204 dead letters).
 - Targets that are Telegram notify entities (integration `telegram_bot`, including the default target) are sent through `telegram_bot.send_message` with `entity_id`. `notify.send_message` rejects Telegram fields such as `parse_mode`, so HTML-formatted status messages became dead letters; now formatting, keyboards, message receipts and acknowledgement buttons work for these targets as well. Escalations use the same path.

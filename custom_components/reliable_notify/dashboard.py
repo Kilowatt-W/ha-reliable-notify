@@ -622,6 +622,19 @@ def register_dashboard(hass):
         })
         connection.send_result(msg["id"],{"saved":True})
 
+    @websocket_api.websocket_command({vol.Required("type"): "reliable_notify/reset_errors"})
+    @websocket_api.async_response
+    async def reset_errors(hass,connection,msg):
+        # Settings → "Reset all errors" (3.8.2); deletes failure records, admins only.
+        if not connection.user.is_admin:
+            connection.send_error(msg["id"],"unauthorized","Administrator required")
+            return
+        manager=next(iter(hass.data.get(DOMAIN,{}).values()),None)
+        if manager is None:
+            connection.send_error(msg["id"],"not_loaded","Integration unavailable")
+            return
+        connection.send_result(msg["id"],await manager.reset_errors(by=connection.user.id))
+
     @websocket_api.websocket_command({
         vol.Required("type"): "reliable_notify/set_external_api",
         vol.Required("enabled"): bool,
@@ -687,6 +700,7 @@ def register_dashboard(hass):
     websocket_api.async_register_command(hass, list_profiles)
     websocket_api.async_register_command(hass, set_profiles)
     websocket_api.async_register_command(hass, set_external_api)
+    websocket_api.async_register_command(hass, reset_errors)
     websocket_api.async_register_command(hass, list_templates)
     websocket_api.async_register_command(hass, save_templates)
     websocket_api.async_register_command(hass, migration_scan_command)

@@ -80,12 +80,35 @@ test('settings render every section and logging uses seven level selectors',asyn
   const {panel,box}=setup({dashboard:{policies:{info:{max_attempts:8,base_seconds:30,max_delay:1800}},retention:{info:1},
     smart:{quiet_hours:{enabled:false,start:'22:00',end:'07:00',allow_priorities:['critical']},rate_limit_per_minute:10,digest_window_seconds:300}},statistics:{}});
   await panel.settings(box);
-  assert.equal(box.querySelectorAll('h2').length,5);
+  assert.equal(box.querySelectorAll('h2').length,6);
   for(const label of ['Telegram','SMTP','Companion-App','HA Notify','Webhook','ntfy','Gotify']){
     assert.equal(control(box,label).tagName,'SELECT');
     assert.equal(control(box,label).options.length,5);
   }
   assert.equal(box.querySelectorAll('textarea').length,0);
+});
+
+test('settings can reset all errors after a confirmation, in German and English',async()=>{
+  const settings={dashboard:{policies:{info:{max_attempts:8,base_seconds:30,max_delay:1800}},retention:{info:1},
+    smart:{quiet_hours:{enabled:false,start:'22:00',end:'07:00',allow_priorities:['critical']},rate_limit_per_minute:10,digest_window_seconds:300}},
+    statistics:{},reset_errors:{dead_letters:204,history:210,daily:7}};
+  const {dom,panel,box,calls}=setup(settings);
+  await panel.settings(box);
+  const section=box.querySelector('section.reset-errors');
+  assert.ok(section);assert.equal(section.querySelector('h2').textContent,'Fehler zurücksetzen');
+  dom.window.confirm=()=>false;
+  click(section,'Alle Fehler löschen');await tick();
+  assert.equal(calls.filter(c=>c.type==='reliable_notify/reset_errors').length,0);
+  dom.window.confirm=()=>true;
+  click(section,'Alle Fehler löschen');await tick();await tick();
+  assert.deepEqual(calls.filter(c=>c.type==='reliable_notify/reset_errors').map(c=>Object.keys(c)),[['type']]);
+  assert.match(section.textContent,/Zurückgesetzt: 204 unzustellbare Nachrichten, 210 Einträge der Fehleranalyse\./);
+  const english=setup(settings);english.panel._hass.language='en';
+  await english.panel.settings(english.box);
+  const en=english.box.querySelector('section.reset-errors');
+  assert.equal(en.querySelector('h2').textContent,'Reset errors');
+  click(en,'Delete all errors');await tick();await tick();
+  assert.match(en.textContent,/Reset: 204 undeliverable messages, 210 failure analysis entries\./);
 });
 
 test('YAML preview is valid for strings, Jinja, arrays, null and empty objects',()=>{

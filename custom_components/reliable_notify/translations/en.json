@@ -375,6 +375,10 @@
       "name": "Create consistent SQLite backup",
       "description": "Admin-only online SQLite snapshot with integrity check. Requires response_variable. Retains configured number of prior snapshots."
     },
+    "reset_errors": {
+      "name": "Reset all errors",
+      "description": "Admin only. Deletes all dead letters, the failure analysis and the failure counters. Successful deliveries and messages still waiting for a retry are kept."
+    },
     "send_template": {
       "name": "Send a stored Reliable Notify template",
       "description": "Render an admin-configured message template and enqueue it through Reliable Notify. The template name must exist in the admin panel.",

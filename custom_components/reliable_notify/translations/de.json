@@ -375,6 +375,10 @@
       "name": "Konsistente SQLite-Sicherung erstellen",
       "description": "Online-Sicherung mit Integritätsprüfung, nur für Administratoren. Benötigt response_variable. Die konfigurierte Anzahl älterer Sicherungen bleibt erhalten."
     },
+    "reset_errors": {
+      "name": "Alle Fehler zurücksetzen",
+      "description": "Nur für Administratoren. Löscht alle unzustellbaren Nachrichten (Dead Letters), die Fehleranalyse und die Fehlerzähler. Erfolgreiche Zustellungen und Nachrichten, die noch erneut versucht werden, bleiben erhalten."
+    },
     "send_template": {
       "name": "Gespeicherte Nachrichtenvorlage senden",
       "description": "Im Verwaltungs-Panel angelegte Vorlage rendern und über Reliable Notify einreihen.",

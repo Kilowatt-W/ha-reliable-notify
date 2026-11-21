@@ -68,6 +68,7 @@ Action IDs are HMAC signed and verified before the integration changes incident 
 - **Statistics → Failure analysis** groups dead, expired and retrying messages by cause and target and gives advice per cause; the diagnostics export contains the same `failures` list.
 - Each dead letter fires the event `reliable_notify_dead_letter` (`id`, `recipient`, `target`, `action`, `priority`, `category`; no message text) and maintains a repair issue while dead letters exist.
 - A recipient may define `fallback: <recipient, group or person>`. When a message to it finally fails, a copy is queued once to the fallback (a fallback copy never falls back again).
+- **Reset errors (3.8.2):** once a cause is fixed, *Settings → Reset errors → Delete all errors* (administrators, with confirmation) or the admin action `reliable_notify.reset_errors` deletes all dead letters, the failed/expired entries of the delivery history and daily statistics (failure analysis) and the counters *Failures*, *Dead letters* and *Expired*, and removes the dead-letter repair issue. Successful deliveries, the archive text (former dead letters are marked `deleted`) and messages still waiting for a retry are kept. The action returns `dead_letters`, `history` and `daily` (deleted counts). Cannot be undone; create a backup first if you need the records.
 
 ## Alarm window (3.6.0)
 
@@ -90,7 +91,7 @@ An acknowledged notification with an `incident` mapping becomes an incident that
 ## Troubleshooting checklist
 
 1. Check disk free bytes and maintenance integrity.
-2. Inspect Queue and Dead Letters in the admin panel and open **Statistics → Failure analysis** for the cause per target.
+2. Inspect Queue and Dead Letters in the admin panel and open **Statistics → Failure analysis** for the cause per target. After fixing the cause, **Settings → Reset errors** gives a clean start.
 3. Use the Simulator to test priority, routing and quiet-hours decisions without sending.
 4. Enable debug for only the failing transport. Logs deliberately omit message bodies and tokens.
 5. Stage a test notification, then assign it to a real recipient once the route is verified.
