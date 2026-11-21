@@ -6,6 +6,35 @@ or credentials are embedded in a notification button.
 from __future__ import annotations
 import hmac
 import hashlib
+import re
+
+# One button of the pre-3.8.3 text keyboard: "Title:RN2.<action>.<id>.<mac>".
+_LEGACY_BUTTON = re.compile(r"^(?P<title>[^,]+?):(?P<token>RN2\.(?:ack|snooze|escalate)\.[0-9a-f]{16}\.[0-9a-f]{20})$")
+
+
+def telegram_keyboard(titles, tokens):
+    """Inline keyboard rows as [title, callback_data] pairs (3.8.3).
+
+    HA's telegram_bot splits text buttons only at ":/", so "Title:RN2..." sent
+    the whole text as callback_data and Telegram rejected it (Button_data_invalid).
+    Pairs make callback_data exactly the signed token (<= 64 bytes).
+    """
+    return [[[titles["ack"], tokens["ack"]], [titles["snooze"], tokens["snooze"]]],
+            [[titles["escalate"], tokens["escalate"]]]]
+
+
+def repair_keyboard(keyboard):
+    """Convert acknowledgement rows queued before 3.8.3 into pairs; other rows stay unchanged."""
+    if not isinstance(keyboard, list):
+        return keyboard
+    rows = []
+    for row in keyboard:
+        if isinstance(row, str):
+            parts = [_LEGACY_BUTTON.match(part.strip()) for part in row.split(",")]
+            if parts and all(parts):
+                row = [[m["title"].strip(), m["token"]] for m in parts]
+        rows.append(row)
+    return rows
 
 
 def action_id(key):

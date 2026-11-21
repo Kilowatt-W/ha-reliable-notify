@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.3
+Fixes found while moving the boiler-room alarms to the alarm window.
+- Telegram acknowledgement buttons (acknowledge / snooze / escalate) failed with `Button_data_invalid`: the keyboard was sent as text `Title:RN2…`, which HA's `telegram_bot` only splits at `:/`, so the whole text became `callback_data` (> 64 bytes). Buttons are now sent as `[title, token]` pairs; `callback_data` is exactly the signed token. Messages queued before the update are repaired when they are delivered, so stuck critical reminders go out after the update.
+- `persistent_notification.dismiss_all` (e.g. a clean-up automation after HA start) no longer acknowledges incidents mirrored to the bell; the open incidents are shown again. Dismissing a single entry still acknowledges it and is now logged at info level.
+
 ## 3.8.2
 - Settings → *Reset errors*: one button (with confirmation, administrators only) deletes all dead letters, the failure analysis (failed and expired entries of the delivery history and daily statistics) and the failure counters, and removes the dead-letter repair issue. Successful deliveries, the archive text and messages still waiting for a retry are kept. Also available as the admin action `reliable_notify.reset_errors` (optional response with the deleted counts).
 

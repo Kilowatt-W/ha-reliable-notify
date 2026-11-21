@@ -50,12 +50,25 @@ def mirror_plan(record, default_mode="none"):
 def dismissed_incidents(update_type, notification_ids, own_removals=()):
     """Incident keys acknowledged because a user removed their bell entry (rn_<key>).
 
-    Removals made by Reliable Notify itself (``own_removals``) are ignored.
+    Removals made by Reliable Notify itself (``own_removals``) are ignored. Dismissing
+    one entry removes exactly one notification; ``persistent_notification.dismiss_all``
+    removes all of them in a single update – that is a clean-up (for example by a
+    start-up automation), not an acknowledgement (3.8.3, see ``bulk_removed_incidents``).
     """
-    if str(update_type) != "removed":
+    if str(update_type) != "removed" or len(notification_ids) != 1:
         return []
-    keys = [nid[3:] for nid in notification_ids if isinstance(nid, str) and nid.startswith("rn_") and len(nid) > 3]
-    return [key for key in keys if key not in own_removals]
+    return [key for key in _mirror_keys(notification_ids) if key not in own_removals]
+
+
+def bulk_removed_incidents(update_type, notification_ids, own_removals=()):
+    """Mirror entries removed together by dismiss_all; they are shown again (3.8.3)."""
+    if str(update_type) != "removed" or len(notification_ids) < 2:
+        return []
+    return [key for key in _mirror_keys(notification_ids) if key not in own_removals]
+
+
+def _mirror_keys(notification_ids):
+    return [nid[3:] for nid in notification_ids if isinstance(nid, str) and nid.startswith("rn_") and len(nid) > 3]
 
 
 def visible_incidents(records, areas=None, message_types=None, min_priority="info",

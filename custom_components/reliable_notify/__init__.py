@@ -38,14 +38,14 @@ from .lifecycle import notification_tag
 from .smart import (DEFAULT_QUIET_HOURS, validate_quiet_hours, next_allowed_timestamp,
                     scheduled_timestamp, validate_route_quiet_hours)
 from .simulation import simulate
-from .incidents import plan_incident, mirror_plan, dismissed_incidents
-from .callbacks import make_token, read_token
+from .incidents import plan_incident, mirror_plan, dismissed_incidents, bulk_removed_incidents
+from .callbacks import make_token, read_token, telegram_keyboard, repair_keyboard
 from .logging_utils import validate_transport_logging, transport_for
 from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliver_native
 
 LANES = ("telegram", "smtp", "notify", "notify")
 PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
-ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.2"
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.3"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -316,7 +316,21 @@ class ReliableNotifyManager:
     def _on_notification_update(self, update_type, notifications):
         """A user dismissed our bell entry: that acknowledges the incident."""
         for key in dismissed_incidents(update_type, notifications, self._mirror_dismissing):
+            # Logged so an unexpected acknowledgement can be traced (dismiss gives no context).
+            _LOGGER.info("Reliable Notify: bell entry rn_%s was dismissed, acknowledging the incident", key)
             self.hass.async_create_task(self.incident_action(key, "ack", "persistent_notification"))
+        restore = bulk_removed_incidents(update_type, notifications, self._mirror_dismissing)
+        if restore:
+            # dismiss_all is a clean-up, not an acknowledgement: show the open incidents again.
+            self.hass.async_create_task(self._restore_mirrors(restore))
+
+    async def _restore_mirrors(self, keys):
+        wanted = set(keys)
+        records = [r for r in await self.store.incidents() if r["dedup_key"] in wanted]
+        for record in records:
+            self.sync_mirror(record)
+        _LOGGER.info("Reliable Notify: dismiss_all removed %s bell entries; open incidents shown again: %s",
+                     len(wanted), len(records))
 
     async def incident_action(self, key, action, by, **options):
         """Acknowledge/snooze/escalate/resolve/reopen from any source (service, panel, card, button)."""
@@ -477,10 +491,8 @@ class ReliableNotifyManager:
             ])
             prepared["data"]=native
         elif action=="telegram_bot.send_message":
-            prepared.setdefault("inline_keyboard",[
-                titles["ack"]+":"+tokens["ack"]+", "+titles["snooze"]+":"+tokens["snooze"],
-                titles["escalate"]+":"+tokens["escalate"],
-            ])
+            # [title, token] pairs: callback_data is exactly the signed token (3.8.3).
+            prepared.setdefault("inline_keyboard",telegram_keyboard(titles,tokens))
         return prepared
 
     def preview(self,data):
@@ -701,6 +713,9 @@ class ReliableNotifyManager:
         (domain, service), payload = create_payload(item)
         if item["action"]=="telegram_bot.send_message":
             payload.setdefault("message_tag",f"rn_{item['id']}")
+            if "inline_keyboard" in payload:
+                # Jobs queued before 3.8.3 still carry the text keyboard Telegram rejects.
+                payload["inline_keyboard"]=repair_keyboard(payload["inline_keyboard"])
         if not self.hass.services.has_service(domain, service):
             # Typically during HA start: wait without using up attempts.
             raise ServiceNotLoaded(f"{domain}.{service} is not loaded")
@@ -981,7 +996,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.2",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.3",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

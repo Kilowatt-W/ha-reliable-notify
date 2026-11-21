@@ -53,7 +53,9 @@ class MirrorPlanTests(unittest.TestCase):
 
     def test_dismissing_a_bell_entry_acknowledges_only_foreign_removals(self):
         found = incidents.dismissed_incidents
-        self.assertEqual(found("removed", {"rn_wasser": 1, "other": 2}), ["wasser"])
+        self.assertEqual(found("removed", {"rn_wasser": 1}), ["wasser"])
+        # Several entries in one update = dismiss_all: no acknowledgement (3.8.3).
+        self.assertEqual(found("removed", {"rn_wasser": 1, "other": 2}), [])
         self.assertEqual(found("removed", ["rn_wasser"], {"wasser"}), [])        # our own removal
         self.assertEqual(found("added", ["rn_wasser"]), [])
         self.assertEqual(found("removed", ["rn_"]), [])
