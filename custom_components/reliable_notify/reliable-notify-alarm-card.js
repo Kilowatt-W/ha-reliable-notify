@@ -1,5 +1,5 @@
-/* Reliable Notify Alarm Card 3.8.3 — open incidents for every dashboard (residents). No external dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnValueLabel, rnPageLanguage } from './reliable-notify-card.js?v=3.8.3';
+/* Reliable Notify Alarm Card 3.8.4 — open incidents for every dashboard (residents). No external dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnValueLabel, rnPageLanguage } from './reliable-notify-card.js?v=3.8.4';
 
 const RN_ALARM_PRIORITIES=['info','warning','critical'];
 const RN_ALARM_STYLES=`
@@ -23,7 +23,27 @@ const RN_ALARM_STYLES=`
   button.ack{font-weight:700}
   button:focus-visible{outline:2px solid var(--primary-color,#03a9f4);outline-offset:2px}
   button ha-icon{--mdc-icon-size:18px;color:var(--rn-band)}
-  .compact .band{padding:8px 12px}.compact .head{font-size:14px}
+  .compact{gap:6px}
+  .compact .band{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:6px 10px;border-left-width:5px;border-radius:10px}
+  .compact .head{flex:1 1 14em;min-width:0;font-size:14px;gap:8px;flex-wrap:wrap}
+  .compact .head ha-icon{--mdc-icon-size:20px}
+  .compact .meta{margin:0;font-size:12px;font-weight:400}
+  .compact .text{flex:1 1 100%;margin:0;font-size:13px}
+  .compact .actions{margin:0;gap:6px;flex:none}
+  .compact button{min-height:32px;padding:4px 10px}
+  .toggle{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+  .summary{width:100%;justify-content:flex-start;text-align:left;border-left:6px solid var(--rn-band);border-radius:12px;min-height:44px;padding:8px 12px;
+    background:color-mix(in srgb,var(--rn-band) 14%,var(--card-background-color,#fff));font-weight:700;flex-wrap:wrap}
+  .summary[data-priority=critical]{--rn-band:var(--error-color,#db4437)}
+  .summary[data-priority=warning]{--rn-band:var(--warning-color,#f4b400)}
+  .summary[data-priority=info]{--rn-band:var(--info-color,#039be5)}
+  .summary .label{flex:1 1 auto}
+  .pill{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--rn-pill);color:var(--primary-text-color);
+    background:color-mix(in srgb,var(--rn-pill) 18%,transparent)}
+  .pill[data-priority=critical]{--rn-pill:var(--error-color,#db4437)}
+  .pill[data-priority=warning]{--rn-pill:var(--warning-color,#f4b400)}
+  .pill[data-priority=info]{--rn-pill:var(--info-color,#039be5)}
+  .summary .more{font-weight:400;display:inline-flex;align-items:center;gap:4px}
   .error{color:var(--error-color,#db4437);font-size:13px;margin:4px 0 0}
 `;
 
@@ -41,9 +61,12 @@ class ReliableNotifyAlarmCard extends HTMLElement {
     const snooze=c.snooze_minutes===undefined?[15]:c.snooze_minutes;
     if(!Array.isArray(snooze)||snooze.length>3||snooze.some(m=>!Number.isInteger(m)||m<1||m>1440))
       throw new Error('snooze_minutes must be up to three whole numbers between 1 and 1440');
+    const collapse=c.collapse_from===undefined||c.collapse_from===null?null:c.collapse_from;
+    if(collapse!==null&&(!Number.isInteger(collapse)||collapse<2||collapse>50))throw new Error('collapse_from must be a whole number between 2 and 50');
     this._config={areas:list(c.areas,'areas'),message_types:list(c.message_types,'message_types'),
       min_priority:c.min_priority||'info',show_acknowledged:c.show_acknowledged===true,snooze_minutes:snooze,
-      confirm_acknowledge:c.confirm_acknowledge!==false,compact:c.compact===true};
+      confirm_acknowledge:c.confirm_acknowledge!==false,compact:c.compact===true,collapse_from:collapse};
+    this._expanded=false;this._openTexts=new Set();
     if(!this.shadowRoot)this.attachShadow({mode:'open'});
     this._unsubscribe();this._data=null;
     if(this._hass)this._subscribe();else this.render();
@@ -87,7 +110,39 @@ class ReliableNotifyAlarmCard extends HTMLElement {
     this.hidden=!visible;this.style.display=visible?'':'none';
     this.dispatchEvent(new Event('card-visibility-changed',{bubbles:true,composed:true}));
   }
-  getCardSize(){return Math.max(1,(this._data?.incidents||[]).length*2);}
+  getCardSize(){
+    const incidents=this._data?.incidents||[],{shown,hidden}=this._split(incidents);
+    return Math.max(1,shown.length*(this._config?.compact?1:2)+(hidden.length?1:0));
+  }
+  _split(incidents){
+    // Critical incidents that are not acknowledged are never folded away; the rest is combined from collapse_from on.
+    const limit=this._config?.collapse_from;
+    const pinned=incident=>incident.priority==='critical'&&incident.state!=='acknowledged';
+    const rest=incidents.filter(incident=>!pinned(incident));
+    const foldable=Boolean(limit&&incidents.length>=limit&&rest.length>=2);
+    if(!foldable||this._expanded)return {shown:incidents,hidden:[],rest,foldable};
+    return {shown:incidents.filter(pinned),hidden:rest,rest,foldable};
+  }
+  summary(rest,collapsed,pinned){
+    // One row for the folded incidents: count, coloured count per priority, show/hide.
+    const node=document.createElement('button');node.type='button';node.className='summary';
+    node.setAttribute('aria-expanded',String(!collapsed));
+    node.dataset.priority=RN_ALARM_PRIORITIES.slice().reverse().find(p=>rest.some(i=>i.priority===p))||'info';
+    const label=document.createElement('span');label.className='label';
+    label.textContent=this.t(pinned?'{count} weitere Alarme':'{count} offene Alarme',{count:rest.length});
+    node.append(rnIcon('mdi:alarm-light-outline'),label);
+    for(const priority of RN_ALARM_PRIORITIES.slice().reverse()){
+      const count=rest.filter(i=>i.priority===priority).length;if(!count)continue;
+      const pill=document.createElement('span');pill.className='pill';pill.dataset.priority=priority;
+      pill.textContent=count+' × '+rnValueLabel(this._hass,'priority',priority);node.append(pill);
+    }
+    const more=document.createElement('span');more.className='more';
+    more.append(rnIcon(collapsed?'mdi:chevron-down':'mdi:chevron-up'),document.createTextNode(this.t(collapsed?'Anzeigen':'Weniger anzeigen')));
+    node.append(more);
+    node.addEventListener('click',()=>{this._expanded=collapsed;this.render();
+      this.dispatchEvent(new Event('iron-resize',{bubbles:true,composed:true}));});
+    return node;
+  }
   time(seconds){
     const date=new Date(seconds*1000),now=new Date(),language=rnLanguage(this._hass);
     return date.toDateString()===now.toDateString()
@@ -101,38 +156,59 @@ class ReliableNotifyAlarmCard extends HTMLElement {
       this._actionError=null;
     }catch(error){this._actionError=error?.message||String(error);this.render();}
   }
-  button(label,icon,className,handler){
+  button(label,icon,className,handler,ariaLabel){
     const node=document.createElement('button');node.type='button';node.className=className;
+    if(ariaLabel)node.setAttribute('aria-label',ariaLabel);
     node.append(rnIcon(icon),document.createTextNode(label));node.addEventListener('click',handler);return node;
   }
+  _pressable(node,handler){
+    node.tabIndex=0;node.setAttribute('role','button');
+    node.addEventListener('click',handler);
+    node.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();handler();}});
+  }
   band(incident,permissions){
+    const compact=this._config.compact;
     const band=document.createElement('div');band.className='band';
     band.dataset.priority=incident.priority;band.dataset.state=incident.state;band.setAttribute('role','alert');
     const head=document.createElement('div');head.className='head';
     const icon=incident.state==='resolved'?'mdi:check-circle-outline':incident.state==='acknowledged'?'mdi:check':'mdi:alarm-light-outline';
     const title=document.createElement('span');title.textContent=incident.title||incident.dedup_key;
+    const textOpen=compact&&this._openTexts.has(incident.dedup_key);
     if(incident.source_entity){
       // Tap on the title opens the cause entity (HA more-info dialog).
-      title.className='source';title.tabIndex=0;title.setAttribute('role','button');
-      const open=()=>this.dispatchEvent(new CustomEvent('hass-more-info',{detail:{entityId:incident.source_entity},bubbles:true,composed:true}));
-      title.addEventListener('click',open);title.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();open();}});
+      title.className='source';
+      this._pressable(title,()=>this.dispatchEvent(new CustomEvent('hass-more-info',{detail:{entityId:incident.source_entity},bubbles:true,composed:true})));
+    }else if(compact&&incident.text){
+      // Compact: tap on the title shows or hides the description.
+      title.className='toggle';title.setAttribute('aria-expanded',String(textOpen));
+      this._pressable(title,()=>{
+        if(this._openTexts.has(incident.dedup_key))this._openTexts.delete(incident.dedup_key);else this._openTexts.add(incident.dedup_key);
+        this.render();
+      });
     }
+    if(compact&&incident.text)band.title=incident.text;
     head.append(rnIcon(icon),title);band.append(head);
-    if(incident.text&&!this._config.compact){const text=document.createElement('p');text.className='text';text.textContent=incident.text;band.append(text);}
+    if(incident.text&&(!compact||textOpen)){const text=document.createElement('p');text.className='text';text.textContent=incident.text;band.append(text);}
     const meta=[this.t('seit {time}',{time:this.time(incident.opened_at)})];
-    if(incident.source_entity){
+    if(incident.source_entity&&!compact){
       const cause=this._hass?.states?.[incident.source_entity];
       meta.push(this.t('Ursache: {name}',{name:cause?.attributes?.friendly_name||incident.source_entity}));
     }
     if(incident.state==='resolved'&&incident.resolved_at)meta.push(this.t('behoben um {time}',{time:this.time(incident.resolved_at)}));
     if(incident.state==='acknowledged')meta.push(this.t('quittiert von {name}, besteht noch',{name:incident.acknowledged_by||'?'}));
     if(incident.snoozed_until)meta.push(this.t('Erinnerungen pausiert bis {time}',{time:this.time(incident.snoozed_until)}));
-    const line=document.createElement('p');line.className='meta';line.textContent=meta.join(' · ');band.append(line);
+    const line=document.createElement(compact?'span':'p');line.className='meta';line.textContent=meta.join(' · ');
+    if(compact)head.append(line);else band.append(line);
     if(incident.state!=='acknowledged'){
       const actions=document.createElement('div');actions.className='actions';
       if(permissions.ack)actions.append(this.button(this.t('Quittieren'),'mdi:check-circle-outline','ack',()=>this.act(incident,'ack')));
-      if(permissions.snooze)for(const minutes of this._config.snooze_minutes)
-        actions.append(this.button(this.t('Schlummern {minutes} min',{minutes}),'mdi:alarm-snooze','snooze',()=>this.act(incident,'snooze',minutes)));
+      if(permissions.snooze)for(const minutes of this._config.snooze_minutes){
+        const label=this.t('Schlummern {minutes} min',{minutes});
+        // Compact keeps a short visible label; screen readers still hear the full one.
+        actions.append(compact
+          ?this.button(this.t('{minutes} min',{minutes}),'mdi:alarm-snooze','snooze',()=>this.act(incident,'snooze',minutes),label)
+          :this.button(label,'mdi:alarm-snooze','snooze',()=>this.act(incident,'snooze',minutes)));
+      }
       if(permissions.escalate&&incident.state==='active'&&incident.escalation_step<incident.escalation_steps)
         actions.append(this.button(this.t('Eskalieren'),'mdi:alert-outline','escalate',()=>this.act(incident,'escalate')));
       if(actions.childElementCount)band.append(actions);
@@ -150,7 +226,9 @@ class ReliableNotifyAlarmCard extends HTMLElement {
     if(this._error){const error=document.createElement('p');error.className='error';
       error.textContent=this.t('Alarmfenster nicht verfügbar:')+' '+(this._error.message||this._error.code||'');card.append(error);}
     const permissions=this._data?.permissions||{};
-    for(const incident of incidents)card.append(this.band(incident,permissions));
+    const {shown,hidden,rest,foldable}=this._split(incidents);
+    for(const incident of shown)card.append(this.band(incident,permissions));
+    if(foldable)card.append(this.summary(rest,hidden.length>0,incidents.length>rest.length));
     if(this._actionError){const error=document.createElement('p');error.className='error';
       error.textContent=this.t('Aktion nicht möglich:')+' '+this._actionError;card.append(error);}
     root.append(card);
@@ -184,7 +262,7 @@ class ReliableNotifyAlarmCardEditor extends HTMLElement {
     const style=document.createElement('style');
     style.textContent=`.row{display:flex;flex-direction:column;gap:4px;margin:0 0 12px;font-size:14px;color:var(--primary-text-color)}
       .check{flex-direction:row;align-items:center;gap:8px}
-      input[type=text],select{padding:8px;border-radius:6px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color);font:inherit}
+      input[type=text],input[type=number],select{padding:8px;border-radius:6px;border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color);font:inherit}
       .error{color:var(--error-color,#db4437);font-size:13px;margin:-6px 0 12px}`;
     root.append(style);
     const text=(key)=>{const input=document.createElement('input');input.type='text';input.name=key;input.value=(c[key]||[]).join(', ');return input;};
@@ -209,6 +287,16 @@ class ReliableNotifyAlarmCardEditor extends HTMLElement {
       input.addEventListener('change',()=>this._set(key,input.checked,fallback));
       const row=this.field(label,input);row.classList.add('check');row.append(row.firstChild);return row;
     };
+    const collapse=document.createElement('input');collapse.type='number';collapse.name='collapse_from';
+    collapse.min='2';collapse.max='50';collapse.step='1';collapse.inputMode='numeric';
+    collapse.value=c.collapse_from===undefined||c.collapse_from===null?'':String(c.collapse_from);
+    const collapseError=document.createElement('p');collapseError.className='error';collapseError.setAttribute('role','alert');
+    collapse.addEventListener('change',()=>{
+      const raw=collapse.value.trim(),value=Number(raw);
+      if(raw&&(!Number.isInteger(value)||value<2||value>50)){collapseError.textContent=this.t('Zusammenfassen: ganze Zahl 2–50 oder leer.');return;}
+      collapseError.textContent='';
+      this._set('collapse_from',raw?value:undefined);
+    });
     root.append(
       this.field(this.t('Bereiche (kommagetrennt, leer = alle)'),areas),
       this.field(this.t('Nachrichtentypen (kommagetrennt, leer = alle)'),types),
@@ -216,7 +304,8 @@ class ReliableNotifyAlarmCardEditor extends HTMLElement {
       this.field(this.t('Schlummer-Knöpfe in Minuten (bis zu 3, kommagetrennt)'),snooze),error,
       check('show_acknowledged',this.t('Quittierte, noch bestehende Vorfälle anzeigen'),false),
       check('confirm_acknowledge',this.t('Vor dem Quittieren nachfragen'),true),
-      check('compact',this.t('Kompakte Darstellung'),false));
+      check('compact',this.t('Kompakte Darstellung (eine Zeile pro Alarm)'),false),
+      this.field(this.t('Ab so vielen Alarmen zu einer Zeile zusammenfassen (leer = nie; kritische bleiben sichtbar)'),collapse),collapseError);
   }
 }
 if(!customElements.get('reliable-notify-alarm-card-editor'))customElements.define('reliable-notify-alarm-card-editor',ReliableNotifyAlarmCardEditor);

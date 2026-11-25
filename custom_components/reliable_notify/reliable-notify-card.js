@@ -1021,7 +1021,18 @@ RN_TRANSLATIONS.push(...[
   ['Schlummer-Minuten: ganze Zahlen 1–1440, höchstens drei.','Snooze minutes: whole numbers 1–1440, at most three.'],
   ['Quittierte, noch bestehende Vorfälle anzeigen','Show acknowledged incidents that still persist'],
   ['Vor dem Quittieren nachfragen','Ask before acknowledging'],
-  ['Kompakte Darstellung','Compact layout'],
+  ['Kompakte Darstellung (eine Zeile pro Alarm)','Compact layout (one row per alarm)'],
+]);
+// 3.8.4: compact alarm rows and combining many alarms into one row.
+RN_TRANSLATIONS.push(...[
+  ['{minutes} min','{minutes} min'],
+  ['Ab so vielen Alarmen zu einer Zeile zusammenfassen (leer = nie; kritische bleiben sichtbar)',
+   'Combine into one row from this many alarms (empty = never; critical ones stay visible)'],
+  ['Zusammenfassen: ganze Zahl 2–50 oder leer.','Combine: whole number 2–50 or empty.'],
+  ['{count} offene Alarme','{count} open alarms'],
+  ['{count} weitere Alarme','{count} more alarms'],
+  ['Anzeigen','Show'],
+  ['Weniger anzeigen','Show less'],
 ]);
 // 3.8.2: reset all errors in the settings.
 RN_TRANSLATIONS.push(...[
@@ -1079,7 +1090,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.8.3 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.8.4 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

@@ -510,6 +510,75 @@ test('alarm card options: compact, acknowledged state, admin escalation and inva
   card.remove();
 });
 
+test('compact alarm card: one row per alarm with short labelled buttons, description on tap, German and English',async()=>{
+  const now=Date.now()/1000;
+  const payload={permissions:{ack:true,snooze:true,escalate:false},incidents:[
+    {dedup_key:'heizung',title:'Alarm Heizung',text:'Brenner prüfen.',priority:'critical',state:'active',opened_at:now,escalation_step:0,escalation_steps:0},
+    {dedup_key:'brand',title:'Alarm Brandmelder',text:'Batterie tauschen.',priority:'warning',state:'active',opened_at:now,escalation_step:0,escalation_steps:0,source_entity:'sensor.rauch'}]};
+  for(const [language,ack,full] of [['de','Quittieren','Schlummern 15 min'],['en','Acknowledge','Snooze 15 min']]){
+    const {card,hass,dom}=alarmSetup(language,payload);
+    card.setConfig({compact:true,snooze_minutes:[15,60]});card.hass=hass;await tick();
+    const root=card.shadowRoot,bands=[...root.querySelectorAll('.band')];
+    assert.equal(root.querySelector('ha-card').classList.contains('compact'),true);
+    // Title, "since" and buttons sit in one row: the meta line moves into the head, no description, no cause text.
+    assert.equal(bands[0].querySelector('.head .meta')!==null,true);
+    assert.equal(bands[0].querySelector('.text'),null);
+    assert.equal(bands[0].title,'Brenner prüfen.');
+    assert.doesNotMatch(bands[1].textContent,/Ursache|Cause/);
+    const buttons=[...bands[0].querySelectorAll('button')];
+    assert.deepEqual(buttons.map(b=>b.textContent),[ack,'15 min','60 min']);
+    assert.deepEqual(buttons.slice(1).map(b=>b.getAttribute('aria-label')),[full,full.replace('15','60')]);
+    // Without a cause entity the title shows the description; with one it opens the cause.
+    const toggle=bands[0].querySelector('.toggle');
+    assert.equal(toggle.getAttribute('aria-expanded'),'false');
+    toggle.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter'}));
+    assert.equal(root.querySelector('.band .text').textContent,'Brenner prüfen.');
+    assert.equal(root.querySelector('.band .toggle').getAttribute('aria-expanded'),'true');
+    root.querySelector('.band .toggle').click();
+    assert.equal(root.querySelector('.band .text'),null);
+    const opened=[];card.addEventListener('hass-more-info',event=>opened.push(event.detail.entityId));
+    root.querySelectorAll('.band')[1].querySelector('.source').click();
+    assert.deepEqual(opened,['sensor.rauch']);
+    assert.equal(card.getCardSize(),2);
+    card.remove();
+  }
+});
+
+test('alarm card combines many alarms into one row but never folds away critical ones',async()=>{
+  const now=Date.now()/1000;
+  const incident=(key,priority,state='active')=>({dedup_key:key,title:key,text:'',priority,state,opened_at:now,escalation_step:0,escalation_steps:0});
+  const payload={permissions:{ack:true,snooze:true},incidents:[incident('heizung','critical'),incident('brand','warning'),incident('fenster','warning'),incident('info','info')]};
+  for(const [language,more,show,less,warn] of [['de','3 weitere Alarme','Anzeigen','Weniger anzeigen','2 × Warnung'],['en','3 more alarms','Show','Show less','2 × Warning']]){
+    const {card,hass}=alarmSetup(language,payload);
+    card.setConfig({compact:true,collapse_from:3});card.hass=hass;await tick();
+    const root=card.shadowRoot;
+    assert.deepEqual([...root.querySelectorAll('.band')].map(b=>b.dataset.priority),['critical']);
+    let summary=root.querySelector('button.summary');
+    assert.equal(summary.querySelector('.label').textContent,more);
+    assert.deepEqual([...summary.querySelectorAll('.pill')].map(p=>p.textContent),[warn,'1 × Information']);
+    assert.equal(summary.dataset.priority,'warning');
+    assert.equal(summary.getAttribute('aria-expanded'),'false');assert.match(summary.textContent,new RegExp(show+'$'));
+    assert.equal(card.getCardSize(),2);
+    summary.click();
+    assert.equal(root.querySelectorAll('.band').length,4);
+    summary=root.querySelector('button.summary');
+    assert.equal(summary.getAttribute('aria-expanded'),'true');assert.match(summary.textContent,new RegExp(less+'$'));
+    summary.click();assert.equal(root.querySelectorAll('.band').length,1);
+    // Below the limit, or with only critical alarms, everything stays visible without a summary row.
+    card.setConfig({collapse_from:5});await tick();
+    assert.equal(root.querySelectorAll('.band').length,4);assert.equal(root.querySelector('.summary'),null);
+    card.remove();
+  }
+  const {card,hass,push}=alarmSetup('de',{permissions:{},incidents:[incident('a','critical'),incident('b','critical'),incident('c','critical')]});
+  card.setConfig({collapse_from:2});card.hass=hass;await tick();
+  assert.equal(card.shadowRoot.querySelectorAll('.band').length,3);assert.equal(card.shadowRoot.querySelector('.summary'),null);
+  push({permissions:{},incidents:[incident('a','warning'),incident('b','info')]});
+  assert.equal(card.shadowRoot.querySelectorAll('.band').length,0);
+  assert.equal(card.shadowRoot.querySelector('.summary .label').textContent,'2 offene Alarme');
+  for(const bad of [{collapse_from:1},{collapse_from:2.5},{collapse_from:'3'},{collapse_from:51}])assert.throws(()=>card.setConfig(bad));
+  card.remove();
+});
+
 test('alarm card names the watched cause and opens it on tap',async()=>{
   const payload={permissions:{ack:true,snooze:true},incidents:[{dedup_key:'brenner',title:'Brennerstörung',text:'Entstören',
     priority:'critical',state:'resolved',opened_at:Date.now()/1000-60,resolved_at:Date.now()/1000,escalation_step:0,escalation_steps:0,
@@ -551,6 +620,16 @@ test('alarm card editor writes the YAML options and validates snooze minutes',as
     assert.equal('compact' in configs.at(-1),false);
     field('areas').value='';change(field('areas'));
     assert.equal('areas' in configs.at(-1),false);
+    // collapse_from: whole number 2–50, empty removes the option.
+    assert.equal(field('collapse_from').value,'');
+    const count=configs.length;
+    field('collapse_from').value='1';change(field('collapse_from'));
+    assert.equal(configs.length,count);
+    assert.match([...root.querySelectorAll('.error')].at(-1).textContent,language==='de'?/ganze Zahl 2–50/:/whole number 2–50/);
+    field('collapse_from').value='3';change(field('collapse_from'));
+    assert.equal(configs.at(-1).collapse_from,3);assert.equal([...root.querySelectorAll('.error')].at(-1).textContent,'');
+    field('collapse_from').value='';change(field('collapse_from'));
+    assert.equal('collapse_from' in configs.at(-1),false);
     card.remove();
   }
 });

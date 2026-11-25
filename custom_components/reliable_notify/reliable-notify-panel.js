@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.3 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.3';
+/* Reliable Notify Admin Panel 3.8.4 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.4';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
