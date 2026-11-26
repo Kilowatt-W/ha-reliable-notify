@@ -1,6 +1,9 @@
 # Changelog
 
-## 3.8.9
+## 3.9.0
+- **Automation check makes real proposals.** On a real installation 183 of 206 notify actions now get a proposal (before: 31). The empty `metadata: {}` HA's editor adds no longer blocks a proposal and is kept; Companion `data` (tag, channel, sticky …) and Telegram fields are carried over – via `reliable_notify.enqueue` when a field is named like a Reliable Notify option (`priority`, `ttl` …); `target: device_id` is resolved to the device's only notify entity. Clear reasons for the rest: response used later (`response_variable`), notify service no longer exists, template/multiple targets. `notify.persistent_notification` is not listed.
+- Panel: overview of manual entries by reason, proposals first, replacement as copyable YAML, **Open in the HA editor** for `automations.yaml`/`scripts.yaml` entries, and **Create a target for it** (prefilled, not saved) when no target matches.
+- **Fix:** the classic `notify.reliable_<route>` services dropped Companion fields in `data` (e.g. `tag`, `channel`, `sticky`) because they were passed as top-level transport keys. They now reach the Companion app as its `data` and are merged with the target's default `data` (explicit values win); Telegram fields stay top-level. Per-message `data` of `reliable_notify.enqueue` for classic notify targets is merged with the target's default `data` instead of replacing it.
 - Target list: one compact row per entry – type icon, name, the notify entity / HA action (or group members, person channels) right next to the name, and *Send test* at the right edge. Long details are shortened with the full text on hover; on narrow screens the detail moves below the name.
 - Every section heading uses the same icon and colour as its navigation button (e.g. *Targets* now shows the people icon, the message card in the panel the messages icon). The standalone Lovelace card keeps its icon; it accepts an optional `icon` option.
 

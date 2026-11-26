@@ -537,8 +537,16 @@ def register_dashboard(hass):
             connection.send_error(msg["id"], "not_loaded", "Integration unavailable")
             return
         from .migration_scan import scan_automation_files
-        report=await scan_automation_files(hass.config.config_dir,manager.routes,
-                                           manager.own_notify_entities())
+        from homeassistant.helpers import entity_registry as er
+        own=manager.own_notify_entities()
+        devices={}
+        for entry in er.async_get(hass).entities.values():
+            # Notify entities per device, for automations that target a device (3.9.0).
+            if (entry.domain=="notify" and entry.device_id and not entry.disabled_by
+                    and not is_own_entity(entry.entity_id,own)):
+                devices.setdefault(entry.device_id,[]).append(entry.entity_id)
+        services=frozenset(hass.services.async_services().get("notify",{}))
+        report=await scan_automation_files(hass.config.config_dir,manager.routes,own,devices,services)
         connection.send_result(msg["id"],report)
 
     @websocket_api.websocket_command({

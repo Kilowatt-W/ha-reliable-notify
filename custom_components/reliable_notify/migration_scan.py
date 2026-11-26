@@ -34,7 +34,10 @@ def _failure(path, code, **extra):
     return {"file": path.name, "error_code": code, "error": ERRORS[code], "proposals": [], **extra}
 
 
-def _inspect_one(path, routes, own_entities=frozenset()):
+EDIT_URLS = {"automation": "/config/automation/edit/{id}", "script": "/config/script/edit/{id}"}
+
+
+def _inspect_one(path, routes, own_entities=frozenset(), devices=None, editable_ui=False, services=None):
     if path.is_symlink():
         return _failure(path, "symlink")
     if not path.is_file():
@@ -57,8 +60,12 @@ def _inspect_one(path, routes, own_entities=frozenset()):
     if not isinstance(parsed,(dict,list)):
         return _failure(path, "not_automation_yaml")
     try:
-        proposals=analyze(parsed,routes,own_entities=own_entities)
+        proposals=analyze(parsed,routes,own_entities=own_entities,devices=devices,services=services)
         for entry in proposals:
+            owner=entry.pop("owner",None)
+            if editable_ui and owner:
+                # HA's own editor for UI-managed automations.yaml / scripts.yaml (3.9.0).
+                entry["edit_url"]=EDIT_URLS[owner["kind"]].format(id=owner["id"])
             if entry["status"]=="proposed":
                 old={"action":entry["source"]}
                 new=entry["replacement"]
@@ -90,11 +97,16 @@ def _candidate_paths(root):
     return candidates[:200]
 
 
-async def scan_automation_files(config_dir, routes, own_entities=frozenset()):
-    """Read-only package-aware analyzer, bounded to fixed user config locations."""
+async def scan_automation_files(config_dir, routes, own_entities=frozenset(), devices=None, services=None):
+    """Read-only package-aware analyzer, bounded to fixed user config locations.
+
+    ``devices`` maps a device id to its notify entities, so ``target: device_id``
+    can be resolved when the device has exactly one notify entity.
+    """
     root=Path(config_dir)
+    ui_files={root/"automations.yaml",root/"scripts.yaml"}
     reports=await asyncio.gather(*[
-        asyncio.to_thread(_inspect_one,path,routes,frozenset(own_entities))
+        asyncio.to_thread(_inspect_one,path,routes,frozenset(own_entities),devices,path in ui_files,services)
         for path in _candidate_paths(root)
     ])
     for result in reports:

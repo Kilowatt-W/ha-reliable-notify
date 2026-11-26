@@ -28,6 +28,9 @@ REASONS = {
     "multiple_routes": "Multiple routes match destination",
     "transport_data": "Transport-specific data must be reviewed",
     "missing_message": "Missing message",
+    "response_used": "The action's response is used later (e.g. a Telegram message ID)",
+    "unambiguous_data": "Unambiguous static destination; transport data is carried over",
+    "unknown_service": "This notify action does not exist in Home Assistant",
     "yaml_tags": "Uses YAML tags such as !secret or !include; review manually",
     "unambiguous": "Unambiguous static destination",
 }
@@ -77,6 +80,18 @@ def _plain(value):
     return False
 
 
+# Options of the classic notify.reliable_<route> services (notify_compat.EXTRAS);
+# transport data using these names must go through reliable_notify.enqueue instead.
+COMPAT_OPTIONS = frozenset((
+    "priority", "message_type", "archive", "archive_days",
+    "dedup_key", "strategy", "ttl", "test_mode", "only_if",
+    "acknowledgement", "profile",
+))
+# Copied unchanged into a suggestion; metadata is the empty object HA's editor adds.
+COPIED_FIELDS = ("alias", "continue_on_error", "enabled", "metadata")
+NOT_DELIVERIES = frozenset(("notify.persistent_notification",))
+
+
 def _manual(code, action, **extra):
     return {"status": "manual", "reason_code": code, "reason": REASONS[code], "source": action, **extra}
 
@@ -116,7 +131,19 @@ def _already_reliable(destination,own_entities):
                                  or item in own_entities) for item in targets)
 
 
-def inspect_action(node,index,own_entities=frozenset()):
+def _suggested_target(action,destination):
+    """Target definition an admin can create when no route matches yet."""
+    if action=="notify.send_message" and isinstance(destination,str) and destination.startswith("notify."):
+        return {"action":action,"target_entity":destination}
+    if action.startswith("telegram_bot.") and isinstance(destination,(str,int)) and destination!="":
+        key="entity_id" if str(destination).startswith("notify.") else "chat_id"
+        return {"action":"telegram_bot.send_message","data":{key:destination}}
+    if action.startswith("notify.") and action!="notify.send_message":
+        return {"action":action}
+    return None
+
+
+def inspect_action(node,index,own_entities=frozenset(),devices=None,services=None):
     """Return safe migration metadata or reason it requires manual review.
 
     Actions that already deliver through Reliable Notify (classic
@@ -128,19 +155,32 @@ def inspect_action(node,index,own_entities=frozenset()):
     if not (action.startswith("notify.") or action.startswith("telegram_bot.")
             or action.startswith("smtp.")):
         return None
-    if action.startswith("notify.reliable_"):
+    if action.startswith("notify.reliable_") or action in NOT_DELIVERIES:
         return None
     if "service_template" in node or "data_template" in node:
         return _manual("templated",action)
+    if (services is not None and action.startswith("notify.") and action!="notify.send_message"
+            and action.split(".",1)[1] not in services):
+        # Removed or renamed service (e.g. a deleted YAML notify group): fails today already.
+        return _manual("unknown_service",action)
     body=node.get("data",{})
     if not isinstance(body,dict):
         return _manual("yaml_tags" if isinstance(body,Tagged) else "non_object_data",action)
     target=node.get("target",{})
     if target is None:
         target={}
+    if (isinstance(target,dict) and set(target)=={"device_id"} and action=="notify.send_message"
+            and devices is not None):
+        # A device target means the device's notify entity (3.9.0); only when exactly one exists.
+        ids=target["device_id"] if isinstance(target["device_id"],list) else [target["device_id"]]
+        found=[entity for device in ids if isinstance(device,str) for entity in devices.get(device,())]
+        if len(ids)==1 and len(found)==1:
+            target={"entity_id":found[0]}
     if not isinstance(target,dict) or set(target)-{"entity_id"}:
         return _manual("complex_target",action)
-    keys=set(node)-{"action","service","data","target","alias","continue_on_error","enabled"}
+    keys=set(node)-{"action","service","data","target",*COPIED_FIELDS}
+    if "response_variable" in keys:
+        return _manual("response_used",action)
     if keys:
         return _manual("advanced_fields",action)
     destination=""
@@ -170,38 +210,68 @@ def inspect_action(node,index,own_entities=frozenset()):
         return _manual("dynamic_destination",action)
     matches=index.get((action,str(destination)),[])
     if len(matches)!=1:
-        return _manual("no_route" if not matches else "multiple_routes",action)
+        if matches:
+            return _manual("multiple_routes",action)
+        suggestion=_suggested_target(action,destination)
+        return _manual("no_route",action,**({"suggested_target":suggestion} if suggestion else {}))
     route=matches[0]
-    extra=set(body)-{"title","message"}
+    extra={key:value for key,value in body.items() if key not in ("title","message")}
     if action.startswith("telegram_bot."):
-        extra-={"chat_id","entity_id","config_entry_id"}
-    if extra:
-        return _manual("transport_data",action,suggested_route=route)
+        extra={key:value for key,value in extra.items() if key not in ("chat_id","entity_id","config_entry_id")}
     if "message" not in body:
         return _manual("missing_message",action)
-    copied={key:node[key] for key in ("alias","continue_on_error","enabled") if key in node}
+    copied={key:node[key] for key in COPIED_FIELDS if key in node}
     if not _plain(body.get("message")) or not _plain(body.get("title")) or not _plain(copied):
         # Never copy unresolved !secret/!include values into a suggestion.
         return _manual("yaml_tags",action,suggested_route=route)
-    replacement={
-        "action":"notify.reliable_"+route,
-        "data":{"message":deepcopy(body["message"])}
-    }
+    # Transport data: the classic notify service's own data (Companion: tag, channel, actions ...)
+    # or Telegram fields (parse_mode, keyboards ...). notify.send_message accepts none.
+    transport=None
+    if extra:
+        if action=="notify.send_message":
+            return _manual("transport_data",action,suggested_route=route)
+        if action.startswith("telegram_bot."):
+            transport=extra
+        elif set(extra)=={"data"} and isinstance(extra["data"],dict):
+            transport=extra["data"]
+        else:
+            return _manual("transport_data",action,suggested_route=route)
+        if not _plain(transport):
+            return _manual("yaml_tags",action,suggested_route=route)
+    texts={"message":deepcopy(body["message"])}
     if "title" in body:
-        replacement["data"]["title"]=deepcopy(body["title"])
+        texts["title"]=deepcopy(body["title"])
+    if transport and set(transport)&COMPAT_OPTIONS:
+        # Names like priority/ttl would be read as Reliable Notify options by the classic
+        # service; the explicit service keeps them as transport data.
+        nested={"data":deepcopy(transport)} if not action.startswith("telegram_bot.") else deepcopy(transport)
+        replacement={"action":"reliable_notify.enqueue","data":{"recipients":[route],**texts,"data":nested}}
+    else:
+        replacement={"action":"notify.reliable_"+route,"data":dict(texts)}
+        if transport:
+            replacement["data"]["data"]=deepcopy(transport)
     replacement.update(deepcopy(copied))
+    code="unambiguous_data" if transport else "unambiguous"
     return {"status":"proposed","source":action,"route":route,"replacement":replacement,
-            "reason_code":"unambiguous","reason":REASONS["unambiguous"]}
+            "reason_code":code,"reason":REASONS[code]}
 
 
-def analyze(root,routes,limit=300,own_entities=frozenset()):
+def _owner(path,obj,root):
+    """Automation id for an entry of automations.yaml (a top-level list item with an id)."""
+    if (isinstance(root,list) and path.startswith("root[") and path.count("[")==1
+            and isinstance(obj,dict) and obj.get("id")):
+        return {"kind":"automation","id":str(obj["id"])}
+    return None
+
+
+def analyze(root,routes,limit=300,own_entities=frozenset(),devices=None,services=None):
     """Inspect nested sequences/choose/repeat/parallel without mutating YAML."""
     if not isinstance(root,(dict,list)) or not 1<=limit<=2000:
         raise ValueError("invalid automation document or suggestion limit")
     index=route_targets(routes)
     results=[]
     visited=set()
-    def walk(obj,path,automation="",depth=0):
+    def walk(obj,path,automation="",depth=0,owner=None):
         if len(results)>=limit or depth>32:
             return
         if isinstance(obj,(dict,list)):
@@ -211,14 +281,17 @@ def analyze(root,routes,limit=300,own_entities=frozenset()):
             visited.add(identity)
         if isinstance(obj,list):
             for idx,item in enumerate(obj):
-                walk(item,f"{path}[{idx}]",automation,depth+1)
+                walk(item,f"{path}[{idx}]",automation,depth+1,owner)
         elif isinstance(obj,dict):
+            owner=_owner(path,obj,root) or owner
+            if depth==1 and isinstance(root,dict) and isinstance(obj.get("sequence"),list):
+                owner={"kind":"script","id":path[5:]}  # scripts.yaml: key below root
             label=str(obj.get("alias") or obj.get("id") or automation)
-            inspection=inspect_action(obj,index,own_entities)
+            inspection=inspect_action(obj,index,own_entities,devices,services)
             if inspection:
-                results.append({"path":path,"automation":label,**inspection})
+                results.append({"path":path,"automation":label,**({"owner":owner} if owner else {}),**inspection})
             for key,value in obj.items():
                 if isinstance(value,(dict,list)):
-                    walk(value,f"{path}.{key}",label,depth+1)
+                    walk(value,f"{path}.{key}",label,depth+1,owner)
     walk(root,"root")
     return results

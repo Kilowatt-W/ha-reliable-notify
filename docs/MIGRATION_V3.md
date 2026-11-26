@@ -1,6 +1,6 @@
 # Automation migration in v3
 
-The integration's **Automation-Migration** tab scans the standard `automations.yaml` and `scripts.yaml` plus known package directories, all read-only during scanning. Results contain proposals, unresolved targets, a before/after YAML preview and SHA-256 of each source file.
+The integration's **Automation-Migration** tab scans the standard `automations.yaml` and `scripts.yaml` plus known package directories, all read-only during scanning. Results contain proposals (listed first), unresolved targets with an overview by reason, a copyable replacement, a link to HA's editor for `automations.yaml`/`scripts.yaml` entries and SHA-256 of each source file.
 
 ## Confirming a change
 

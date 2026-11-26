@@ -1060,6 +1060,21 @@ RN_TRANSLATIONS.push(...[
   ['Gruppe: sendet an alle enthaltenen Ziele, jedes mit eigener Zustellung.','Group: sends to every target it contains, each with its own delivery.'],
   ['Person: wählt je nach Priorität und Anwesenheit einen ihrer Kanäle.','Person: picks one of their channels by priority and presence.'],
 ]);
+// 3.9.0: automation check proposals.
+RN_TRANSLATIONS.push(...[
+  ['Aktion enthält weitere Felder, die nicht übernommen werden können','The action has further fields that cannot be carried over'],
+  ['Die Antwort der Aktion wird weiterverwendet (z. B. Telegram-Nachrichten-ID) – Reliable Notify sendet über eine Warteschlange und liefert sie nicht zurück',
+   'The action\'s response is used later (e.g. a Telegram message ID) – Reliable Notify sends through a queue and does not return it'],
+  ['Eindeutiges festes Ziel – Zusatzdaten (z. B. Companion-Kanal, Tag, Telegram-Format) werden übernommen',
+   'Unique fixed destination – extra data (e.g. Companion channel, tag, Telegram format) is carried over'],
+  ['Manuell zu prüfen, nach Grund:','To check manually, by reason:'],
+  ['Diese Notify-Aktion gibt es in Home Assistant nicht (umbenannt oder entfernt) – sie schlägt schon heute fehl',
+   'This notify action does not exist in Home Assistant (renamed or removed) – it already fails today'],
+  ['Ziel dafür anlegen','Create a target for it'],
+  ['Im HA-Editor öffnen','Open in the HA editor'],
+  ['Vorher: {action} – ersetzen durch:','Before: {action} – replace with:'],
+  ['Vorschlag aus der Automation-Prüfung – prüfen und speichern.','Suggestion from the automation check – review and save.'],
+]);
 // 3.8.2: reset all errors in the settings.
 RN_TRANSLATIONS.push(...[
   ['Fehler zurücksetzen','Reset errors'],
@@ -1116,7 +1131,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.8.9 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.9.0 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

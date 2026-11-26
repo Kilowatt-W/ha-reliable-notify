@@ -55,12 +55,15 @@ class AdvisoryTests(unittest.TestCase):
             "telegram_second":{"action":"telegram_bot.send_message",
                                "data":{"chat_id":12345}}
         }}
-        for data in (
-            {"chat_id":"{{ states('input_text.chat') }}","message":"hello"},
-            {"chat_id":12345,"message":"hello","inline_keyboard":[["OK"]]},
-        ):
-            report=module.analyze([{"action":"telegram_bot.send_message","data":data}],ROUTES)
-            self.assertEqual(report[0]["status"],"manual")
+        report=module.analyze([{"action":"telegram_bot.send_message",
+            "data":{"chat_id":"{{ states('input_text.chat') }}","message":"hello"}}],ROUTES)
+        self.assertEqual(report[0]["status"],"manual")
+        # Since 3.9.0 Telegram fields are carried over instead of blocking the proposal.
+        report=module.analyze([{"action":"telegram_bot.send_message",
+            "data":{"chat_id":12345,"message":"hello","inline_keyboard":[["OK"]]}}],ROUTES)
+        self.assertEqual(report[0]["status"],"proposed")
+        self.assertEqual(report[0]["reason_code"],"unambiguous_data")
+        self.assertEqual(report[0]["replacement"]["data"]["data"],{"inline_keyboard":[["OK"]]})
         report=module.analyze([{"action":"telegram_bot.send_message",
                  "data":{"chat_id":12345,"message":"hi"}}],dup)
         self.assertEqual(report[0]["status"],"manual")

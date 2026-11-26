@@ -51,6 +51,39 @@ def filter_extras(action, extra):
     return kept, sorted(set(extra) - set(kept))
 
 
+def is_classic_notify(action):
+    """Classic notify service (Companion app, e-mail, YAML groups): message/title/target/data."""
+    return (isinstance(action, str) and action.startswith("notify.")
+            and action not in _EXTRA_ALLOW and action not in _EXTRA_DENY)
+
+
+def transport_extra(action, extra, notify_data=None):
+    """Extra data for one transport (3.9.0).
+
+    ``notify_data`` is the ``data`` of a classic ``notify.reliable_<route>`` call.
+    For classic notify transports it means the service's own ``data`` (Companion
+    fields such as tag, channel, actions); for Telegram and others its keys stay
+    top-level, as before. Explicit ``extra`` keys win.
+    """
+    extra = dict(extra or {})
+    if not notify_data:
+        return extra
+    if is_classic_notify(action):
+        inner = extra.get("data") if isinstance(extra.get("data"), dict) else {}
+        return {**extra, "data": {**notify_data, **inner}}
+    # Never let call data replace the routed chat (entity_id) of other transports.
+    return {**{k: v for k, v in notify_data.items() if k != "entity_id"}, **extra}
+
+
+def merge_transport_payload(action, defaults, kept):
+    """Route defaults plus per-message data; the classic ``data`` field is merged one level deep."""
+    payload = {**(defaults or {}), **kept}
+    base = (defaults or {}).get("data")
+    if is_classic_notify(action) and isinstance(base, dict) and isinstance(kept.get("data"), dict):
+        payload["data"] = {**base, **kept["data"]}
+    return payload
+
+
 def telegram_entity_route(rec):
     """Send to a Telegram notify entity through telegram_bot.send_message (3.8.1).
 

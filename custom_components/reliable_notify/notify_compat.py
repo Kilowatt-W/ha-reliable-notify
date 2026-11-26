@@ -54,7 +54,9 @@ async def async_register_compat(hass: HomeAssistant, manager) -> list[str]:
                 if key in EXTRAS:
                     request[key] = opts.pop(key)
             if opts:
-                request["data"] = opts
+                # Classic notify semantics: Companion fields stay in the transport's data,
+                # Telegram fields stay top-level (mapped per transport in enqueue, 3.9.0).
+                request["_notify_data"] = opts
             await manager.enqueue(request)
 
         hass.services.async_register(

@@ -215,7 +215,7 @@ class WiringTests(unittest.TestCase):
                         "1 if classification.counts else 0", "raise ServiceNotLoaded(",
                         "raise TargetUnavailable(", '"reliable_notify_dead_letter"',
                         'payload.get("__rn_fallback")', 'saved_payload.pop("__rn_route",None)',
-                        "filter_extras(action, extra)"):
+                        "filter_extras(action, transport_extra(action, extra, notify_data))"):
             self.assertIn(snippet, source)
 
     def test_panel_explains_every_failure_category(self):

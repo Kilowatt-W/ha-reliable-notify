@@ -20,7 +20,8 @@ from homeassistant.components import panel_custom, frontend
 
 from .const import CONF_INTERVAL, CONF_TARGET, DEFAULT_INTERVAL, DOMAIN, MAX_QUEUE
 from .routing import (resolve, validate_config, valid_action, merge_routes, is_own_entity, filter_extras,
-                      route_quiet_hours, companion_group, telegram_entity_route)
+                      route_quiet_hours, companion_group, telegram_entity_route,
+                      transport_extra, merge_transport_payload)
 from .i18n import ha_text
 from .notify_compat import async_register_compat, async_unregister_compat
 from .templates import validate_templates, validate_parameters
@@ -45,7 +46,7 @@ from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliv
 
 LANES = ("telegram", "smtp", "notify", "notify")
 PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
-ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.8.9"
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.9.0"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -509,6 +510,10 @@ class ReliableNotifyManager:
             extra = data.get("data") or {}
             if not isinstance(extra, dict) or any(k in extra for k in ("message", "title", "entity_id")):
                 raise ValueError("data must be a mapping and cannot override message/title/entity_id")
+            # data of a classic notify.reliable_<route> call (notify_compat), mapped per transport.
+            notify_data = data.get("_notify_data") or {}
+            if not isinstance(notify_data, dict) or any(k in notify_data for k in ("message", "title")):
+                raise ValueError("notify data must be a mapping and cannot override message/title")
             recipients = data.get("recipients")
             if recipients:
                 if data.get("action") or data.get("target_entity"):
@@ -573,10 +578,10 @@ class ReliableNotifyManager:
                     payload=native_public_payload(action,rec.get("data",{}),extra)
                 else:
                     # Only keys this transport accepts; others would be rejected by HA.
-                    kept, dropped = filter_extras(action, extra)
+                    kept, dropped = filter_extras(action, transport_extra(action, extra, notify_data))
                     if dropped:
                         dropped_keys.setdefault(action, set()).update(dropped)
-                    payload = {**rec.get("data", {}), **kept}
+                    payload = merge_transport_payload(action, rec.get("data", {}), kept)
                 if action.startswith("notify.mobile_app_") and self.settings.get("companion_grouping", True):
                     payload = companion_group(payload, data.get("message_type") or data.get("priority", "info"))
                 if ack_plan is not None:
@@ -996,7 +1001,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.8.9",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.9.0",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager

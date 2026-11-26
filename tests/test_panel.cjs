@@ -449,6 +449,41 @@ test('each section heading reuses the icon and colour of its navigation button',
   assert.equal(card.config.icon,navIcon('Nachrichten').querySelector('ha-icon').getAttribute('icon'));
 });
 
+test('automation check lists proposals first with copyable YAML, editor link, reason overview and target creation',async()=>{
+  const report={proposed:1,manual:2,files:[{file:'/config/automations.yaml',relative_file:'automations.yaml',sha256:'c'.repeat(64),proposals:[
+    {path:'root[0].actions[0]',automation:'Küche',status:'manual',source:'notify.send_message',reason_code:'no_route',
+     suggested_target:{action:'notify.send_message',target_entity:'notify.echo_kueche'},edit_url:'/config/automation/edit/17'},
+    {path:'root[1].actions[0]',automation:'Fenster',status:'proposed',source:'notify.mobile_app_phone',route:'phone',reason_code:'unambiguous_data',
+     replacement:{action:'notify.reliable_phone',data:{message:'offen',data:{tag:'fenster'}}},edit_url:'/config/automation/edit/18'},
+    {path:'root[2].actions[0]',automation:'Foto',status:'manual',source:'telegram_bot.send_photo',reason_code:'response_used'}]}]};
+  for(const [language,overview,open,create,copy] of [['de','Manuell zu prüfen, nach Grund:','Im HA-Editor öffnen','Ziel dafür anlegen','Kopieren'],
+    ['en','To check manually, by reason:','Open in the HA editor','Create a target for it','Copy']]){
+    const {panel,box}=setup({migration_scan:report,admin_inventory:{routes:{recipients:{phone:{}},groups:{},persons:{}}}});
+    panel._hass.language=language;
+    panel._hass.states={'notify.echo_kueche':{attributes:{friendly_name:'Echo Küche'}}};
+    await panel.migration(box);
+    [...box.querySelectorAll('button')].find(b=>b.textContent.startsWith(language==='de'?'Benachrichtigungen analysieren':'Analyse notifications')).click();await tick();await tick();
+    assert.match(box.textContent,new RegExp(overview));
+    assert.equal(box.querySelectorAll('ul.rn-reasons li').length,2);
+    const entries=[...box.querySelectorAll('details')];
+    assert.match(entries[0].querySelector('summary').textContent,/^Fenster/);  // proposal first
+    assert.match(entries[0].querySelector('.rn-code pre').textContent,/action: notify.reliable_phone/);
+    assert.match(entries[0].querySelector('.rn-code pre').textContent,/tag: fenster/);
+    assert.equal(entries[0].querySelector('.rn-code button').textContent,copy);
+    const link=[...entries[0].querySelectorAll('a')].find(a=>a.textContent===open);
+    assert.equal(link.getAttribute('href'),'/config/automation/edit/18');
+    // Missing target: one click opens Targets with the suggested definition (not saved).
+    const kitchen=entries.find(e=>/^Küche/.test(e.querySelector('summary').textContent));
+    [...kitchen.querySelectorAll('button')].find(b=>b.textContent===create).click();await tick();await tick();
+    assert.equal(panel._section,'routes');
+    const content=panel.shadowRoot.querySelector('#content');
+    assert.equal(content.querySelector('input[name=route_label]').value,'Echo Küche');
+    assert.equal(content.querySelector('input[name=route_id]').value,'echo_kueche');
+    assert.equal(content.querySelector('select[name=route_type]').value,'recipients');
+    assert.match(content.textContent,language==='de'?/Vorschlag aus der Automation-Prüfung/:/Suggestion from the automation check/);
+  }
+});
+
 test('automation check shows translated reasons, skipped files and file errors',async()=>{
   const report={proposed:1,manual:1,files:[
     {file:'scripts.yaml',skipped:'not_present',proposals:[]},

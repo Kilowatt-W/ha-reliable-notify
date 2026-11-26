@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.9 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.9';
+/* Reliable Notify Admin Panel 3.9.0 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.9.0';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -225,7 +225,7 @@ class ReliableNotifyPanel extends HTMLElement {
     box.addEventListener('toggle',()=>button.setAttribute('aria-expanded',String(box.open)));
     intro.append(' ',button);return {row,box};
   }
-  // Main heading of a section: same icon and colour as its navigation button (3.8.9).
+  // Main heading of a section: same icon and colour as its navigation button (3.9.0).
   sectionHeading(section,text,tag='h2'){
     const info=RN_SECTIONS[section]||{icon:'mdi:bell-check-outline',tone:'blue'};
     const node=this.heading(text,info.icon,info.tone,tag);node.dataset.section=section;return node;
@@ -578,6 +578,7 @@ class ReliableNotifyPanel extends HTMLElement {
       button.rn-help-icon:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
       details.rn-help-inline:not([open]){display:none}
       .route-item p.route-members{margin:0 0 2px;font-size:13px}
+      ul.rn-reasons{margin:4px 0 12px;padding-left:22px;line-height:1.5}a.rn-edit-link{display:inline-flex;margin:4px 0 8px;color:var(--primary-color)}
       .rn-filter{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
       button.rn-chip{padding:5px 12px;border-radius:999px;font-size:13px;min-height:32px}
       button.rn-chip[aria-pressed=true]{background:color-mix(in srgb,var(--rn-accent) 17%,var(--card-background-color));border-color:var(--rn-accent);font-weight:700}
@@ -761,6 +762,15 @@ class ReliableNotifyPanel extends HTMLElement {
       selectedTest.addEventListener('click',()=>this.testTarget(category,loaded,selectedTest,result));
       name.addEventListener('input',()=>{selectedTest.disabled=!loaded||name.value!==loaded;});
       reset('recipients');
+      if(this._prefillTarget){
+        // From "Create target" in the automation check: the suggested definition, not saved yet.
+        const suggestion=this._prefillTarget;this._prefillTarget=null;
+        reset('recipients');draw({target_entity:'',data:{},...suggestion});
+        const entity=suggestion.target_entity&&this._hass?.states?.[suggestion.target_entity];
+        display.value=entity?.attributes?.friendly_name||suggestion.target_entity||'';
+        display.dispatchEvent(new Event('input',{bubbles:true}));
+        this.status(result,this.t('Vorschlag aus der Automation-Prüfung – prüfen und speichern.'));
+      }
       section.append(save,selectedTest,remove,result);this.yamlView(section,()=>{
         const id=name.value||rnSlug(display.value)||'neuer_eintrag',shown=display.value.trim();
         return {[category]:{[id]:editor.read()},...(shown&&shown!==id?{labels:{[id]:shown}}:{})};
@@ -1019,13 +1029,16 @@ class ReliableNotifyPanel extends HTMLElement {
   migrationText(kind,code){
     const texts={
       reason:{templated:'Aktion oder Daten mit Vorlage (service_template/data_template)',non_object_data:'Die Daten der Aktion sind keine Feldliste',
-        complex_target:'Ziel nutzt Bereiche, Geräte oder ist dynamisch',advanced_fields:'Aktion enthält erweiterte Felder (z. B. response_variable)',
+        complex_target:'Ziel nutzt Bereiche, Geräte oder ist dynamisch',advanced_fields:'Aktion enthält weitere Felder, die nicht übernommen werden können',
         entity_in_data:'Notify-Entität steht in data statt in target',telegram_ambiguous:'Telegram-Ziel nicht eindeutig (keine oder mehrere Chat-Angaben)',
         telegram_target:'Telegram-Aktion hat zusätzlich ein target',legacy_target:'Klassische Notify-Aktion hat zusätzlich ein target',
         no_static_destination:'Kein eindeutiges festes Ziel (z. B. notify.notify)',dynamic_destination:'Ziel ist dynamisch (Vorlage) oder hat mehrere Empfänger',
         no_route:'Für dieses Ziel ist noch kein Reliable-Notify-Ziel angelegt',multiple_routes:'Mehrere Reliable-Notify-Ziele passen zu diesem Ziel',
         transport_data:'Zusätzliche Transportdaten (z. B. Bilder, Buttons) müssen geprüft werden',missing_message:'Aktion enthält keine Nachricht',
-        yaml_tags:'Verwendet !secret, !include o. Ä. – bitte manuell übernehmen',unambiguous:'Eindeutiges festes Ziel – Vorschlag kann übernommen werden'},
+        yaml_tags:'Verwendet !secret, !include o. Ä. – bitte manuell übernehmen',unambiguous:'Eindeutiges festes Ziel – Vorschlag kann übernommen werden',
+        response_used:'Die Antwort der Aktion wird weiterverwendet (z. B. Telegram-Nachrichten-ID) – Reliable Notify sendet über eine Warteschlange und liefert sie nicht zurück',
+        unambiguous_data:'Eindeutiges festes Ziel – Zusatzdaten (z. B. Companion-Kanal, Tag, Telegram-Format) werden übernommen',
+        unknown_service:'Diese Notify-Aktion gibt es in Home Assistant nicht (umbenannt oder entfernt) – sie schlägt schon heute fehl'},
       file:{symlink:'Symbolischer Link – aus Sicherheitsgründen nicht geprüft',too_large:'Datei größer als 4 MiB – nicht geprüft',
         yaml_syntax:'YAML-Syntaxfehler',encoding:'Keine UTF-8-Textdatei',not_automation_yaml:'Enthält keine Automationen, Skripte oder Pakete',
         read_failed:'Datei konnte nicht gelesen werden'},
@@ -1058,6 +1071,15 @@ class ReliableNotifyPanel extends HTMLElement {
         {proposed:report.proposed||0,manual:report.manual||0,files:files.filter(f=>!f.skipped).length})));
       const skipped=files.filter(f=>f.skipped);
       if(skipped.length)result.append(this.element('p',this.t('Nicht vorhanden – übersprungen')+': '+skipped.map(f=>f.file).join(', '),'muted'));
+      // Overview: why entries need a manual check (3.9.0).
+      const reasons={};
+      for(const file of files)for(const item of file.proposals||[])if(item.status!=='proposed')reasons[item.reason_code]=(reasons[item.reason_code]||0)+1;
+      const overview=Object.entries(reasons).sort((a,b)=>b[1]-a[1]);
+      if(overview.length){
+        const list=this.element('ul',null,'rn-reasons');
+        for(const [code,count] of overview)list.append(this.element('li',count+' × '+(this.migrationText('reason',code)||code)));
+        result.append(this.element('p',this.t('Manuell zu prüfen, nach Grund:'),'muted'),list);
+      }
       for(const file of files.filter(f=>!f.skipped)){
         const section=this.element('div',null,'panel');
         const name=file.relative_file||file.file;
@@ -1068,7 +1090,9 @@ class ReliableNotifyPanel extends HTMLElement {
         else summary=proposals.length?this.t('{count} Treffer',{count:proposals.length}):this.t('Keine Benachrichtigungsaktionen gefunden.');
         section.append(this.heading(name+' — '+summary,failed?'mdi:file-alert-outline':'mdi:file-document-outline',failed?'red':'orange','h3'));
         const editable=Boolean(file.sha256&&/^packages\/[^/]+\.ya?ml$/.test(file.relative_file||''));
-        for(const item of proposals){
+        // Ready proposals first, then the entries to check by hand.
+        const ordered=[...proposals].sort((a,b)=>(a.status==='proposed'?0:1)-(b.status==='proposed'?0:1));
+        for(const item of ordered){
           const proposed=item.status==='proposed';
           const details=this.element('details');
           const route=item.route||item.suggested_route;
@@ -1076,12 +1100,21 @@ class ReliableNotifyPanel extends HTMLElement {
             ' → '+(route?rnRouteLabel(labels,route):this.t('manuelle Prüfung')));
           rnDecorate(title,proposed?'mdi:check-circle-outline':'mdi:alert-circle-outline',proposed?'teal':'amber');
           details.append(title,this.element('p',this.migrationText('reason',item.reason_code)||item.reason));
-          if(item.reason_code==='no_route')details.append(this.element('p',this.t('Tipp: Unter „Ziele & Personen“ ein passendes Ziel anlegen und erneut analysieren.'),'muted'));
+          if(item.reason_code==='no_route'){
+            details.append(this.element('p',this.t('Tipp: Unter „Ziele & Personen“ ein passendes Ziel anlegen und erneut analysieren.'),'muted'));
+            if(item.suggested_target){
+              const create=this.actionButton(this.t('Ziel dafür anlegen'),RN_SECTIONS.routes.icon,'primary');create.dataset.tone=RN_SECTIONS.routes.tone;
+              create.addEventListener('click',()=>{this._prefillTarget=item.suggested_target;this._section='routes';this._rendered=false;this.shadowRoot.replaceChildren();this.render();});
+              details.append(create);
+            }
+          }
+          if(item.edit_url){
+            const open=rnDecorate(this.element('a',this.t('Im HA-Editor öffnen')),'mdi:open-in-app','blue');
+            open.href=item.edit_url;open.className+=' rn-edit-link';details.append(open);
+          }
           if(item.replacement){
-            if(item.preview_diff){
-              const diff=this.element('pre',item.preview_diff);
-              diff.style.whiteSpace='pre-wrap';details.append(diff);
-            }else details.append(this.element('pre',JSON.stringify(item.replacement,null,2)));
+            // Copyable replacement for the HA editor (YAML mode of the action).
+            details.append(this.element('p',this.t('Vorher: {action} – ersetzen durch:',{action:item.source}),'muted'),this.codeBlock(this.yaml(item.replacement)));
             if(editable){
               const apply=this.actionButton(this.t('Einzelne Änderung mit Backup übernehmen'),'mdi:content-save-check-outline','primary');
               const status=this.element('p');status.setAttribute('role','status');
