@@ -50,6 +50,27 @@ def _find_node(root,path):
     return node
 
 
+def _comment_or_anchor(text):
+    """True for real YAML comments, anchors or aliases in an action block (3.9.1).
+
+    A plain character check also refused ``*`` in Jinja (``x * price``) or in a
+    title such as ``**Info**``; the scanner tells text and YAML syntax apart.
+    """
+    try:
+        tokens=list(yaml.scan(text,Loader=AutomationLoader))
+    except yaml.YAMLError:
+        return True
+    texts=[]
+    for token in tokens:
+        if isinstance(token,(yaml.AnchorToken,yaml.AliasToken)):
+            return True
+        if isinstance(token,(yaml.ScalarToken,yaml.TagToken)):
+            texts.append((token.start_mark.index,token.end_mark.index))
+    # A '#' outside every scalar is a comment (comments produce no token).
+    return any(char=="#" and not any(a<=index<b for a,b in texts)
+               for index,char in enumerate(text))
+
+
 def _patch(source,path,replacement):
     try:
         doc=yaml.compose(source,Loader=AutomationLoader)
@@ -64,8 +85,6 @@ def _patch(source,path,replacement):
     raw=source[start:end]
     before=raw.rstrip()
     end=start+len(before)
-    if "#" in before or "&" in before or "*" in before:
-        raise MigrationError("manual_edit","comments or YAML anchors in action require manual editing")
     # Only action mappings with the existing exact action fields are rewriteable.
     indent=target.start_mark.column
     lines=before.splitlines()
@@ -73,6 +92,8 @@ def _patch(source,path,replacement):
         line[indent:] if line.startswith(" "*indent) else line
         for line in lines[1:]
     ])
+    if _comment_or_anchor(normalized):
+        raise MigrationError("manual_edit","comments or YAML anchors in action require manual editing")
     try:
         old_obj=yaml.load(normalized,Loader=AutomationLoader)  # noqa: S506 - SafeLoader subclass
     except yaml.YAMLError as err:

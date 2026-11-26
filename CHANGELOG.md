@@ -2,6 +2,7 @@
 
 ## 3.9.1
 - Automation check: the package folders are listed in a worker thread. Home Assistant reported a blocking `scandir` call in the event loop during a scan (since the package scan was added).
+- Applying a proposal no longer refuses actions just because their text contains `*`, `&` or `#` (e.g. `{{ value * price }}` or a title `**Info**`): the YAML scanner now detects real comments, anchors and aliases.
 
 ## 3.9.0
 - **Automation check makes real proposals.** On a real installation 183 of 206 notify actions now get a proposal (before: 31). The empty `metadata: {}` HA's editor adds no longer blocks a proposal and is kept; Companion `data` (tag, channel, sticky …) and Telegram fields are carried over – via `reliable_notify.enqueue` when a field is named like a Reliable Notify option (`priority`, `ttl` …); `target: device_id` is resolved to the device's only notify entity. Clear reasons for the rest: response used later (`response_variable`), notify service no longer exists, template/multiple targets. `notify.persistent_notification` is not listed.

@@ -73,5 +73,42 @@ class ScanThreadTests(unittest.TestCase):
         self.assertNotIn("for path in _candidate_paths(root)", source)
 
 
+
+
+
+class PatchGuardTests(unittest.TestCase):
+    """3.9.1: '*' in Jinja or titles is text; real comments and anchors still block."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys, types
+        package = types.ModuleType("rn_apply_pkg")
+        package.__path__ = [str(ROOT)]
+        sys.modules["rn_apply_pkg"] = package
+        for name in ("migration_advisor", "migration_apply"):
+            spec = importlib.util.spec_from_file_location("rn_apply_pkg." + name, ROOT / (name + ".py"))
+            module_ = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module_
+            spec.loader.exec_module(module_)
+        cls.apply = sys.modules["rn_apply_pkg.migration_apply"]
+
+    SOURCE = ("- id: '1'\n  actions:\n  - action: notify.send_message\n    metadata: {}\n    data:\n"
+              "      title: '**Remote Info**'\n      message: '{{ 2 * 3 }} kWh'\n    target:\n      entity_id: notify.tg\n")
+    NEW = {"action": "notify.reliable_tg", "data": {"message": "{{ 2 * 3 }} kWh", "title": "**Remote Info**"}, "metadata": {}}
+
+    def test_star_in_text_can_be_rewritten(self):
+        result = self.apply._patch(self.SOURCE, "root[0].actions[0]", self.NEW)
+        self.assertIn("action: notify.reliable_tg", result)
+        self.assertIn("'{{ 2 * 3 }} kWh'", result)
+        self.assertTrue(result.startswith("- id: '1'\n  actions:\n  - action: notify.reliable_tg"))
+
+    def test_comments_and_anchors_still_need_manual_editing(self):
+        for source in (self.SOURCE.replace("    metadata: {}\n", "    metadata: {} # editor\n"),
+                       self.SOURCE.replace("      message: '{{ 2 * 3 }} kWh'\n", "      message: &m hi\n")):
+            with self.assertRaises(self.apply.MigrationError) as raised:
+                self.apply._patch(source, "root[0].actions[0]", self.NEW)
+            self.assertEqual(raised.exception.code, "manual_edit")
+
+
 if __name__ == "__main__":
     unittest.main()
