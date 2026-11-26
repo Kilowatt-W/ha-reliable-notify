@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.8.8
+- Target list: the type is shown as a round icon (send = single target, people = group, person = person) instead of a text badge; hover text and screen-reader name explain the type ("Group: sends to every target it contains, each with its own delivery." etc.). The filter buttons carry the same icons and hover texts. German/English.
+
 ## 3.8.7
 - Targets & people: single targets, groups and people are shown in **one list** "Targets", sorted by display name. Every entry has a type badge (*Single target*, *Group*, *Person*), a short detail (notify entity or HA action, group members, person channels), *Send test* and edit. Filters *All / Single targets / Groups / People* with counts.
 - *Add target* asks for the type in the same form (pre-selected from the active filter); the type is fixed once saved. Storage, YAML keys (`recipients`, `groups`, `persons`), internal names and `notify.reliable_<ID>` entities are unchanged. German/English.

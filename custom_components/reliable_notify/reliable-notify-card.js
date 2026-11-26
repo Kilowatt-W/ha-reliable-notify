@@ -1054,6 +1054,12 @@ RN_TRANSLATIONS.push(...[
   ['Kanäle: {channels}','Channels: {channels}'],
   ['Die Art lässt sich nach dem Speichern nicht mehr ändern; dafür einen neuen Eintrag anlegen.','The type cannot be changed after saving; create a new entry instead.'],
 ]);
+// 3.8.8: target types as icons with hover text.
+RN_TRANSLATIONS.push(...[
+  ['Einzelziel: sendet über eine HA-Aktion an ein Gerät oder einen Kanal.','Single target: sends through an HA action to one device or channel.'],
+  ['Gruppe: sendet an alle enthaltenen Ziele, jedes mit eigener Zustellung.','Group: sends to every target it contains, each with its own delivery.'],
+  ['Person: wählt je nach Priorität und Anwesenheit einen ihrer Kanäle.','Person: picks one of their channels by priority and presence.'],
+]);
 // 3.8.2: reset all errors in the settings.
 RN_TRANSLATIONS.push(...[
   ['Fehler zurücksetzen','Reset errors'],
@@ -1110,7 +1116,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.8.7 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.8.8 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

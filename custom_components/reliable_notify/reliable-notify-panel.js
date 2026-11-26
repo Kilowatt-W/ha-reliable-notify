@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.7 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.7';
+/* Reliable Notify Admin Panel 3.8.8 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.8';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -576,9 +576,11 @@ class ReliableNotifyPanel extends HTMLElement {
       .rn-filter{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
       button.rn-chip{padding:5px 12px;border-radius:999px;font-size:13px;min-height:32px}
       button.rn-chip[aria-pressed=true]{background:color-mix(in srgb,var(--rn-accent) 17%,var(--card-background-color));border-color:var(--rn-accent);font-weight:700}
-      .route-type{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;
-        background:var(--card-background-color);border:1px solid var(--divider-color);min-width:92px}
-      .route-type ha-icon{--mdc-icon-size:16px}.route-item[hidden]{display:none}.route-item p:empty{display:none}
+      .route-type{--rn-kind:var(--rn-blue);display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;border-radius:50%;cursor:help;
+        color:var(--rn-kind);border:1px solid color-mix(in srgb,var(--rn-kind) 55%,var(--divider-color));background:color-mix(in srgb,var(--rn-kind) 13%,var(--card-background-color))}
+      .route-type[data-kind=groups]{--rn-kind:var(--rn-purple)}.route-type[data-kind=persons]{--rn-kind:var(--rn-teal)}
+      .route-type:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+      .route-type ha-icon{--mdc-icon-size:18px}button.rn-chip ha-icon{--mdc-icon-size:16px}.route-item[hidden]{display:none}.route-item p:empty{display:none}
       details.rn-help h4{margin:16px 0 6px}details.rn-help ul{margin:4px 0 10px;padding-left:22px;line-height:1.5}
       .rn-scroll{overflow-x:auto}table.rn-failures{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
       table.rn-failures th,table.rn-failures td{padding:6px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}
@@ -640,9 +642,12 @@ class ReliableNotifyPanel extends HTMLElement {
       this.setRouteChoices(data);
       const labels=data.labels||{};
       // One list for everything a message can be sent to (3.8.7). Storage keeps recipients/groups/persons.
-      const KINDS={recipients:{kind:'recipient',label:this.t('Einzelziel'),plural:this.t('Einzelziele'),icon:'mdi:send-check',tone:'blue'},
-        groups:{kind:'group',label:this.t('Gruppe'),plural:this.t('Gruppen'),icon:'mdi:account-group',tone:'purple'},
-        persons:{kind:'person',label:this.t('Person'),plural:this.t('Personen'),icon:'mdi:account',tone:'teal'}};
+      const KINDS={recipients:{kind:'recipient',label:this.t('Einzelziel'),plural:this.t('Einzelziele'),icon:'mdi:send-outline',tone:'blue',
+          info:this.t('Einzelziel: sendet über eine HA-Aktion an ein Gerät oder einen Kanal.')},
+        groups:{kind:'group',label:this.t('Gruppe'),plural:this.t('Gruppen'),icon:'mdi:account-group',tone:'purple',
+          info:this.t('Gruppe: sendet an alle enthaltenen Ziele, jedes mit eigener Zustellung.')},
+        persons:{kind:'person',label:this.t('Person'),plural:this.t('Personen'),icon:'mdi:account',tone:'teal',
+          info:this.t('Person: wählt je nach Priorität und Anwesenheit einen ihrer Kanäle.')}};
       const section=this.element('section',null,'panel rn-targets');
       section.append(this.heading(this.t('Ziele'),'mdi:send-check','blue'));
       const filters=this.element('div',null,'rn-filter');filters.setAttribute('role','group');filters.setAttribute('aria-label',this.t('Nach Art filtern'));
@@ -675,7 +680,9 @@ class ReliableNotifyPanel extends HTMLElement {
       for(const [kind,id] of entries){
         const info=KINDS[kind];
         const item=this.element('div',null,'route-item');item.dataset.kind=kind;const testResult=this.element('p');testResult.setAttribute('role','status');
-        const badge=rnDecorate(this.element('span',info.label,'route-type'),info.icon,info.tone);badge.dataset.kind=kind;
+        // Icon only; the type and what it does are in the hover text and the accessible name (3.8.8).
+        const badge=this.element('span',null,'route-type');badge.append(rnIcon(info.icon));badge.dataset.kind=kind;badge.dataset.tone=info.tone;
+        badge.setAttribute('role','img');badge.setAttribute('aria-label',info.info);badge.title=info.info;
         const test=this.actionButton(this.t('Test senden'),'mdi:bell-ring-outline','test');
         test.addEventListener('click',()=>this.testTarget(kind,id,test,testResult));
         const button=this.actionButton(rnRouteLabel(labels,id),'mdi:pencil-outline');button.dataset.route=id;
@@ -701,6 +708,7 @@ class ReliableNotifyPanel extends HTMLElement {
       for(const [value,text] of [['all',this.t('Alle')],...Object.entries(KINDS).map(([kind,info])=>[kind,info.plural])]){
         const count=value==='all'?entries.length:counts[value];
         const chip=this.element('button',text+' ('+count+')','rn-chip');chip.type='button';chip.dataset.filter=value;
+        if(KINDS[value]){chip.prepend(rnIcon(KINDS[value].icon));chip.title=KINDS[value].info;}
         chip.setAttribute('aria-pressed',String(value===filter));
         chip.addEventListener('click',()=>{filter=value;
           for(const other of filters.children)other.setAttribute('aria-pressed',String(other===chip));

@@ -396,7 +396,14 @@ test('one target list shows type, details and filters; new entries choose their 
     // Sorted by display name; the type badge is separate from the edit button (aliases stay untranslated).
     const items=[...box.querySelectorAll('.route-item')];
     assert.deepEqual(items.map(i=>i.querySelector('button').textContent),['Alle Mobile Apps (all_mobile)','Anna (anna)','Handy (phone)','tg']);
-    assert.deepEqual(items.map(i=>i.querySelector('.route-type').textContent),types);
+    // Type as icon only, with hover text and accessible name that explain it.
+    const badges=items.map(i=>i.querySelector('.route-type'));
+    assert.deepEqual(badges.map(b=>b.textContent),['','','','']);
+    assert.deepEqual(badges.map(b=>b.getAttribute('aria-label').split(':')[0]),types);
+    assert.deepEqual(badges.map(b=>b.title),badges.map(b=>b.getAttribute('aria-label')));
+    assert.deepEqual(badges.map(b=>b.getAttribute('role')),['img','img','img','img']);
+    assert.deepEqual(badges.map(b=>b.querySelector('ha-icon').getAttribute('icon')),['mdi:account-group','mdi:account','mdi:send-outline','mdi:send-outline']);
+    assert.match(badges[0].title,language==='de'?/alle enthaltenen Ziele/:/every target it contains/);
     assert.deepEqual(items.map(i=>i.querySelector('.route-members')?.textContent),
       [language==='de'?'Enthält: Handy':'Contains: Handy',channel,'notify.mobile_app_phone','notify.tg_chat']);
     const chipsNodes=[...box.querySelectorAll('.rn-filter button.rn-chip')];
