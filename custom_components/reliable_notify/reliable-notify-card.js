@@ -1034,6 +1034,11 @@ RN_TRANSLATIONS.push(...[
   ['Anzeigen','Show'],
   ['Weniger anzeigen','Show less'],
 ]);
+// 3.8.5: group members in the target list.
+RN_TRANSLATIONS.push(...[
+  ['Enthält: {members}','Contains: {members}'],
+  ['Leere Gruppe','Empty group'],
+]);
 // 3.8.2: reset all errors in the settings.
 RN_TRANSLATIONS.push(...[
   ['Fehler zurücksetzen','Reset errors'],
@@ -1090,7 +1095,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.8.4 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.8.5 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

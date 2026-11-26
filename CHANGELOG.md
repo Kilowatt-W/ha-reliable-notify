@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.8.5
+- Targets & people: every group in the list shows its members by display name ("Contains: …"), so the content is visible without opening the group.
+- The help block of this section is reduced to a round "?" button right after the intro text; it opens the full help below (and still follows *Show help* / *Hide help*). German/English.
+
 ## 3.8.4
 - Alarm card `compact: true` is now a real one-row layout: colour bar, icon, title, "since" and the buttons in one row (wrapping to two rows on narrow screens). Snooze buttons keep a short visible label ("15 min", full label for screen readers); the description appears as a tooltip and opens on tap on the title when there is no cause entity (with a cause entity the title opens it as before).
 - New alarm card option `collapse_from` (2–50, visual editor: *Combine into one row from this many alarms*): from that many open incidents the non-critical ones are combined into one row with the count per priority and *Show* / *Show less*. Critical incidents that are not acknowledged always stay visible as their own row. German/English.

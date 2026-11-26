@@ -346,6 +346,33 @@ test('help can be shown per section, follows the language and stays open across 
   assert.equal(root.querySelector('button.rn-help-toggle').textContent,'Hide help');
 });
 
+test('targets show group members and keep the section help behind a "?" after the intro text',async()=>{
+  for(const [language,contains,empty,helpLabel,intro] of [['de','Enthält: Handy Tricorder, berniphone','Leere Gruppe','Hilfe zu diesem Bereich','Hier neue Ziele anlegen'],
+    ['en','Contains: Handy Tricorder, berniphone','Empty group','Help for this section','Create targets here']]){
+    const {panel}=setup({admin_inventory:{routes:{recipients:{tricorder:{},berniphone:{}},groups:{all_mobile:['tricorder','berniphone'],none:[]},persons:{}},
+      labels:{tricorder:'Handy Tricorder',all_mobile:'Alle Mobile Apps'}}});
+    panel._hass.language=language;panel._section='routes';panel.render();await tick();
+    const root=panel.shadowRoot,content=root.querySelector('#content');
+    // No help block above the targets: only the intro line with a "?" button.
+    assert.equal(content.firstElementChild.className,'rn-intro');
+    assert.match(content.querySelector('.rn-intro p').textContent,new RegExp('^'+intro));
+    const icon=content.querySelector('.rn-intro button.rn-help-icon');
+    assert.equal(icon.textContent,'?');assert.equal(icon.getAttribute('aria-label'),helpLabel);
+    const help=root.getElementById(icon.getAttribute('aria-controls'));
+    assert.ok(help.classList.contains('rn-help-inline'));assert.equal(help.open,false);
+    assert.equal(content.querySelectorAll('details.rn-help').length,1);
+    icon.click();await tick();
+    assert.equal(help.open,true);assert.equal(icon.getAttribute('aria-expanded'),'true');
+    assert.equal(root.querySelector('button.rn-help-toggle').getAttribute('aria-expanded'),'true');
+    icon.click();await tick();assert.equal(help.open,false);
+    const groups=[...content.querySelectorAll('section')][1];
+    const members=[...groups.querySelectorAll('.route-members')].map(p=>p.textContent);
+    assert.deepEqual(members,[contains,empty]);
+    // Recipients do not get a member line.
+    assert.equal([...content.querySelectorAll('section')][0].querySelector('.route-members'),null);
+  }
+});
+
 test('automation check shows translated reasons, skipped files and file errors',async()=>{
   const report={proposed:1,manual:1,files:[
     {file:'scripts.yaml',skipped:'not_present',proposals:[]},

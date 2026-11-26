@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.4 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.4';
+/* Reliable Notify Admin Panel 3.8.5 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.5';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -207,10 +207,23 @@ class ReliableNotifyPanel extends HTMLElement {
     });
     wrap.append(pre,copy);return wrap;
   }
-  helpBox(section){
+  // Compact help: a "?" button after an intro text opens the section help below it (3.8.5).
+  helpLine(section,text){
+    const row=this.element('div',null,'rn-intro');
+    const intro=this.element('p',text,'muted');row.append(intro);
+    const box=this.helpBox(section,true);if(!box)return {row,box:null};
+    this._fieldId=(this._fieldId||0)+1;box.id='rn-help-'+this._fieldId;
+    const button=this.element('button','?','rn-help-icon');button.type='button';
+    button.title=this.t('Hilfe zu diesem Bereich');button.setAttribute('aria-label',button.title);
+    button.setAttribute('aria-controls',box.id);button.setAttribute('aria-expanded',String(box.open));
+    button.addEventListener('click',()=>{this.setHelpOpen(!box.open);button.setAttribute('aria-expanded',String(box.open));});
+    box.addEventListener('toggle',()=>button.setAttribute('aria-expanded',String(box.open)));
+    intro.append(' ',button);return {row,box};
+  }
+  helpBox(section,inline=false){
     const help=RN_HELP[section];if(!help)return null;
     const text=help[rnLanguage(this._hass)==='de'?'de':'en'];
-    const box=this.element('details',null,'rn-help panel');box.open=this.helpOpen;
+    const box=this.element('details',null,'rn-help panel'+(inline?' rn-help-inline':''));box.open=this.helpOpen;
     box.append(this.heading(this.t('Hilfe zu diesem Bereich'),'mdi:help-circle-outline','cyan','summary'));
     box.append(this.element('p',text.intro));
     const steps=this.element('ol');for(const step of text.steps)steps.append(this.element('li',step));box.append(steps);
@@ -492,7 +505,8 @@ class ReliableNotifyPanel extends HTMLElement {
     const container=this.shadowRoot.querySelector('#content');
     if(!container)return;
     container.replaceChildren();
-    const help=this.helpBox(this._section);if(help)container.append(help);
+    // Targets & people show their help behind a "?" after the intro text instead of a block.
+    const help=this._section==='routes'?null:this.helpBox(this._section);if(help)container.append(help);
     ({messages:()=>this.messages(container),routes:()=>this.routes(container),
       incidents:()=>this.incidents(container),simulation:()=>this.simulation(container),
       analytics:()=>this.analytics(container),templates:()=>this.templates(container),profiles:()=>this.profiles(container),migration:()=>this.migration(container),settings:()=>this.settings(container)
@@ -546,6 +560,13 @@ class ReliableNotifyPanel extends HTMLElement {
       details.rn-help ol{margin:6px 0 10px;padding-left:22px;line-height:1.5}details.rn-help li{margin:4px 0}
       details.rn-help pre{background:var(--secondary-background-color);border-radius:8px;padding:10px;font-size:13px}
       details.rn-help a{display:inline-flex;margin-top:4px;color:var(--primary-color)}
+      .rn-intro p{margin:4px 0;line-height:1.6}
+      button.rn-help-icon{display:inline-flex;vertical-align:middle;width:26px;height:26px;min-height:26px;padding:0;margin-left:2px;border-radius:50%;font-weight:700;font-size:14px;
+        color:var(--primary-text-color);border-color:var(--rn-cyan);background:color-mix(in srgb,var(--rn-cyan) 13%,var(--card-background-color))}
+      button.rn-help-icon[aria-expanded=true]{background:var(--rn-cyan);color:var(--text-primary-color,#fff)}
+      button.rn-help-icon:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+      details.rn-help-inline:not([open]){display:none}
+      .route-item p.route-members{margin:0 0 2px;font-size:13px}
       details.rn-help h4{margin:16px 0 6px}details.rn-help ul{margin:4px 0 10px;padding-left:22px;line-height:1.5}
       .rn-scroll{overflow-x:auto}table.rn-failures{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
       table.rn-failures th,table.rn-failures td{padding:6px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}
@@ -596,7 +617,8 @@ class ReliableNotifyPanel extends HTMLElement {
     box.append(card);
   }
   async routes(box){
-    box.append(this.element('p',this.t('Hier neue Ziele anlegen: Unter Ziele / Empfänger auf „Neues Ziel anlegen“ klicken, einen Namen vergeben, HA-Aktion und gegebenenfalls Zielentität oder Transportparameter ausfüllen und speichern. Diesen Namen anschließend als Empfänger verwenden. Das optionale Standardziel ist nur ein Fallback für Nachrichten ohne explizite Empfänger.'),'muted'));
+    const intro=this.helpLine('routes',this.t('Hier neue Ziele anlegen: Unter Ziele / Empfänger auf „Neues Ziel anlegen“ klicken, einen Namen vergeben, HA-Aktion und gegebenenfalls Zielentität oder Transportparameter ausfüllen und speichern. Diesen Namen anschließend als Empfänger verwenden. Das optionale Standardziel ist nur ein Fallback für Nachrichten ohne explizite Empfänger.'));
+    box.append(intro.row);if(intro.box)box.append(intro.box);
     const status=this.element('p',this.t('Empfänger werden geladen …'));box.append(status);
     try{
       const data=await this.call('admin_inventory');status.remove();
@@ -631,7 +653,13 @@ class ReliableNotifyPanel extends HTMLElement {
           button.addEventListener('click',()=>this.run(result,async()=>{
             const response=await this.call('route_definition',{category,name:id});
             name.value=id;display.value=labels[id]||'';loaded=id;draw(response.definition);selectedTest.disabled=false;
-          }));item.append(button,test,testResult);inventory.append(item);
+          }));item.append(button,test);
+          if(category==='groups'){
+            // Members by display name, so the content is visible without opening the group.
+            const members=(data.routes.groups[id]||[]).map(member=>labels[member]||member);
+            item.append(this.element('p',members.length?this.t('Enthält: {members}',{members:members.join(', ')}):this.t('Leere Gruppe'),'muted route-members'));
+          }
+          item.append(testResult);inventory.append(item);
         }
         const fresh=this.actionButton(category==='recipients'?this.t('Neues Ziel anlegen'):category==='groups'?this.t('Neue Gruppe anlegen'):this.t('Neue Person anlegen'),'mdi:plus','primary');fresh.addEventListener('click',()=>{reset();selectedTest.disabled=true;});inventory.append(fresh);
         section.append(this.element('p',this.t('Test senden verschickt eine echte Nachricht über die gespeicherte Konfiguration. Testmodus und Ruhezeiten bleiben aktiv. Bei Gruppen und Personen können mehrere Empfänger erreicht werden.'),'test-hint'));
