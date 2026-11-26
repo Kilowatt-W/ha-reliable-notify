@@ -225,6 +225,11 @@ class ReliableNotifyPanel extends HTMLElement {
     box.addEventListener('toggle',()=>button.setAttribute('aria-expanded',String(box.open)));
     intro.append(' ',button);return {row,box};
   }
+  // Main heading of a section: same icon and colour as its navigation button (3.8.9).
+  sectionHeading(section,text,tag='h2'){
+    const info=RN_SECTIONS[section]||{icon:'mdi:bell-check-outline',tone:'blue'};
+    const node=this.heading(text,info.icon,info.tone,tag);node.dataset.section=section;return node;
+  }
   helpBox(section,inline=false){
     const help=RN_HELP[section];if(!help)return null;
     const text=help[rnLanguage(this._hass)==='de'?'de':'en'];
@@ -639,7 +644,7 @@ class ReliableNotifyPanel extends HTMLElement {
   }
   messages(box){
     const card=this.element('reliable-notify-card');
-    card.setConfig({title:this.t('Queue, Dead Letters und Archiv')});
+    card.setConfig({title:this.t('Queue, Dead Letters und Archiv'),icon:RN_SECTIONS.messages.icon});
     card.hass=this._hass;
     box.append(card);
   }
@@ -659,7 +664,7 @@ class ReliableNotifyPanel extends HTMLElement {
         persons:{kind:'person',label:this.t('Person'),plural:this.t('Personen'),icon:'mdi:account',tone:'teal',
           info:this.t('Person: wählt je nach Priorität und Anwesenheit einen ihrer Kanäle.')}};
       const section=this.element('section',null,'panel rn-targets');
-      section.append(this.heading(this.t('Ziele'),'mdi:send-check','blue'));
+      section.append(this.sectionHeading('routes',this.t('Ziele')));
       const filters=this.element('div',null,'rn-filter');filters.setAttribute('role','group');filters.setAttribute('aria-label',this.t('Nach Art filtern'));
       const inventory=this.element('div',null,'tabs');section.append(filters,inventory);
       let category='recipients',filter='all';
@@ -763,7 +768,7 @@ class ReliableNotifyPanel extends HTMLElement {
     }catch(e){this.status(status,e.message,true);if(!status.parentNode)box.append(status);}
   }
   async incidents(box){
-    const incidents=this.element('div',null,'panel');incidents.append(this.heading(this.t('Unbestätigte Alarme'),'mdi:alert-decagram-outline','amber','h2'));
+    const incidents=this.element('div',null,'panel');incidents.append(this.sectionHeading('incidents',this.t('Unbestätigte Alarme')));
     const list=this.element('div',this.t('Lade ...'));incidents.append(list);box.append(incidents);
     try{
       const d=await this.call('dashboard');
@@ -851,7 +856,7 @@ class ReliableNotifyPanel extends HTMLElement {
     telegram.append(sendTelegram,telegramStatus);box.append(telegram);
   }
   async simulation(box){
-    const wrapper=this.element('div',null,'panel');wrapper.append(this.heading(this.t('Simulation ohne Versand'),'mdi:flask-outline','purple','h2'));
+    const wrapper=this.element('div',null,'panel');wrapper.append(this.sectionHeading('simulation',this.t('Simulation ohne Versand')));
     wrapper.append(this.element('p',this.t('Zeigt Routing, Aufbewahrung und Ruhezeiten an. Keine Queue-Einträge oder Push-Nachrichten.'),'muted'));
     await this.loadRouteChoices();
     const editor=this.fieldEditor({recipients:['wolfgang_phone'],priority:'warning',
@@ -912,7 +917,7 @@ class ReliableNotifyPanel extends HTMLElement {
     if(advice.childElementCount)box.append(this.heading(this.t('Empfehlungen'),'mdi:lightbulb-on-outline','amber','h4'),advice);
   }
   async analytics(box){
-    const wrapper=this.element('div',null,'panel');wrapper.append(this.heading(this.t('Transportstatistik & Systemzustand'),'mdi:chart-box-outline','cyan','h2'));
+    const wrapper=this.element('div',null,'panel');wrapper.append(this.sectionHeading('analytics',this.t('Transportstatistik & Systemzustand')));
     const days=this.element('select');for(const day of [1,7,14,30]){
       const option=this.element('option',String(day)+this.t(' Tage'));option.value=day;
       if(day===7)option.selected=true;days.append(option);
@@ -963,7 +968,7 @@ class ReliableNotifyPanel extends HTMLElement {
     await this.run(report,loadWithChart);
   }
   async namedSettings(box,{title,kind,load,save,property}){
-    const section=this.element('section',null,'panel');section.append(this.heading(title,kind==='template'?'mdi:text-box-multiple-outline':'mdi:shield-account-outline',kind==='template'?'indigo':'purple'));box.append(section);
+    const section=this.element('section',null,'panel');section.append(this.sectionHeading(kind==='template'?'templates':'profiles',title));box.append(section);
     const status=this.element('p',this.t('Lade …'));section.append(status);
     try{
       const data=await this.call(load);
@@ -1035,7 +1040,7 @@ class ReliableNotifyPanel extends HTMLElement {
   }
   async migration(box){
     const wrapper=this.element('div',null,'panel');
-    wrapper.append(this.heading(this.t('Bestehende Automationen prüfen'),'mdi:source-branch','orange','h2'));
+    wrapper.append(this.sectionHeading('migration',this.t('Bestehende Automationen prüfen')));
     wrapper.append(this.element('p',this.t('Liest automations.yaml, scripts.yaml sowie YAML-Dateien in packages/, automations/ und scripts/ ausschließlich lesend. Es werden keine Dateien verändert, solange du nicht ausdrücklich eine einzelne Paket-Änderung übernimmst.'),'muted'));
     const button=this.actionButton(this.t('Benachrichtigungen analysieren'),'mdi:file-search-outline','primary');
     const result=this.element('div');result.setAttribute('role','status');
@@ -1113,7 +1118,7 @@ class ReliableNotifyPanel extends HTMLElement {
     wrapper.append(button,download,result);box.append(wrapper);
   }
   async settings(box){
-    const intro=this.element('div',null,'panel');intro.append(this.heading(this.t('Einstellungen'),'mdi:cog-outline','slate','h2'),
+    const intro=this.element('div',null,'panel');intro.append(this.sectionHeading('settings',this.t('Einstellungen')),
       this.element('p',this.t('Alle Betriebsoptionen stehen gemeinsam im HA-Konfigurationsdialog. Neue Ziele und Empfänger unter „Ziele & Personen“ anlegen; Profile und Vorlagen in den gleichnamigen Bereichen bearbeiten.'),'muted'));
     const open=rnDecorate(this.element('a',this.t('Alle Integrationsoptionen öffnen')),'mdi:open-in-new','slate');open.href='/config/integrations/integration/reliable_notify';intro.append(open);
     const targets=this.actionButton(this.t('Neues Ziel anlegen'),'mdi:plus','primary');targets.addEventListener('click',()=>{this._section='routes';this._rendered=false;this.shadowRoot.replaceChildren();this.render();});intro.append(targets);box.append(intro);

@@ -1259,7 +1259,7 @@ class ReliableNotifyCard extends HTMLElement {
     style.textContent+=`.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:16px 0}.tabs{display:flex;flex-wrap:wrap;gap:8px}details{border:1px solid var(--divider-color);border-radius:12px;padding:12px;margin:12px 0;background:color-mix(in srgb,var(--rn-blue) 3%,var(--card-background-color))}summary{cursor:pointer;font-weight:600}ha-card{border-radius:16px;border-top:4px solid var(--rn-teal)}th.rn-icon-label{display:table-cell;white-space:nowrap}th ha-icon{vertical-align:middle;margin-right:6px}button{gap:6px}.actions button{margin:3px}tbody tr:hover{background:var(--secondary-background-color)}`;
     root.append(style);
     const card = document.createElement('ha-card');
-    const heading = document.createElement('h2'); heading.textContent = this.config.title || 'Reliable Notify'; rnDecorate(heading,'mdi:bell-check-outline','teal');card.append(heading);
+    const heading = document.createElement('h2'); heading.textContent = this.config.title || 'Reliable Notify'; rnDecorate(heading,this.config.icon||'mdi:bell-check-outline','teal');card.append(heading);
     const stats = document.createElement('div'); stats.className='stats';
     const free = data.storage.free_bytes == null ? this.t('unknown') : `${(data.storage.free_bytes/1048576).toFixed(0)} MiB`;
     for(const [label,value,icon,tone] of [

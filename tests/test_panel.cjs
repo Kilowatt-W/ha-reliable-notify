@@ -431,6 +431,24 @@ test('one target list shows type, details and filters; new entries choose their 
   }
 });
 
+test('each section heading reuses the icon and colour of its navigation button',async()=>{
+  const {panel}=setup({admin_inventory:{routes:{recipients:{},groups:{},persons:{}}},dashboard:{policies:{},retention:{},smart:{}},statistics:{}});
+  panel._section='routes';panel.render();await tick();
+  const root=panel.shadowRoot;
+  const navIcon=label=>[...root.querySelectorAll('nav button')].find(b=>b.textContent===label);
+  for(const [label,section] of [['Ziele & Personen','routes'],['Einstellungen','settings']]){
+    const button=navIcon(label);button.click();await tick();await tick();
+    const heading=root.querySelector('#content [data-section='+section+']');
+    assert.ok(heading,section);
+    assert.equal(heading.querySelector('ha-icon').getAttribute('icon'),button.querySelector('ha-icon').getAttribute('icon'));
+    assert.equal(heading.dataset.tone,button.dataset.tone);
+  }
+  // The embedded message card shows the Messages icon instead of the app icon.
+  navIcon('Nachrichten').click();await tick();
+  const card=root.querySelector('#content reliable-notify-card');
+  assert.equal(card.config.icon,navIcon('Nachrichten').querySelector('ha-icon').getAttribute('icon'));
+});
+
 test('automation check shows translated reasons, skipped files and file errors',async()=>{
   const report={proposed:1,manual:1,files:[
     {file:'scripts.yaml',skipped:'not_present',proposals:[]},

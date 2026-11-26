@@ -2,6 +2,7 @@
 
 ## 3.8.9
 - Target list: one compact row per entry – type icon, name, the notify entity / HA action (or group members, person channels) right next to the name, and *Send test* at the right edge. Long details are shortened with the full text on hover; on narrow screens the detail moves below the name.
+- Every section heading uses the same icon and colour as its navigation button (e.g. *Targets* now shows the people icon, the message card in the panel the messages icon). The standalone Lovelace card keeps its icon; it accepts an optional `icon` option.
 
 ## 3.8.8
 - Target list: the type is shown as a round icon (send = single target, people = group, person = person) instead of a text badge; hover text and screen-reader name explain the type ("Group: sends to every target it contains, each with its own delivery." etc.). The filter buttons carry the same icons and hover texts. German/English.
