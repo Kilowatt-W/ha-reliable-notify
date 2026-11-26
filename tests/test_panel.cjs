@@ -456,8 +456,8 @@ test('automation check lists proposals first with copyable YAML, editor link, re
     {path:'root[1].actions[0]',automation:'Fenster',status:'proposed',source:'notify.mobile_app_phone',route:'phone',reason_code:'unambiguous_data',
      replacement:{action:'notify.reliable_phone',data:{message:'offen',data:{tag:'fenster'}}},edit_url:'/config/automation/edit/18'},
     {path:'root[2].actions[0]',automation:'Foto',status:'manual',source:'telegram_bot.send_photo',reason_code:'response_used'}]}]};
-  for(const [language,overview,open,create,copy] of [['de','Manuell zu prüfen, nach Grund:','Im HA-Editor öffnen','Ziel dafür anlegen','Kopieren'],
-    ['en','To check manually, by reason:','Open in the HA editor','Create a target for it','Copy']]){
+  for(const [language,overview,open,create,copy] of [['de','Manuell zu prüfen, nach Grund:','Automation im HA-Editor öffnen','Ziel dafür anlegen','Kopieren'],
+    ['en','To check manually, by reason:','Open the automation in the HA editor','Create a target for it','Copy']]){
     const {panel,box}=setup({migration_scan:report,admin_inventory:{routes:{recipients:{phone:{}},groups:{},persons:{}}}});
     panel._hass.language=language;
     panel._hass.states={'notify.echo_kueche':{attributes:{friendly_name:'Echo Küche'}}};
@@ -474,6 +474,8 @@ test('automation check lists proposals first with copyable YAML, editor link, re
     assert.equal(link.getAttribute('href'),'/config/automation/edit/18');
     // Missing target: one click opens Targets with the suggested definition (not saved).
     const kitchen=entries.find(e=>/^Küche/.test(e.querySelector('summary').textContent));
+    // Nothing to replace yet: no editor link, only target creation.
+    assert.equal(kitchen.querySelector('a'),null);
     [...kitchen.querySelectorAll('button')].find(b=>b.textContent===create).click();await tick();await tick();
     assert.equal(panel._section,'routes');
     const content=panel.shadowRoot.querySelector('#content');

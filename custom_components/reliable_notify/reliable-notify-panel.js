@@ -1108,8 +1108,11 @@ class ReliableNotifyPanel extends HTMLElement {
               details.append(create);
             }
           }
-          if(item.edit_url){
-            const open=rnDecorate(this.element('a',this.t('Im HA-Editor öffnen')),'mdi:open-in-app','blue');
+          // The editor link opens the automation/script itself; with a missing target there is
+          // nothing to replace yet – create the target first, then analyse again.
+          if(item.edit_url&&!(item.reason_code==='no_route'&&item.suggested_target)){
+            const script=item.edit_url.startsWith('/config/script/');
+            const open=rnDecorate(this.element('a',this.t(script?'Skript im HA-Editor öffnen':'Automation im HA-Editor öffnen')),'mdi:open-in-app','blue');
             open.href=item.edit_url;open.className+=' rn-edit-link';details.append(open);
           }
           if(item.replacement){

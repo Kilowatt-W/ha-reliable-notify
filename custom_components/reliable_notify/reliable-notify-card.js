@@ -1071,7 +1071,8 @@ RN_TRANSLATIONS.push(...[
   ['Diese Notify-Aktion gibt es in Home Assistant nicht (umbenannt oder entfernt) – sie schlägt schon heute fehl',
    'This notify action does not exist in Home Assistant (renamed or removed) – it already fails today'],
   ['Ziel dafür anlegen','Create a target for it'],
-  ['Im HA-Editor öffnen','Open in the HA editor'],
+  ['Automation im HA-Editor öffnen','Open the automation in the HA editor'],
+  ['Skript im HA-Editor öffnen','Open the script in the HA editor'],
   ['Vorher: {action} – ersetzen durch:','Before: {action} – replace with:'],
   ['Vorschlag aus der Automation-Prüfung – prüfen und speichern.','Suggestion from the automation check – review and save.'],
 ]);
