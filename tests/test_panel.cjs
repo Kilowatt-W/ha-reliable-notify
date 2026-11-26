@@ -406,6 +406,8 @@ test('one target list shows type, details and filters; new entries choose their 
     assert.match(badges[0].title,language==='de'?/alle enthaltenen Ziele/:/every target it contains/);
     assert.deepEqual(items.map(i=>i.querySelector('.route-members')?.textContent),
       [language==='de'?'Enthält: Handy':'Contains: Handy',channel,'notify.mobile_app_phone','notify.tg_chat']);
+    // The detail sits next to the name in one grid row; the full text stays available on hover.
+    assert.equal(items[2].querySelector('.route-members').title,'notify.mobile_app_phone');
     const chipsNodes=[...box.querySelectorAll('.rn-filter button.rn-chip')];
     assert.deepEqual(chipsNodes.map(c=>c.textContent),chips);
     assert.equal(chipsNodes[0].getAttribute('aria-pressed'),'true');

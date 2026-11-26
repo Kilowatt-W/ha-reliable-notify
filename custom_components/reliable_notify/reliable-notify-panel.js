@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.8 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.8';
+/* Reliable Notify Admin Panel 3.8.9 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.9';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -581,6 +581,16 @@ class ReliableNotifyPanel extends HTMLElement {
       .route-type[data-kind=groups]{--rn-kind:var(--rn-purple)}.route-type[data-kind=persons]{--rn-kind:var(--rn-teal)}
       .route-type:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
       .route-type ha-icon{--mdc-icon-size:18px}button.rn-chip ha-icon{--mdc-icon-size:16px}.route-item[hidden]{display:none}.route-item p:empty{display:none}
+      .rn-targets .route-item{display:grid;grid-template-columns:32px auto minmax(0,1fr) auto;align-items:center;gap:4px 10px;padding:5px 10px}
+      .rn-targets .route-item>.route-type{grid-column:1;grid-row:1}
+      .rn-targets .route-item>button[data-route]{grid-column:2;grid-row:1;justify-self:start;max-width:100%;padding:6px 11px}
+      .rn-targets .route-item>p.route-members{grid-column:3;grid-row:1;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .rn-targets .route-item>button.test{grid-column:4;grid-row:1;padding:6px 11px}
+      .rn-targets .route-item>p[role=status]{grid-column:2/-1;grid-row:2;margin:0}
+      @media(max-width:700px){.rn-targets .route-item{grid-template-columns:32px minmax(0,1fr) auto}
+        .rn-targets .route-item>button.test{grid-column:3}
+        .rn-targets .route-item>p.route-members{grid-column:2/-1;grid-row:2;white-space:normal}
+        .rn-targets .route-item>p[role=status]{grid-row:3}}
       details.rn-help h4{margin:16px 0 6px}details.rn-help ul{margin:4px 0 10px;padding-left:22px;line-height:1.5}
       .rn-scroll{overflow-x:auto}table.rn-failures{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
       table.rn-failures th,table.rn-failures td{padding:6px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}
@@ -701,7 +711,8 @@ class ReliableNotifyPanel extends HTMLElement {
           const channels=[...new Set(Object.values(route.channels||{}))].map(channel=>labels[channel]||channel);
           if(channels.length)detail=this.t('Kanäle: {channels}',{channels:channels.join(', ')});
         }else if(route.target_entity||route.action)detail=route.target_entity||route.action;
-        if(detail)item.append(this.element('p',detail,'muted route-members'));
+        // Shown next to the name (one row on wide screens); the full text stays in the hover title.
+        if(detail){const line=this.element('p',detail,'muted route-members');line.title=detail;item.append(line);}
         items.push(item);inventory.append(item);
       }
       const counts=Object.fromEntries(Object.keys(KINDS).map(kind=>[kind,entries.filter(e=>e[0]===kind).length]));
