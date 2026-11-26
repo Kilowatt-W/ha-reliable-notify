@@ -105,9 +105,11 @@ async def scan_automation_files(config_dir, routes, own_entities=frozenset(), de
     """
     root=Path(config_dir)
     ui_files={root/"automations.yaml",root/"scripts.yaml"}
+    # Directory listing is file I/O as well: never in the event loop (3.9.1).
+    candidates=await asyncio.to_thread(_candidate_paths,root)
     reports=await asyncio.gather(*[
         asyncio.to_thread(_inspect_one,path,routes,frozenset(own_entities),devices,path in ui_files,services)
-        for path in _candidate_paths(root)
+        for path in candidates
     ])
     for result in reports:
         if result.get("sha256"):

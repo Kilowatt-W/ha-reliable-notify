@@ -66,5 +66,12 @@ class ProposalTests(unittest.TestCase):
         self.assertEqual(report[0]["owner"], {"kind": "script", "id": "waschmaschine"})
 
 
+class ScanThreadTests(unittest.TestCase):
+    def test_directory_listing_runs_in_a_worker_thread(self):
+        source = (ROOT / "migration_scan.py").read_text(encoding="utf-8")
+        self.assertIn("candidates=await asyncio.to_thread(_candidate_paths,root)", source)
+        self.assertNotIn("for path in _candidate_paths(root)", source)
+
+
 if __name__ == "__main__":
     unittest.main()
