@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.8.6
+- Admin panel: the big *Show help* / *Hide help* button in the header is replaced by a round "?" right after the title (spoken and hover label *Show help* / *Hide help*); the header is lower.
+- In every section a closed help block takes no space any more; it appears only after "?" (header or, under Targets & people, after the intro text). German/English.
+
 ## 3.8.5
 - Targets & people: every group in the list shows its members by display name ("Contains: …"), so the content is visible without opening the group.
 - The help block of this section is reduced to a round "?" button right after the intro text; it opens the full help below (and still follows *Show help* / *Hide help*). German/English.

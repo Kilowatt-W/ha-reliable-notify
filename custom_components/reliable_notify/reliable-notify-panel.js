@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.5 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.5';
+/* Reliable Notify Admin Panel 3.8.6 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.6';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -193,8 +193,13 @@ class ReliableNotifyPanel extends HTMLElement {
     try{localStorage.setItem('reliable-notify-help',open?'open':'closed');}catch(_){/* private mode */}
     for(const box of this.shadowRoot.querySelectorAll('details.rn-help'))if(box.open!==open)box.open=open;
     const toggle=this.shadowRoot.querySelector('button.rn-help-toggle');
-    if(toggle){toggle.setAttribute('aria-expanded',String(open));
-      toggle.lastChild.textContent=open?this.t('Hilfe ausblenden'):this.t('Hilfe einblenden');}
+    if(toggle)this.labelHelpToggle(toggle,open);
+    for(const icon of this.shadowRoot.querySelectorAll('button.rn-help-icon'))icon.setAttribute('aria-expanded',String(open));
+  }
+  // The "?" keeps a spoken and hover label that says what it does.
+  labelHelpToggle(toggle,open){
+    const label=open?this.t('Hilfe ausblenden'):this.t('Hilfe einblenden');
+    toggle.setAttribute('aria-expanded',String(open));toggle.setAttribute('aria-label',label);toggle.title=label;
   }
   // YAML example with a copy button; clipboard access may be blocked (http, permissions).
   codeBlock(code){
@@ -553,9 +558,10 @@ class ReliableNotifyPanel extends HTMLElement {
     style.textContent+=`
       .shell{padding:24px;--rn-accent:var(--primary-color)}
       .hero{border:1px solid var(--divider-color);border-top:4px solid var(--rn-accent);border-radius:16px;
-        padding:18px 20px;background:linear-gradient(110deg,color-mix(in srgb,var(--rn-accent) 13%,var(--card-background-color)),var(--card-background-color));margin-bottom:16px}
-      .hero h1{font-size:25px;gap:12px}.hero h1 ha-icon{--mdc-icon-size:30px}.hero p{margin:8px 0 0}
-      .hero .rn-help-toggle{margin-top:12px}
+        padding:14px 18px;background:linear-gradient(110deg,color-mix(in srgb,var(--rn-accent) 13%,var(--card-background-color)),var(--card-background-color));margin-bottom:14px}
+      .hero h1{font-size:25px;gap:12px;margin:0}.hero h1 ha-icon{--mdc-icon-size:30px}.hero p{margin:6px 0 0}
+      .hero-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+      details.rn-help:not([open]){display:none}
       details.rn-help{border-left:4px solid var(--rn-cyan);background:color-mix(in srgb,var(--rn-cyan) 7%,var(--card-background-color))}
       details.rn-help ol{margin:6px 0 10px;padding-left:22px;line-height:1.5}details.rn-help li{margin:4px 0}
       details.rn-help pre{background:var(--secondary-background-color);border-radius:8px;padding:10px;font-size:13px}
@@ -589,12 +595,15 @@ class ReliableNotifyPanel extends HTMLElement {
     root.append(style);
     const shell=this.element('div',null,'shell');
     shell.dataset.tone=RN_SECTIONS[this._section]?.tone||'blue';
-    const hero=this.element('header',null,'hero');hero.append(this.heading('Reliable Notify','mdi:bell-check-outline',RN_SECTIONS[this._section]?.tone||'blue','h1'),
-      this.element('p',this.t('Benachrichtigungen • Zustellung • Eskalation • Diagnose'),'muted'));
-    const helpToggle=this.actionButton(this.helpOpen?this.t('Hilfe ausblenden'):this.t('Hilfe einblenden'),'mdi:help-circle-outline','rn-help-toggle');
-    helpToggle.dataset.tone='cyan';helpToggle.setAttribute('aria-expanded',String(this.helpOpen));
+    const hero=this.element('header',null,'hero');
+    // Round "?" right after the title (3.8.6): opens the help of the current section.
+    const helpToggle=this.element('button','?','rn-help-icon rn-help-toggle');helpToggle.type='button';
+    this.labelHelpToggle(helpToggle,this.helpOpen);
     helpToggle.addEventListener('click',()=>this.setHelpOpen(!this.helpOpen));
-    hero.append(helpToggle);shell.append(hero);
+    const title=this.element('div',null,'hero-title');
+    title.append(this.heading('Reliable Notify','mdi:bell-check-outline',RN_SECTIONS[this._section]?.tone||'blue','h1'),helpToggle);
+    hero.append(title,this.element('p',this.t('Benachrichtigungen • Zustellung • Eskalation • Diagnose'),'muted'));
+    shell.append(hero);
     const tabs=this.element('nav',null,'tabs');tabs.setAttribute('aria-label',this.t('Hauptnavigation'));
     for(const [id,name] of [['messages',this.t('Nachrichten')],['routes',this.t('Ziele & Personen')],
        ['incidents',this.t('Eskalationen')],['simulation','Simulation'],['analytics',this.t('Statistik')],['templates',this.t('Vorlagen')],['profiles',this.t('Profile & API')],['migration',this.t('Automation-Migration')],['settings',this.t('Einstellungen')]]){

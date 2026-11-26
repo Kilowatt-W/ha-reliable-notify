@@ -328,14 +328,19 @@ test('help can be shown per section, follows the language and stays open across 
   const {panel}=setup({dashboard:{policies:{},retention:{},smart:{}},statistics:{},admin_inventory:{routes:{recipients:{},groups:{},persons:{}}}});
   panel._section='settings';panel.render();await tick();
   const root=panel.shadowRoot;
-  const toggle=root.querySelector('button.rn-help-toggle');
-  assert.equal(toggle.textContent,'Hilfe einblenden');assert.equal(toggle.getAttribute('aria-expanded'),'false');
+  // A round "?" right after the title replaces the big help button; its label says what it does.
+  const toggle=root.querySelector('.hero-title button.rn-help-toggle');
+  assert.equal(toggle.textContent,'?');assert.ok(toggle.classList.contains('rn-help-icon'));
+  assert.equal(toggle.getAttribute('aria-label'),'Hilfe einblenden');assert.equal(toggle.title,'Hilfe einblenden');
+  assert.equal(toggle.getAttribute('aria-expanded'),'false');
+  assert.equal(root.querySelector('.hero-title').firstElementChild.tagName,'H1');
   let help=root.querySelector('#content details.rn-help');
   assert.equal(help.open,false);assert.equal(help.querySelector('summary').textContent,'Hilfe zu diesem Bereich');
   assert.match(help.textContent,/Alle Optionen gibt es gesammelt/);
   assert.match(help.querySelector('a').href,/docs\/CONFIGURATION\.md$/);
   toggle.click();
-  assert.equal(help.open,true);assert.equal(toggle.textContent,'Hilfe ausblenden');assert.equal(toggle.getAttribute('aria-expanded'),'true');
+  assert.equal(help.open,true);assert.equal(toggle.textContent,'?');assert.equal(toggle.getAttribute('aria-label'),'Hilfe ausblenden');
+  assert.equal(toggle.getAttribute('aria-expanded'),'true');
   click(root.querySelector('nav'),'Ziele & Personen');await tick();
   help=root.querySelector('#content details.rn-help');
   assert.equal(help.open,true);assert.match(help.textContent,/Neues Ziel anlegen/);assert.match(help.querySelector('pre').textContent,/reliable_notify\.enqueue/);
@@ -343,7 +348,9 @@ test('help can be shown per section, follows the language and stays open across 
   help=root.querySelector('#content details.rn-help');
   assert.equal(help.querySelector('summary').textContent,'Help for this section');
   assert.match(help.textContent,/Create new target/);assert.equal(help.open,true);
-  assert.equal(root.querySelector('button.rn-help-toggle').textContent,'Hide help');
+  assert.equal(root.querySelector('button.rn-help-toggle').getAttribute('aria-label'),'Hide help');
+  // A closed help takes no space: the hidden-when-closed rule applies to every section.
+  assert.match(root.querySelector('style').textContent,/details\.rn-help:not\(\[open\]\)\{display:none\}/);
 });
 
 test('targets show group members and keep the section help behind a "?" after the intro text',async()=>{
