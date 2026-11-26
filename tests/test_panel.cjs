@@ -185,7 +185,7 @@ test('English panel labels and YAML preview keep technical keys and user data un
   assert.equal(box.querySelector('input[placeholder="Unique name"]').value,'Speichern');
   const editor=panel.fieldEditor(definition);assert.deepEqual(plain(editor.read()),definition);
   const yaml=panel.yaml(editor.read());assert.match(yaml,/"token": "Speichern"/);
-  assert.match(box.querySelector('summary').textContent,/Show YAML/);
+  assert.match(box.querySelector('section summary').textContent,/Show YAML/);
   panel._hass.language='fr';assert.equal(panel.fieldLabel('target_entity'),'Notify target entity');
 });
 
