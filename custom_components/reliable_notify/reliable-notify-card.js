@@ -1132,7 +1132,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.9.0 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.9.1 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},

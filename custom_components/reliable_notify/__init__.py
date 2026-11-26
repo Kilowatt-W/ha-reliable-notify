@@ -46,7 +46,7 @@ from .native_transport import NATIVE_ACTIONS, native_public_payload, async_deliv
 
 LANES = ("telegram", "smtp", "notify", "notify")
 PLATFORMS = ["sensor", "binary_sensor", "button", "notify"]
-ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.9.0"
+ALARM_CARD_URL = "/reliable_notify/reliable-notify-alarm-card.js?v=3.9.1"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1001,7 +1001,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             hass, webcomponent_name="reliable-notify-panel",
             frontend_url_path="reliable-notify",
             sidebar_title="Reliable Notify", sidebar_icon="mdi:bell-check",
-            module_url="/reliable_notify/reliable-notify-panel.js?v=3.9.0",
+            module_url="/reliable_notify/reliable-notify-panel.js?v=3.9.1",
             require_admin=True)
         hass.data["reliable_notify_panel_registered"] = True
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = manager
