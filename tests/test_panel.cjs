@@ -447,6 +447,7 @@ test('each section heading reuses the icon and colour of its navigation button',
   navIcon('Nachrichten').click();await tick();
   const card=root.querySelector('#content reliable-notify-card');
   assert.equal(card.config.icon,navIcon('Nachrichten').querySelector('ha-icon').getAttribute('icon'));
+  card.remove();  // stops the card's refresh timer, otherwise the test process never exits
 });
 
 test('automation check lists proposals first with copyable YAML, editor link, reason overview and target creation',async()=>{
@@ -467,8 +468,8 @@ test('automation check lists proposals first with copyable YAML, editor link, re
     assert.equal(box.querySelectorAll('ul.rn-reasons li').length,2);
     const entries=[...box.querySelectorAll('details')];
     assert.match(entries[0].querySelector('summary').textContent,/^Fenster/);  // proposal first
-    assert.match(entries[0].querySelector('.rn-code pre').textContent,/action: notify.reliable_phone/);
-    assert.match(entries[0].querySelector('.rn-code pre').textContent,/tag: fenster/);
+    assert.match(entries[0].querySelector('.rn-code pre').textContent,/"action": "notify.reliable_phone"/);
+    assert.match(entries[0].querySelector('.rn-code pre').textContent,/"tag": "fenster"/);
     assert.equal(entries[0].querySelector('.rn-code button').textContent,copy);
     assert.equal(entries[0].querySelector('.rn-code button ha-icon').getAttribute('icon'),'mdi:content-copy');
     const link=[...entries[0].querySelectorAll('a')].find(a=>a.textContent===open);
