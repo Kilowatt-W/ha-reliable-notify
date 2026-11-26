@@ -58,7 +58,7 @@ test('existing route is loaded in full before saving, and all categories stay vi
   const definition={action:'telegram_bot.send_message',data:{chat_id:-100123,parse_mode:'HTML',disable_notification:true}};
   const {panel,box,calls,plain}=setup({admin_inventory:{routes:{recipients:{telegram:{}},groups:{},persons:{}}},route_definition:{definition}});
   await panel.routes(box);
-  assert.deepEqual([...box.querySelectorAll('h2')].map(n=>n.textContent),['Ziele / Empfänger','Gruppen','Personen']);
+  assert.deepEqual([...box.querySelectorAll('h2')].map(n=>n.textContent),['Ziele']);
   click(box,'telegram');await tick();
   click(box,'Speichern');await tick();
   assert.deepEqual(plain(calls.find(c=>c.type.endsWith('/set_route')).definition),definition);
@@ -178,7 +178,7 @@ test('English panel labels and YAML preview keep technical keys and user data un
   const {panel,box,calls,plain}=setup({admin_inventory:{routes:{recipients:{Speichern:{}},groups:{},persons:{}}},route_definition:{definition}});
   panel._hass.language='en-GB';
   await panel.routes(box);
-  assert.deepEqual([...box.querySelectorAll('h2')].map(e=>e.textContent),['Targets / recipients','Groups','People']);
+  assert.deepEqual([...box.querySelectorAll('h2')].map(e=>e.textContent),['Targets']);
   assert.ok(control(box,'Notify target entity'));
   // Existing route aliases and message values are user data, never localized.
   click(box,'Speichern');await tick();
@@ -223,13 +223,15 @@ test('each saved target has an icon test button and reports transport acceptance
   await panel.routes(box);
   assert.equal([...box.querySelectorAll('button')].filter(b=>b.textContent==='Test senden').length,3);
   assert.equal(box.querySelectorAll('.route-item button.test ha-icon[icon="mdi:bell-ring-outline"]').length,3);
-  assert.equal(box.querySelectorAll('button.danger ha-icon[icon="mdi:delete-outline"]').length,3);
-  click(box,'Test senden');await tick();await tick();
+  assert.equal(box.querySelectorAll('button.danger ha-icon[icon="mdi:delete-outline"]').length,1);
+  // The list is sorted by name: family, phone, wolfgang.
+  const phone=[...box.querySelectorAll('.route-item')].find(i=>i.querySelector('button[data-route=phone]'));
+  phone.querySelector('button.test').click();await tick();await tick();
   assert.equal(calls.filter(c=>c.type.endsWith('/test_route')).length,1);
-  assert.equal(calls.find(c=>c.type.endsWith('/test_route')).name,'phone');
-  assert.match(box.querySelector('.route-item p').textContent,/Vom Transport angenommen/);
-  assert.equal(box.querySelector('.route-item p').className,'status');
-  assert.equal(box.querySelector('.route-item button.test').disabled,false);
+  assert.deepEqual([calls.find(c=>c.type.endsWith('/test_route')).name,calls.find(c=>c.type.endsWith('/test_route')).category],['phone','recipients']);
+  assert.match(phone.querySelector('p').textContent,/Vom Transport angenommen/);
+  assert.equal(phone.querySelector('p').className,'status');
+  assert.equal(phone.querySelector('button.test').disabled,false);
 });
 
 test('test mode, delivery failures and quiet hours do not claim successful delivery',async()=>{
@@ -283,7 +285,8 @@ test('a manually typed internal ID is not overwritten and existing IDs stay fixe
 test('group members offer known targets with display names',async()=>{
   const {panel,box}=setup({admin_inventory:{routes:{recipients:{tg_buero:{},mail:{}},groups:{family:['mail']},persons:{}},labels:{tg_buero:'Telegram Büro'}}});
   await panel.routes(box);
-  const groups=box.querySelectorAll('section')[1];
+  const groups=box.querySelector('section');
+  const type=groups.querySelector('select[name=route_type]');type.value='groups';type.dispatchEvent(new panel.ownerDocument.defaultView.Event('change'));
   click(groups,'Eintrag hinzufügen');
   const input=groups.querySelector('.list-fields input');
   const options=[...groups.querySelectorAll('datalist#'+input.getAttribute('list')+' option')];
@@ -372,11 +375,50 @@ test('targets show group members and keep the section help behind a "?" after th
     assert.equal(help.open,true);assert.equal(icon.getAttribute('aria-expanded'),'true');
     assert.equal(root.querySelector('button.rn-help-toggle').getAttribute('aria-expanded'),'true');
     icon.click();await tick();assert.equal(help.open,false);
-    const groups=[...content.querySelectorAll('section')][1];
-    const members=[...groups.querySelectorAll('.route-members')].map(p=>p.textContent);
+    const members=[...content.querySelectorAll('.route-item[data-kind=groups] .route-members')].map(p=>p.textContent);
     assert.deepEqual(members,[contains,empty]);
-    // Recipients do not get a member line.
-    assert.equal([...content.querySelectorAll('section')][0].querySelector('.route-members'),null);
+    // Recipients without action data do not get a detail line.
+    assert.equal(content.querySelector('.route-item[data-kind=recipients] .route-members'),null);
+  }
+});
+
+test('one target list shows type, details and filters; new entries choose their type',async()=>{
+  for(const [language,heading,types,chips,channel] of [
+    ['de','Ziele',['Gruppe','Person','Einzelziel','Einzelziel'],['Alle (4)','Einzelziele (2)','Gruppen (1)','Personen (1)'],'Kanäle: Handy'],
+    ['en','Targets',['Group','Person','Single target','Single target'],['All (4)','Single targets (2)','Groups (1)','People (1)'],'Channels: Handy']]){
+    const {panel,box,calls,dom}=setup({admin_inventory:{routes:{
+        recipients:{phone:{action:'notify.mobile_app_phone',target_entity:''},tg:{action:'notify.send_message',target_entity:'notify.tg_chat'}},
+        groups:{all_mobile:['phone']},persons:{anna:{entity:'person.anna',channels:{mobile:'phone'}}}},
+      labels:{phone:'Handy',all_mobile:'Alle Mobile Apps',anna:'Anna'}},route_definition:{definition:['phone']}});
+    panel._hass.language=language;await panel.routes(box);
+    assert.equal(box.querySelectorAll('section').length,1);
+    assert.deepEqual([...box.querySelectorAll('h2')].map(h=>h.textContent),[heading]);
+    // Sorted by display name; the type badge is separate from the edit button (aliases stay untranslated).
+    const items=[...box.querySelectorAll('.route-item')];
+    assert.deepEqual(items.map(i=>i.querySelector('button').textContent),['Alle Mobile Apps (all_mobile)','Anna (anna)','Handy (phone)','tg']);
+    assert.deepEqual(items.map(i=>i.querySelector('.route-type').textContent),types);
+    assert.deepEqual(items.map(i=>i.querySelector('.route-members')?.textContent),
+      [language==='de'?'Enthält: Handy':'Contains: Handy',channel,'notify.mobile_app_phone','notify.tg_chat']);
+    const chipsNodes=[...box.querySelectorAll('.rn-filter button.rn-chip')];
+    assert.deepEqual(chipsNodes.map(c=>c.textContent),chips);
+    assert.equal(chipsNodes[0].getAttribute('aria-pressed'),'true');
+    chipsNodes[2].click();
+    assert.deepEqual(items.filter(i=>!i.hidden).map(i=>i.dataset.kind),['groups']);
+    assert.equal(chipsNodes[2].getAttribute('aria-pressed'),'true');assert.equal(chipsNodes[0].getAttribute('aria-pressed'),'false');
+    // A new entry starts with the filtered type; the type can be changed until saving.
+    const type=box.querySelector('select[name=route_type]');
+    click(box,language==='de'?'Neues Ziel anlegen':'Add target');
+    assert.equal(type.value,'groups');assert.equal(type.disabled,false);
+    type.value='persons';type.dispatchEvent(new dom.window.Event('change'));
+    box.querySelector('input[name=route_id]').value='bert';
+    click(box,language==='de'?'Speichern':'Save');await tick();
+    const saved=calls.find(c=>c.type.endsWith('/set_route'));
+    assert.equal(saved.category,'persons');assert.equal(type.disabled,true);
+    // Opening an existing group locks its type.
+    chipsNodes[0].click();
+    items[0].querySelector('button').click();await tick();
+    assert.equal(type.value,'groups');assert.equal(type.disabled,true);
+    assert.equal(calls.find(c=>c.type.endsWith('/route_definition')).category,'groups');
   }
 });
 

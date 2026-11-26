@@ -1,5 +1,5 @@
-/* Reliable Notify Admin Panel 3.8.6 — no external CDN/dependencies. */
-import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.6';
+/* Reliable Notify Admin Panel 3.8.7 — no external CDN/dependencies. */
+import { rnTranslate, rnLanguage, rnIcon, rnDecorate, rnValueLabel, rnSlug, rnRouteLabel, RN_UI_STYLES, RN_SECTIONS } from './reliable-notify-card.js?v=3.8.7';
 
 /* In-panel help per section (German/English). Technical names in examples stay untranslated. */
 const RN_DOCS='https://github.com/Kilowatt-W/ha-reliable-notify/blob/main/docs/';
@@ -573,6 +573,12 @@ class ReliableNotifyPanel extends HTMLElement {
       button.rn-help-icon:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
       details.rn-help-inline:not([open]){display:none}
       .route-item p.route-members{margin:0 0 2px;font-size:13px}
+      .rn-filter{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px}
+      button.rn-chip{padding:5px 12px;border-radius:999px;font-size:13px;min-height:32px}
+      button.rn-chip[aria-pressed=true]{background:color-mix(in srgb,var(--rn-accent) 17%,var(--card-background-color));border-color:var(--rn-accent);font-weight:700}
+      .route-type{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;
+        background:var(--card-background-color);border:1px solid var(--divider-color);min-width:92px}
+      .route-type ha-icon{--mdc-icon-size:16px}.route-item[hidden]{display:none}.route-item p:empty{display:none}
       details.rn-help h4{margin:16px 0 6px}details.rn-help ul{margin:4px 0 10px;padding-left:22px;line-height:1.5}
       .rn-scroll{overflow-x:auto}table.rn-failures{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
       table.rn-failures th,table.rn-failures td{padding:6px;text-align:left;vertical-align:top;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}
@@ -626,82 +632,115 @@ class ReliableNotifyPanel extends HTMLElement {
     box.append(card);
   }
   async routes(box){
-    const intro=this.helpLine('routes',this.t('Hier neue Ziele anlegen: Unter Ziele / Empfänger auf „Neues Ziel anlegen“ klicken, einen Namen vergeben, HA-Aktion und gegebenenfalls Zielentität oder Transportparameter ausfüllen und speichern. Diesen Namen anschließend als Empfänger verwenden. Das optionale Standardziel ist nur ein Fallback für Nachrichten ohne explizite Empfänger.'));
+    const intro=this.helpLine('routes',this.t('Hier neue Ziele anlegen: „Neues Ziel anlegen“ klicken, die Art wählen (Einzelziel, Gruppe oder Person), einen Namen vergeben, die Einstellungen ausfüllen und speichern. Diesen Namen anschließend als Empfänger verwenden. Das optionale Standardziel ist nur ein Fallback für Nachrichten ohne explizite Empfänger.'));
     box.append(intro.row);if(intro.box)box.append(intro.box);
     const status=this.element('p',this.t('Empfänger werden geladen …'));box.append(status);
     try{
       const data=await this.call('admin_inventory');status.remove();
       this.setRouteChoices(data);
       const labels=data.labels||{};
-      for(const [category,label,kind] of [['recipients',this.t('Ziele / Empfänger'),'recipient'],['groups',this.t('Gruppen'),'group'],['persons',this.t('Personen'),'person']]){
-        const section=this.element('section',null,'panel');
-        const heading=this.heading(label,category==='recipients'?'mdi:send-check':category==='groups'?'mdi:account-group':'mdi:account',category==='recipients'?'blue':category==='groups'?'purple':'teal');section.append(heading);
-        const inventory=this.element('div',null,'tabs');section.append(inventory);
-        // Display name (free text) first; the internal alias is suggested from it.
-        const display=this.element('input');display.name='route_label';display.placeholder=this.t('z. B. Telegram Wolfgang');display.maxLength=100;
-        const displayHint=this.element('p',this.t('Frei wählbarer Name mit Leerzeichen, Umlauten und Sonderzeichen (höchstens 100 Zeichen). Er erscheint in Listen und als Name der Notify-Entität.'),'muted');
-        const name=this.element('input');name.name='route_id';name.placeholder=this.t('Eindeutiger Name');
-        name.maxLength=64;name.pattern='[a-z][a-z0-9_]{0,63}';
-        const hint=this.element('p',this.t('Interner Name: 1–64 Zeichen, mit Kleinbuchstaben beginnen; nur a–z, 0–9 und Unterstriche (_). Beispiel: rn_kw_telegram. Großbuchstaben, Leerzeichen und Bindestriche sind nicht erlaubt.')+' '+
-          this.t('Wird beim Anlegen automatisch aus dem Anzeigenamen vorgeschlagen und danach nicht mehr geändert. Automationen verwenden diesen Namen; die Entität heißt notify.reliable_<ID>.'),'muted');
-        for(const [input,help] of [[display,displayHint],[name,hint]]){this._fieldId=(this._fieldId||0)+1;input.id='rn-route-input-'+this._fieldId;help.id='rn-name-help-'+this._fieldId;input.setAttribute('aria-describedby',help.id);}
-        const editorBox=this.element('div');let editor;
-        // autoId: last suggested alias; a different value means the admin typed an own ID.
-        let loaded=null,selectedTest=null,autoId='';
-        const draw=value=>{editor=this.fieldEditor(value,{defaults:this.fieldDefaults(kind),routes:category==='groups'});editorBox.replaceChildren(editor.node);section.dispatchEvent(new Event('input',{bubbles:true}));};
-        const reset=()=>{loaded=null;autoId='';if(selectedTest)selectedTest.disabled=true;name.value='';display.value='';draw(category==='groups'?[]:category==='persons'
-          ?{entity:'',channels:{},preferred:{}}:{action:'notify.send_message',target_entity:'',data:{}});};
-        reset();
-        display.addEventListener('input',()=>{if(!loaded&&name.value===autoId){autoId=rnSlug(display.value);name.value=autoId;name.dispatchEvent(new Event('input',{bubbles:true}));}});
-        const result=this.element('p');result.setAttribute('role','status');
-        for(const id of Object.keys(data.routes[category]||{})){
-          const item=this.element('div',null,'route-item');const testResult=this.element('p');testResult.setAttribute('role','status');
-          const test=this.actionButton(this.t('Test senden'),'mdi:bell-ring-outline','test');
-          test.addEventListener('click',()=>this.testTarget(category,id,test,testResult));
-          const button=this.actionButton(rnRouteLabel(labels,id),'mdi:pencil-outline');button.dataset.route=id;
-          button.addEventListener('click',()=>this.run(result,async()=>{
-            const response=await this.call('route_definition',{category,name:id});
-            name.value=id;display.value=labels[id]||'';loaded=id;draw(response.definition);selectedTest.disabled=false;
-          }));item.append(button,test);
-          if(category==='groups'){
-            // Members by display name, so the content is visible without opening the group.
-            const members=(data.routes.groups[id]||[]).map(member=>labels[member]||member);
-            item.append(this.element('p',members.length?this.t('Enthält: {members}',{members:members.join(', ')}):this.t('Leere Gruppe'),'muted route-members'));
-          }
-          item.append(testResult);inventory.append(item);
-        }
-        const fresh=this.actionButton(category==='recipients'?this.t('Neues Ziel anlegen'):category==='groups'?this.t('Neue Gruppe anlegen'):this.t('Neue Person anlegen'),'mdi:plus','primary');fresh.addEventListener('click',()=>{reset();selectedTest.disabled=true;});inventory.append(fresh);
-        section.append(this.element('p',this.t('Test senden verschickt eine echte Nachricht über die gespeicherte Konfiguration. Testmodus und Ruhezeiten bleiben aktiv. Bei Gruppen und Personen können mehrere Empfänger erreicht werden.'),'test-hint'));
-        const displayLabel=rnDecorate(this.element('label',this.t('Anzeigename (Klarname)')),'mdi:card-account-details-outline','slate');displayLabel.htmlFor=display.id;
-        const nameLabel=rnDecorate(this.element('label',this.t('Interner Name (ID)')),'mdi:tag-text-outline','slate');nameLabel.htmlFor=name.id;
-        section.append(displayLabel,display,displayHint,nameLabel,name,hint,editorBox);
-        const save=this.actionButton(this.t('Speichern'),'mdi:content-save-outline','primary');save.addEventListener('click',()=>this.run(result,async()=>{
-          name.value=name.value.trim();
-          if(!/^[a-z][a-z0-9_]{0,63}$/.test(name.value)){
-            const example=rnSlug(name.value)||'rn_kw_telegram';
-            name.setAttribute('aria-invalid','true');name.focus();
-            throw Error(this.t('Ungültiger interner Name „{name}“. Nur Kleinbuchstaben, Ziffern und Unterstriche; mit einem Buchstaben beginnen, maximal 64 Zeichen. Beispiel: {example}.',{name:name.value,example}));
-          }
-          name.removeAttribute('aria-invalid');
-          const shown=display.value.trim();
-          if(shown.length>100)throw Error(this.t('Anzeigename: höchstens 100 Zeichen.'));
-          if(loaded&&name.value!==loaded)throw Error(this.t('Zum Umbenennen neuen Eintrag anlegen und den alten gezielt löschen.'));
-          await this.call('set_route',{category,name:name.value,definition:editor.read(),label:shown});
-          this._routeChoices=null;
-          loaded=name.value;labels[name.value]=shown;selectedTest.disabled=false;this.status(result,this.t('Gespeichert. Zum Aktualisieren der Liste diesen Bereich erneut öffnen.'));
-        }));
-        const remove=this.actionButton(this.t('Eintrag löschen'),'mdi:delete-outline','danger');remove.addEventListener('click',()=>this.run(result,async()=>{
-          if(!confirm(this.t('UI-Eintrag ')+name.value+this.t(' löschen?')))return;
-          await this.call('set_route',{category,name:name.value,delete:true});this._routeChoices=null;reset();
-        }));
-        selectedTest=this.actionButton(this.t('Gespeichertes Ziel testen'),'mdi:bell-ring-outline','test');selectedTest.disabled=true;
-        selectedTest.addEventListener('click',()=>this.testTarget(category,loaded,selectedTest,result));
-        name.addEventListener('input',()=>{selectedTest.disabled=!loaded||name.value!==loaded;});
-        section.append(save,selectedTest,remove,result);this.yamlView(section,()=>{
-          const id=name.value||rnSlug(display.value)||'neuer_eintrag',shown=display.value.trim();
-          return {[category]:{[id]:editor.read()},...(shown&&shown!==id?{labels:{[id]:shown}}:{})};
-        });box.append(section);
+      // One list for everything a message can be sent to (3.8.7). Storage keeps recipients/groups/persons.
+      const KINDS={recipients:{kind:'recipient',label:this.t('Einzelziel'),plural:this.t('Einzelziele'),icon:'mdi:send-check',tone:'blue'},
+        groups:{kind:'group',label:this.t('Gruppe'),plural:this.t('Gruppen'),icon:'mdi:account-group',tone:'purple'},
+        persons:{kind:'person',label:this.t('Person'),plural:this.t('Personen'),icon:'mdi:account',tone:'teal'}};
+      const section=this.element('section',null,'panel rn-targets');
+      section.append(this.heading(this.t('Ziele'),'mdi:send-check','blue'));
+      const filters=this.element('div',null,'rn-filter');filters.setAttribute('role','group');filters.setAttribute('aria-label',this.t('Nach Art filtern'));
+      const inventory=this.element('div',null,'tabs');section.append(filters,inventory);
+      let category='recipients',filter='all';
+      // Display name (free text) first; the internal alias is suggested from it.
+      const display=this.element('input');display.name='route_label';display.placeholder=this.t('z. B. Telegram Wolfgang');display.maxLength=100;
+      const displayHint=this.element('p',this.t('Frei wählbarer Name mit Leerzeichen, Umlauten und Sonderzeichen (höchstens 100 Zeichen). Er erscheint in Listen und als Name der Notify-Entität.'),'muted');
+      const name=this.element('input');name.name='route_id';name.placeholder=this.t('Eindeutiger Name');
+      name.maxLength=64;name.pattern='[a-z][a-z0-9_]{0,63}';
+      const hint=this.element('p',this.t('Interner Name: 1–64 Zeichen, mit Kleinbuchstaben beginnen; nur a–z, 0–9 und Unterstriche (_). Beispiel: rn_kw_telegram. Großbuchstaben, Leerzeichen und Bindestriche sind nicht erlaubt.')+' '+
+        this.t('Wird beim Anlegen automatisch aus dem Anzeigenamen vorgeschlagen und danach nicht mehr geändert. Automationen verwenden diesen Namen; die Entität heißt notify.reliable_<ID>.'),'muted');
+      const type=this.element('select');type.name='route_type';
+      for(const [value,info] of Object.entries(KINDS)){const option=this.element('option',info.label);option.value=value;type.append(option);}
+      const typeHint=this.element('p',this.t('Die Art lässt sich nach dem Speichern nicht mehr ändern; dafür einen neuen Eintrag anlegen.'),'muted');
+      for(const [input,help] of [[type,typeHint],[display,displayHint],[name,hint]]){this._fieldId=(this._fieldId||0)+1;input.id='rn-route-input-'+this._fieldId;help.id='rn-name-help-'+this._fieldId;input.setAttribute('aria-describedby',help.id);}
+      const editorBox=this.element('div');let editor;
+      // autoId: last suggested alias; a different value means the admin typed an own ID.
+      let loaded=null,selectedTest=null,autoId='';
+      const blank=kind=>kind==='groups'?[]:kind==='persons'?{entity:'',channels:{},preferred:{}}:{action:'notify.send_message',target_entity:'',data:{}};
+      const draw=value=>{editor=this.fieldEditor(value,{defaults:this.fieldDefaults(KINDS[category].kind),routes:category==='groups'});editorBox.replaceChildren(editor.node);section.dispatchEvent(new Event('input',{bubbles:true}));};
+      const reset=(kind=category)=>{category=kind;type.value=kind;type.disabled=false;loaded=null;autoId='';if(selectedTest)selectedTest.disabled=true;name.value='';display.value='';draw(blank(kind));};
+      type.addEventListener('change',()=>{if(!loaded){category=type.value;draw(blank(category));}});
+      display.addEventListener('input',()=>{if(!loaded&&name.value===autoId){autoId=rnSlug(display.value);name.value=autoId;name.dispatchEvent(new Event('input',{bubbles:true}));}});
+      const result=this.element('p');result.setAttribute('role','status');
+      const entries=[];
+      for(const kind of Object.keys(KINDS))for(const id of Object.keys(data.routes[kind]||{}))entries.push([kind,id]);
+      entries.sort((a,b)=>rnRouteLabel(labels,a[1]).localeCompare(rnRouteLabel(labels,b[1]),undefined,{sensitivity:'base'}));
+      const items=[];
+      for(const [kind,id] of entries){
+        const info=KINDS[kind];
+        const item=this.element('div',null,'route-item');item.dataset.kind=kind;const testResult=this.element('p');testResult.setAttribute('role','status');
+        const badge=rnDecorate(this.element('span',info.label,'route-type'),info.icon,info.tone);badge.dataset.kind=kind;
+        const test=this.actionButton(this.t('Test senden'),'mdi:bell-ring-outline','test');
+        test.addEventListener('click',()=>this.testTarget(kind,id,test,testResult));
+        const button=this.actionButton(rnRouteLabel(labels,id),'mdi:pencil-outline');button.dataset.route=id;
+        button.addEventListener('click',()=>this.run(result,async()=>{
+          const response=await this.call('route_definition',{category:kind,name:id});
+          category=kind;type.value=kind;type.disabled=true;
+          name.value=id;display.value=labels[id]||'';loaded=id;draw(response.definition);selectedTest.disabled=false;
+        }));item.append(badge,button,test,testResult);
+        // What the entry points to, without opening it.
+        const route=data.routes[kind][id]||{};
+        let detail=null;
+        if(kind==='groups'){
+          const members=(Array.isArray(route)?route:[]).map(member=>labels[member]||member);
+          detail=members.length?this.t('Enthält: {members}',{members:members.join(', ')}):this.t('Leere Gruppe');
+        }else if(kind==='persons'){
+          const channels=[...new Set(Object.values(route.channels||{}))].map(channel=>labels[channel]||channel);
+          if(channels.length)detail=this.t('Kanäle: {channels}',{channels:channels.join(', ')});
+        }else if(route.target_entity||route.action)detail=route.target_entity||route.action;
+        if(detail)item.append(this.element('p',detail,'muted route-members'));
+        items.push(item);inventory.append(item);
       }
+      const counts=Object.fromEntries(Object.keys(KINDS).map(kind=>[kind,entries.filter(e=>e[0]===kind).length]));
+      for(const [value,text] of [['all',this.t('Alle')],...Object.entries(KINDS).map(([kind,info])=>[kind,info.plural])]){
+        const count=value==='all'?entries.length:counts[value];
+        const chip=this.element('button',text+' ('+count+')','rn-chip');chip.type='button';chip.dataset.filter=value;
+        chip.setAttribute('aria-pressed',String(value===filter));
+        chip.addEventListener('click',()=>{filter=value;
+          for(const other of filters.children)other.setAttribute('aria-pressed',String(other===chip));
+          for(const item of items)item.hidden=filter!=='all'&&item.dataset.kind!==filter;});
+        filters.append(chip);
+      }
+      const fresh=this.actionButton(this.t('Neues Ziel anlegen'),'mdi:plus','primary');
+      fresh.addEventListener('click',()=>{reset(filter==='all'?'recipients':filter);selectedTest.disabled=true;type.focus();});inventory.append(fresh);
+      section.append(this.element('p',this.t('Test senden verschickt eine echte Nachricht über die gespeicherte Konfiguration. Testmodus und Ruhezeiten bleiben aktiv. Bei Gruppen und Personen können mehrere Empfänger erreicht werden.'),'test-hint'));
+      const typeLabel=rnDecorate(this.element('label',this.t('Art des Ziels')),'mdi:shape-outline','slate');typeLabel.htmlFor=type.id;
+      const displayLabel=rnDecorate(this.element('label',this.t('Anzeigename (Klarname)')),'mdi:card-account-details-outline','slate');displayLabel.htmlFor=display.id;
+      const nameLabel=rnDecorate(this.element('label',this.t('Interner Name (ID)')),'mdi:tag-text-outline','slate');nameLabel.htmlFor=name.id;
+      section.append(typeLabel,type,typeHint,displayLabel,display,displayHint,nameLabel,name,hint,editorBox);
+      const save=this.actionButton(this.t('Speichern'),'mdi:content-save-outline','primary');save.addEventListener('click',()=>this.run(result,async()=>{
+        name.value=name.value.trim();
+        if(!/^[a-z][a-z0-9_]{0,63}$/.test(name.value)){
+          const example=rnSlug(name.value)||'rn_kw_telegram';
+          name.setAttribute('aria-invalid','true');name.focus();
+          throw Error(this.t('Ungültiger interner Name „{name}“. Nur Kleinbuchstaben, Ziffern und Unterstriche; mit einem Buchstaben beginnen, maximal 64 Zeichen. Beispiel: {example}.',{name:name.value,example}));
+        }
+        name.removeAttribute('aria-invalid');
+        const shown=display.value.trim();
+        if(shown.length>100)throw Error(this.t('Anzeigename: höchstens 100 Zeichen.'));
+        if(loaded&&name.value!==loaded)throw Error(this.t('Zum Umbenennen neuen Eintrag anlegen und den alten gezielt löschen.'));
+        await this.call('set_route',{category,name:name.value,definition:editor.read(),label:shown});
+        this._routeChoices=null;
+        loaded=name.value;labels[name.value]=shown;type.disabled=true;selectedTest.disabled=false;this.status(result,this.t('Gespeichert. Zum Aktualisieren der Liste diesen Bereich erneut öffnen.'));
+      }));
+      const remove=this.actionButton(this.t('Eintrag löschen'),'mdi:delete-outline','danger');remove.addEventListener('click',()=>this.run(result,async()=>{
+        if(!confirm(this.t('UI-Eintrag ')+name.value+this.t(' löschen?')))return;
+        await this.call('set_route',{category,name:name.value,delete:true});this._routeChoices=null;reset();
+      }));
+      selectedTest=this.actionButton(this.t('Gespeichertes Ziel testen'),'mdi:bell-ring-outline','test');selectedTest.disabled=true;
+      selectedTest.addEventListener('click',()=>this.testTarget(category,loaded,selectedTest,result));
+      name.addEventListener('input',()=>{selectedTest.disabled=!loaded||name.value!==loaded;});
+      reset('recipients');
+      section.append(save,selectedTest,remove,result);this.yamlView(section,()=>{
+        const id=name.value||rnSlug(display.value)||'neuer_eintrag',shown=display.value.trim();
+        return {[category]:{[id]:editor.read()},...(shown&&shown!==id?{labels:{[id]:shown}}:{})};
+      });box.append(section);
     }catch(e){this.status(status,e.message,true);if(!status.parentNode)box.append(status);}
   }
   async incidents(box){

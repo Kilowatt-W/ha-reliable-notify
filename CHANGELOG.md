@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.8.7
+- Targets & people: single targets, groups and people are shown in **one list** "Targets", sorted by display name. Every entry has a type badge (*Single target*, *Group*, *Person*), a short detail (notify entity or HA action, group members, person channels), *Send test* and edit. Filters *All / Single targets / Groups / People* with counts.
+- *Add target* asks for the type in the same form (pre-selected from the active filter); the type is fixed once saved. Storage, YAML keys (`recipients`, `groups`, `persons`), internal names and `notify.reliable_<ID>` entities are unchanged. German/English.
+
 ## 3.8.6
 - Admin panel: the big *Show help* / *Hide help* button in the header is replaced by a round "?" right after the title (spoken and hover label *Show help* / *Hide help*); the header is lower.
 - In every section a closed help block takes no space any more; it appears only after "?" (header or, under Targets & people, after the intro text). German/English.

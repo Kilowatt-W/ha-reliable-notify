@@ -1039,6 +1039,21 @@ RN_TRANSLATIONS.push(...[
   ['Enthält: {members}','Contains: {members}'],
   ['Leere Gruppe','Empty group'],
 ]);
+// 3.8.7: one target list with type, filter and type selection.
+RN_TRANSLATIONS.push(...[
+  ['Hier neue Ziele anlegen: „Neues Ziel anlegen“ klicken, die Art wählen (Einzelziel, Gruppe oder Person), einen Namen vergeben, die Einstellungen ausfüllen und speichern. Diesen Namen anschließend als Empfänger verwenden. Das optionale Standardziel ist nur ein Fallback für Nachrichten ohne explizite Empfänger.',
+   'Create targets here: click “Add target”, choose the type (single target, group or person), enter a name, fill in the settings and save. Then use this name as a recipient. The optional default target is only a fallback for notifications without explicit recipients.'],
+  ['Ziele','Targets'],
+  ['Alle','All'],
+  ['Einzelziel','Single target'],
+  ['Einzelziele','Single targets'],
+  ['Gruppe','Group'],
+  ['Person','Person'],
+  ['Art des Ziels','Target type'],
+  ['Nach Art filtern','Filter by type'],
+  ['Kanäle: {channels}','Channels: {channels}'],
+  ['Die Art lässt sich nach dem Speichern nicht mehr ändern; dafür einen neuen Eintrag anlegen.','The type cannot be changed after saving; create a new entry instead.'],
+]);
 // 3.8.2: reset all errors in the settings.
 RN_TRANSLATIONS.push(...[
   ['Fehler zurücksetzen','Reset errors'],
@@ -1095,7 +1110,7 @@ export function rnTranslate(hass, text, values={}) {
   return String(translated).replace(/\{(\w+)\}/g,(match,key)=>Object.hasOwn(values,key)?String(values[key]):match);
 }
 
-/* Reliable Notify v3.8.6 - interactive, admin-only Home Assistant Lovelace card. */
+/* Reliable Notify v3.8.7 - interactive, admin-only Home Assistant Lovelace card. */
 // Semantic styling is keyed by section/action, independent from translated labels.
 export const RN_SECTIONS = {
   messages:{icon:'mdi:bell-badge-outline',tone:'teal'},
