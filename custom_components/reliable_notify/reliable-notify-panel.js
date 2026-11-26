@@ -1103,7 +1103,7 @@ class ReliableNotifyPanel extends HTMLElement {
           if(item.reason_code==='no_route'){
             details.append(this.element('p',this.t('Tipp: Unter „Ziele & Personen“ ein passendes Ziel anlegen und erneut analysieren.'),'muted'));
             if(item.suggested_target){
-              const create=this.actionButton(this.t('Ziel dafür anlegen'),RN_SECTIONS.routes.icon,'primary');create.dataset.tone=RN_SECTIONS.routes.tone;
+              const create=this.actionButton(this.t('Ziel dafür anlegen'),'mdi:plus','primary');create.dataset.tone=RN_SECTIONS.routes.tone;
               create.addEventListener('click',()=>{this._prefillTarget=item.suggested_target;this._section='routes';this._rendered=false;this.shadowRoot.replaceChildren();this.render();});
               details.append(create);
             }

@@ -470,13 +470,16 @@ test('automation check lists proposals first with copyable YAML, editor link, re
     assert.match(entries[0].querySelector('.rn-code pre').textContent,/action: notify.reliable_phone/);
     assert.match(entries[0].querySelector('.rn-code pre').textContent,/tag: fenster/);
     assert.equal(entries[0].querySelector('.rn-code button').textContent,copy);
+    assert.equal(entries[0].querySelector('.rn-code button ha-icon').getAttribute('icon'),'mdi:content-copy');
     const link=[...entries[0].querySelectorAll('a')].find(a=>a.textContent===open);
     assert.equal(link.getAttribute('href'),'/config/automation/edit/18');
     // Missing target: one click opens Targets with the suggested definition (not saved).
     const kitchen=entries.find(e=>/^Küche/.test(e.querySelector('summary').textContent));
     // Nothing to replace yet: no editor link, only target creation.
     assert.equal(kitchen.querySelector('a'),null);
-    [...kitchen.querySelectorAll('button')].find(b=>b.textContent===create).click();await tick();await tick();
+    const createButton=[...kitchen.querySelectorAll('button')].find(b=>b.textContent===create);
+    assert.equal(createButton.querySelector('ha-icon').getAttribute('icon'),'mdi:plus');
+    createButton.click();await tick();await tick();
     assert.equal(panel._section,'routes');
     const content=panel.shadowRoot.querySelector('#content');
     assert.equal(content.querySelector('input[name=route_label]').value,'Echo Küche');
