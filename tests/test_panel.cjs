@@ -447,7 +447,9 @@ test('each section heading reuses the icon and colour of its navigation button',
   navIcon('Nachrichten').click();await tick();
   const card=root.querySelector('#content reliable-notify-card');
   assert.equal(card.config.icon,navIcon('Nachrichten').querySelector('ha-icon').getAttribute('icon'));
-  card.remove();  // stops the card's refresh timer, otherwise the test process never exits
+  // The card starts its refresh timer when hass is set; the panel is not attached in this test,
+  // so stop it explicitly, otherwise the test process never exits.
+  card.disconnectedCallback();assert.equal(card._timer,null);
 });
 
 test('automation check lists proposals first with copyable YAML, editor link, reason overview and target creation',async()=>{
